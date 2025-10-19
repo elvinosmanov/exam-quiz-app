@@ -10,12 +10,13 @@ class QuestionManagement(ft.UserControl):
         super().__init__()
         self.db = db
         self.questions_data = []
+        self.all_questions_data = []  # Keep original data for filtering
         self.exams_data = []
         self.selected_exam_id = None
-        
+
         # Load exams for dropdown
         self.load_exams()
-        
+
         # Track preselected exam
         self.preselected_exam_id = None
         
@@ -43,10 +44,10 @@ class QuestionManagement(ft.UserControl):
         self.search_field = ft.TextField(
             label="Search questions...",
             prefix_icon=ft.icons.SEARCH,
-            on_change=self.search_questions,
+            on_change=self.apply_filters,
             width=300
         )
-        
+
         # Question type filter
         self.type_filter = ft.Dropdown(
             label="Filter by Type",
@@ -59,14 +60,14 @@ class QuestionManagement(ft.UserControl):
                 ft.dropdown.Option("essay", "Essay")
             ],
             value="all",
-            on_change=self.filter_questions,
+            on_change=self.apply_filters,
             width=200
         )
         
         # Questions table
         self.questions_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("ID")),
+                ft.DataColumn(ft.Text("#")),
                 ft.DataColumn(ft.Text("Question")),
                 ft.DataColumn(ft.Text("Type")),
                 ft.DataColumn(ft.Text("Image")),
@@ -196,17 +197,19 @@ class QuestionManagement(ft.UserControl):
         if not self.selected_exam_id:
             print("DEBUG: No exam selected, clearing questions")
             self.questions_data = []
+            self.all_questions_data = []
             self.update_table()
             return
-        
+
         print(f"DEBUG: Loading questions for exam ID: {self.selected_exam_id}")
-        self.questions_data = self.db.execute_query("""
-            SELECT * FROM questions 
-            WHERE exam_id = ? 
+        self.all_questions_data = self.db.execute_query("""
+            SELECT * FROM questions
+            WHERE exam_id = ?
             ORDER BY order_index, created_at
         """, (self.selected_exam_id,))
-        print(f"DEBUG: Retrieved {len(self.questions_data)} questions from database")
-        self.update_table()
+        print(f"DEBUG: Retrieved {len(self.all_questions_data)} questions from database")
+        self.questions_data = self.all_questions_data.copy()
+        self.apply_filters(None)
     
     def update_table(self):
         print(f"DEBUG: update_table called with {len(self.questions_data)} questions")
@@ -252,15 +255,15 @@ class QuestionManagement(ft.UserControl):
             return
         
         # Add actual question rows
-        for question in self.questions_data:
+        for idx, question in enumerate(self.questions_data, 1):
             # Truncate long questions for display
             question_text = question['question_text']
             if len(question_text) > 50:
                 question_text = question_text[:47] + "..."
-            
+
             status = "Active" if question['is_active'] else "Inactive"
             status_color = COLORS['success'] if question['is_active'] else COLORS['error']
-            
+
             # Create image indicator
             image_cell = ft.DataCell(
                 ft.Icon(
@@ -269,11 +272,11 @@ class QuestionManagement(ft.UserControl):
                     size=20
                 )
             )
-            
+
             self.questions_table.rows.append(
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(str(question['id']))),
+                        ft.DataCell(ft.Text(str(idx))),
                         ft.DataCell(ft.Text(question_text)),
                         ft.DataCell(ft.Text(question['question_type'].replace('_', ' ').title())),
                         image_cell,
@@ -444,30 +447,31 @@ class QuestionManagement(ft.UserControl):
         if self.page:
             self.page.update()
     
-    def search_questions(self, e):
+    def apply_filters(self, e):
+        """Apply both search and type filters together"""
         if not self.selected_exam_id:
             return
-        
-        search_term = e.control.value.lower()
+
+        # Start with all questions
+        filtered_questions = self.all_questions_data.copy()
+
+        # Apply search filter
+        search_term = self.search_field.value.lower() if self.search_field.value else ""
         if search_term:
-            self.questions_data = [
-                q for q in self.questions_data
-                if search_term in q['question_text'].lower()
+            filtered_questions = [
+                q for q in filtered_questions
+                if search_term in q['question_text'].lower() or
+                   search_term in (q.get('explanation') or "").lower()
             ]
-        else:
-            self.load_questions()
+
+        # Apply type filter
+        question_type = self.type_filter.value
+        if question_type != "all":
+            filtered_questions = [q for q in filtered_questions if q['question_type'] == question_type]
+
+        # Update displayed data
+        self.questions_data = filtered_questions
         self.update_table()
-    
-    def filter_questions(self, e):
-        if not self.selected_exam_id:
-            return
-        
-        question_type = e.control.value
-        if question_type == "all":
-            self.load_questions()
-        else:
-            self.questions_data = [q for q in self.questions_data if q['question_type'] == question_type]
-            self.update_table()
     
     def show_add_question_dialog(self, e):
         print(f"DEBUG: show_add_question_dialog called, selected_exam_id={self.selected_exam_id}")

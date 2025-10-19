@@ -8,16 +8,17 @@ class UserManagement(ft.UserControl):
         self.db = db
         self.auth_manager = AuthManager()
         self.users_data = []
+        self.all_users_data = []  # Keep original data for filtering
         self.selected_user = None
-        
+
         # Search and filter controls
         self.search_field = ft.TextField(
             label="Search users...",
             prefix_icon=ft.icons.SEARCH,
-            on_change=self.search_users,
+            on_change=self.apply_filters,
             width=300
         )
-        
+
         self.role_filter = ft.Dropdown(
             label="Filter by Role",
             options=[
@@ -27,14 +28,14 @@ class UserManagement(ft.UserControl):
                 ft.dropdown.Option("examinee", "Examinee")
             ],
             value="all",
-            on_change=self.filter_users,
+            on_change=self.apply_filters,
             width=150
         )
         
         # Users table
         self.users_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("ID")),
+                ft.DataColumn(ft.Text("#")),
                 ft.DataColumn(ft.Text("Username")),
                 ft.DataColumn(ft.Text("Full Name")),
                 ft.DataColumn(ft.Text("Email")),
@@ -101,24 +102,25 @@ class UserManagement(ft.UserControl):
         ], spacing=10, expand=True)
     
     def load_users(self):
-        self.users_data = self.db.execute_query("""
+        self.all_users_data = self.db.execute_query("""
             SELECT id, username, full_name, email, role, department, employee_id, is_active, created_at
             FROM users
             ORDER BY created_at DESC
         """)
-        self.update_table()
+        self.users_data = self.all_users_data.copy()
+        self.apply_filters(None)
     
     def update_table(self):
         self.users_table.rows.clear()
-        
-        for user in self.users_data:
+
+        for idx, user in enumerate(self.users_data, 1):
             status = "Active" if user['is_active'] else "Inactive"
             status_color = COLORS['success'] if user['is_active'] else COLORS['error']
-            
+
             self.users_table.rows.append(
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(str(user['id']))),
+                        ft.DataCell(ft.Text(str(idx))),
                         ft.DataCell(ft.Text(user['username'])),
                         ft.DataCell(ft.Text(user['full_name'])),
                         ft.DataCell(ft.Text(user['email'])),
@@ -146,28 +148,30 @@ class UserManagement(ft.UserControl):
         
         self.update()
     
-    def search_users(self, e):
-        search_term = e.control.value.lower()
+    def apply_filters(self, e):
+        """Apply both search and role filters together"""
+        # Start with all users
+        filtered_users = self.all_users_data.copy()
+
+        # Apply search filter
+        search_term = self.search_field.value.lower() if self.search_field.value else ""
         if search_term:
             filtered_users = [
-                user for user in self.users_data
+                user for user in filtered_users
                 if search_term in user['username'].lower() or
                    search_term in user['full_name'].lower() or
-                   search_term in user['email'].lower()
+                   search_term in user['email'].lower() or
+                   search_term in (user['department'] or "").lower()
             ]
-        else:
-            filtered_users = self.users_data
-        
+
+        # Apply role filter
+        role_filter = self.role_filter.value
+        if role_filter != "all":
+            filtered_users = [user for user in filtered_users if user['role'] == role_filter]
+
+        # Update displayed data
         self.users_data = filtered_users
         self.update_table()
-    
-    def filter_users(self, e):
-        role_filter = e.control.value
-        if role_filter == "all":
-            self.load_users()
-        else:
-            self.users_data = [user for user in self.users_data if user['role'] == role_filter]
-            self.update_table()
     
     def show_add_user_dialog(self, e):
         self.show_user_dialog()

@@ -8,13 +8,14 @@ class QuizManagement(ft.UserControl):
         self.db = db
         self.user_data = user_data
         self.exams_data = []
+        self.all_exams_data = []  # Keep original data for filtering
         self.selected_exam = None
-        
+
         # Search control
         self.search_field = ft.TextField(
             label="Search exams...",
             prefix_icon=ft.icons.SEARCH,
-            on_change=self.search_exams,
+            on_change=self.apply_filters,
             width=300
         )
         
@@ -28,14 +29,14 @@ class QuizManagement(ft.UserControl):
                 ft.dropdown.Option("scheduled", "Scheduled")
             ],
             value="all",
-            on_change=self.filter_exams,
+            on_change=self.apply_filters,
             width=150
         )
         
         # Exams table
         self.exams_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("ID")),
+                ft.DataColumn(ft.Text("#")),
                 ft.DataColumn(ft.Text("Title")),
                 ft.DataColumn(ft.Text("Category")),
                 ft.DataColumn(ft.Text("Duration")),
@@ -104,8 +105,8 @@ class QuizManagement(ft.UserControl):
         ], spacing=10, expand=True)
     
     def load_exams(self):
-        self.exams_data = self.db.execute_query("""
-            SELECT e.*, 
+        self.all_exams_data = self.db.execute_query("""
+            SELECT e.*,
                    COUNT(q.id) as question_count,
                    u.full_name as creator_name
             FROM exams e
@@ -114,19 +115,20 @@ class QuizManagement(ft.UserControl):
             GROUP BY e.id
             ORDER BY e.created_at DESC
         """)
-        self.update_table()
+        self.exams_data = self.all_exams_data.copy()
+        self.apply_filters(None)
     
     def update_table(self):
         self.exams_table.rows.clear()
-        
-        for exam in self.exams_data:
+
+        for idx, exam in enumerate(self.exams_data, 1):
             # Create enhanced status badges
             status_badges = self.calculate_exam_status_badges(exam)
-            
+
             self.exams_table.rows.append(
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(str(exam['id']))),
+                        ft.DataCell(ft.Text(str(idx))),
                         ft.DataCell(ft.Text(exam['title'])),
                         ft.DataCell(ft.Text(exam.get('category') or "No Category")),
                         ft.DataCell(ft.Text(f"{exam['duration_minutes']} min")),
@@ -171,25 +173,40 @@ class QuizManagement(ft.UserControl):
         
         self.update()
     
-    def search_exams(self, e):
-        search_term = e.control.value.lower()
+    def apply_filters(self, e):
+        """Apply both search and status filters together"""
+        # Start with all exams
+        filtered_exams = self.all_exams_data.copy()
+
+        # Apply search filter
+        search_term = self.search_field.value.lower() if self.search_field.value else ""
         if search_term:
-            self.exams_data = [
-                exam for exam in self.exams_data
+            filtered_exams = [
+                exam for exam in filtered_exams
                 if search_term in exam['title'].lower() or
-                   search_term in (exam['description'] or "").lower()
+                   search_term in (exam['description'] or "").lower() or
+                   search_term in (exam.get('category') or "").lower()
             ]
-        else:
-            self.load_exams()
+
+        # Apply status filter
+        status_filter = self.status_filter.value
+        if status_filter == "active":
+            filtered_exams = [exam for exam in filtered_exams if exam['is_active'] == 1]
+        elif status_filter == "inactive":
+            filtered_exams = [exam for exam in filtered_exams if exam['is_active'] == 0]
+        elif status_filter == "scheduled":
+            # Check if exam has future availability_from date
+            from datetime import datetime
+            now = datetime.now()
+            filtered_exams = [
+                exam for exam in filtered_exams
+                if exam.get('availability_from') and
+                datetime.fromisoformat(exam['availability_from']) > now
+            ]
+
+        # Update displayed data
+        self.exams_data = filtered_exams
         self.update_table()
-    
-    def filter_exams(self, e):
-        status_filter = e.control.value
-        if status_filter == "all":
-            self.load_exams()
-        else:
-            # Implement filtering logic based on status
-            self.load_exams()  # For now, just reload
     
     def show_add_exam_dialog(self, e):
         self.show_exam_dialog()

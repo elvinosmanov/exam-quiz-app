@@ -1,32 +1,29 @@
 import flet as ft
 import json
 import os
-from datetime import datetime
+import threading
+import time
+from datetime import datetime, timedelta
 from quiz_app.database.database import Database
 
 def create_exam_interface(exam_data, user_data, return_callback):
     """Create complete exam interface as pure function - no UserControl issues"""
-    
+
     # Initialize data
     db = Database()
-    
+
     # Generate session ID first
     session_id = int(datetime.now().timestamp())
-    
+
     # Use question selector to get questions (handles both regular and question pool exams)
     from quiz_app.utils.question_selector import select_questions_for_exam_session
     questions = select_questions_for_exam_session(exam_data, session_id)
-    
+
     if not questions:
         return ft.Container(
             content=ft.Text("No questions found for this exam", size=18),
             padding=ft.padding.all(50)
         )
-    
-    # Exam state - stored in container's data property
-    import threading
-    import time
-    from datetime import datetime, timedelta
     
     exam_state = {
         'current_question_index': 0,
@@ -321,25 +318,35 @@ def create_exam_interface(exam_data, user_data, return_callback):
             print(f"Saved answer on navigation for question {question_id}")
     
     def update_timer():
-        """Update timer countdown"""
-        while exam_state['timer_running'] and exam_state['time_remaining'] > 0:
-            time.sleep(1)
-            if exam_state['timer_running']:
+        """Update timer countdown with proper cleanup"""
+        try:
+            while exam_state['timer_running'] and exam_state['time_remaining'] > 0:
+                time.sleep(1)
+
+                # Check if timer is still running
+                if not exam_state['timer_running']:
+                    break
+
                 exam_state['time_remaining'] -= 1
-                
+
                 # Update timer display
                 if exam_state['timer_display']:
                     minutes = exam_state['time_remaining'] // 60
                     seconds = exam_state['time_remaining'] % 60
                     exam_state['timer_display'].value = f"{minutes:02d}:{seconds:02d}"
-                    
+
                     # Update page if available
-                    if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page') and exam_state['main_container'].page:
+                    if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
                         try:
-                            exam_state['main_container'].page.update()
-                        except:
-                            pass
-                
+                            page = exam_state['main_container'].page
+                            if page:
+                                page.update()
+                        except Exception as e:
+                            # Page closed or unavailable - stop timer gracefully
+                            print(f"[TIMER] Page unavailable, stopping timer: {e}")
+                            exam_state['timer_running'] = False
+                            break
+
                 # Time warnings
                 if exam_state['time_remaining'] == 600:  # 10 minutes
                     print("Warning: 10 minutes remaining!")
@@ -351,7 +358,15 @@ def create_exam_interface(exam_data, user_data, return_callback):
                     print("Time's up! Auto-submitting exam...")
                     exam_state['timer_running'] = False
                     if return_callback:
-                        return_callback()
+                        try:
+                            return_callback()
+                        except:
+                            pass
+        except Exception as e:
+            print(f"[TIMER] Timer thread error: {e}")
+        finally:
+            exam_state['timer_running'] = False
+            print("[TIMER] Timer thread stopped cleanly")
     
     # Start timer thread
     timer_thread = threading.Thread(target=update_timer, daemon=True)
@@ -668,9 +683,14 @@ def create_exam_interface(exam_data, user_data, return_callback):
         def submit_exam_final():
             """Final exam submission with proper processing"""
             try:
+                # Track time for current question before submission
+                if questions and exam_state['current_question_index'] < len(questions):
+                    current_q = questions[exam_state['current_question_index']]
+                    track_question_time(current_q['id'])
+
                 # Save current answer before final submission
                 save_current_answer()
-                
+
                 exam_state['timer_running'] = False  # Stop timer
                 
                 # Calculate exam duration

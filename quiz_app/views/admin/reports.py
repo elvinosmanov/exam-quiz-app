@@ -1356,6 +1356,7 @@ class Reports(ft.UserControl):
             print(f"[DEBUG] show_question_breakdown called for session_id: {session_id}")
 
             # Get question-by-question details with time spent
+            # Use DISTINCT on question_id and get the LATEST answer for each question
             question_details = self.db.execute_query("""
                 SELECT
                     q.id,
@@ -1373,11 +1374,18 @@ class Reports(ft.UserControl):
                     (SELECT GROUP_CONCAT(option_text, ' | ')
                      FROM question_options
                      WHERE question_id = q.id AND is_correct = 1) as correct_answer
-                FROM user_answers ua
-                JOIN questions q ON ua.question_id = q.id
-                WHERE ua.session_id = ?
-                ORDER BY ua.answered_at
-            """, (session_id,))
+                FROM questions q
+                LEFT JOIN (
+                    SELECT *
+                    FROM user_answers
+                    WHERE session_id = ?
+                    GROUP BY question_id
+                    HAVING id = MAX(id)
+                ) ua ON q.id = ua.question_id
+                WHERE q.exam_id = (SELECT exam_id FROM exam_sessions WHERE id = ?)
+                AND q.is_active = 1
+                ORDER BY q.order_index, q.id
+            """, (session_id, session_id))
 
             if not question_details:
                 self.show_message("No Data", "No question data found for this exam session.")

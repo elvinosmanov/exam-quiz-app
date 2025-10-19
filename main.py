@@ -62,8 +62,28 @@ class QuizApp:
         page.update()
         
     def logout(self, page: ft.Page):
-        self.session_manager.clear_session()
-        self.show_login(page)
+        """Logout and return to login screen with proper cleanup"""
+        try:
+            print("[LOGOUT] Starting logout process...")
+
+            # Clear session
+            self.session_manager.clear_session()
+
+            # Small delay to allow background threads to detect page changes
+            import time
+            time.sleep(0.1)
+
+            # Show login
+            self.show_login(page)
+
+            print("[LOGOUT] Logout completed successfully")
+        except Exception as e:
+            print(f"[LOGOUT] Error during logout: {e}")
+            # Force show login anyway
+            try:
+                self.show_login(page)
+            except:
+                pass
 
 def main(page: ft.Page):
     app = QuizApp()

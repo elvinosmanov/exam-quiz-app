@@ -158,10 +158,10 @@ class ExamineeDashboard(ft.UserControl):
         
         # Create dashboard cards
         cards = ft.Row([
-            self.create_stat_card("Available Exams", str(stats['available_exams']), ft.icons.QUIZ, COLORS['primary']),
+            self.create_stat_card("Total Exams", str(stats['total_exams']), ft.icons.ASSIGNMENT, COLORS['primary']),
             self.create_stat_card("Completed Exams", str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success']),
             self.create_stat_card("Average Score", f"{stats['average_score']:.1f}%", ft.icons.GRADE, COLORS['warning']),
-            self.create_stat_card("Pending Exams", str(stats['pending_exams']), ft.icons.PENDING, COLORS['error'])
+            self.create_stat_card("Available Exams", str(stats['available_exams']), ft.icons.QUIZ, COLORS['error'])
         ], spacing=20, wrap=True)
         
         # Recent activity
@@ -415,7 +415,9 @@ class ExamineeDashboard(ft.UserControl):
                 ft.DataColumn(ft.Text("Duration")),
                 ft.DataColumn(ft.Text("Actions"))
             ],
-            rows=[]
+            rows=[],
+            width=float("inf"),
+            column_spacing=20
         )
         
         for result in results:
@@ -497,7 +499,11 @@ class ExamineeDashboard(ft.UserControl):
             ft.Text("My Results", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
             ft.Container(
-                content=ft.Column([results_table], scroll=ft.ScrollMode.AUTO),
+                content=ft.ListView(
+                    controls=[results_table],
+                    expand=True,
+                    auto_scroll=False
+                ),
                 bgcolor=COLORS['surface'],
                 padding=ft.padding.all(20),
                 border_radius=8,
@@ -505,9 +511,10 @@ class ExamineeDashboard(ft.UserControl):
                     spread_radius=1,
                     blur_radius=5,
                     color=ft.colors.with_opacity(0.1, ft.colors.BLACK)
-                )
+                ),
+                expand=True
             )
-        ], spacing=10)
+        ], spacing=10, expand=True)
         
         self.set_content(content)
     
@@ -570,29 +577,29 @@ class ExamineeDashboard(ft.UserControl):
     def get_user_stats(self):
         # Get available exams count
         available_exams = len(self.get_available_exams())
-        
+
+        # Get total exams count (all active exams in the system)
+        total = self.db.execute_single("""
+            SELECT COUNT(*) as count FROM exams
+            WHERE is_active = 1
+        """)
+        total_exams = total['count'] if total else 0
+
         # Get completed exams count
         completed = self.db.execute_single("""
-            SELECT COUNT(*) as count FROM exam_sessions 
+            SELECT COUNT(*) as count FROM exam_sessions
             WHERE user_id = ? AND is_completed = 1
         """, (self.user_data['id'],))
         completed_exams = completed['count'] if completed else 0
-        
+
         # Get average score (excluding exams with ungraded essay questions)
         average_score = self.calculate_average_score_excluding_pending()
-        
-        # Get pending exams (started but not completed)
-        pending = self.db.execute_single("""
-            SELECT COUNT(*) as count FROM exam_sessions 
-            WHERE user_id = ? AND is_completed = 0
-        """, (self.user_data['id'],))
-        pending_exams = pending['count'] if pending else 0
-        
+
         return {
+            'total_exams': total_exams,
             'available_exams': available_exams,
             'completed_exams': completed_exams,
-            'average_score': average_score,
-            'pending_exams': pending_exams
+            'average_score': average_score
         }
     
     def get_available_exams(self):
@@ -1723,8 +1730,136 @@ class ExamineeDashboard(ft.UserControl):
             return ft.Container()
     
     def show_change_password_dialog(self, e):
-        # TODO: Implement change password dialog
-        print("Change password dialog")
+        """Show dialog to change password"""
+        # Create password input fields
+        current_password = ft.TextField(
+            label="Current Password",
+            password=True,
+            can_reveal_password=True,
+            width=400,
+            autofocus=True
+        )
+
+        new_password = ft.TextField(
+            label="New Password",
+            password=True,
+            can_reveal_password=True,
+            width=400
+        )
+
+        confirm_password = ft.TextField(
+            label="Confirm New Password",
+            password=True,
+            can_reveal_password=True,
+            width=400
+        )
+
+        error_text = ft.Text("", color=COLORS['error'], size=14)
+        success_text = ft.Text("", color=COLORS['success'], size=14)
+
+        def validate_and_change_password(e):
+            """Validate inputs and change password"""
+            error_text.value = ""
+            success_text.value = ""
+
+            # Validation
+            if not current_password.value or not new_password.value or not confirm_password.value:
+                error_text.value = "All fields are required"
+                dialog.update()
+                return
+
+            if new_password.value != confirm_password.value:
+                error_text.value = "New passwords do not match"
+                dialog.update()
+                return
+
+            if len(new_password.value) < 6:
+                error_text.value = "New password must be at least 6 characters long"
+                dialog.update()
+                return
+
+            # Verify current password
+            import bcrypt
+            user = self.db.execute_single(
+                "SELECT password_hash FROM users WHERE id = ?",
+                (self.user_data['id'],)
+            )
+
+            if not user or not bcrypt.checkpw(current_password.value.encode('utf-8'), user['password_hash'].encode('utf-8')):
+                error_text.value = "Current password is incorrect"
+                dialog.update()
+                return
+
+            # Update password
+            new_password_hash = bcrypt.hashpw(new_password.value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+            try:
+                self.db.execute_update(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (new_password_hash, self.user_data['id'])
+                )
+
+                success_text.value = "Password changed successfully!"
+                error_text.value = ""
+                current_password.value = ""
+                new_password.value = ""
+                confirm_password.value = ""
+                dialog.update()
+
+                # Close dialog after 1.5 seconds
+                import time
+                import threading
+                def close_after_delay():
+                    time.sleep(1.5)
+                    if self.page:
+                        dialog.open = False
+                        self.page.update()
+
+                threading.Thread(target=close_after_delay, daemon=True).start()
+
+            except Exception as ex:
+                error_text.value = f"Error changing password: {str(ex)}"
+                dialog.update()
+
+        # Create dialog
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Change Password"),
+            content=ft.Container(
+                content=ft.Column([
+                    current_password,
+                    ft.Container(height=10),
+                    new_password,
+                    ft.Container(height=10),
+                    confirm_password,
+                    ft.Container(height=10),
+                    error_text,
+                    success_text
+                ], tight=True),
+                width=450,
+                padding=ft.padding.all(10)
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self.close_dialog()),
+                ft.ElevatedButton(
+                    "Change Password",
+                    on_click=validate_and_change_password,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        # Show dialog
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
+
+    def close_dialog(self):
+        """Close the current dialog"""
+        if self.page and self.page.dialog:
+            self.page.dialog.open = False
+            self.page.update()
     
     def logout_clicked(self, e):
         self.logout_callback(self.page)
