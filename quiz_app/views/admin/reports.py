@@ -145,10 +145,29 @@ class Reports(ft.UserControl):
                                 style=ft.ButtonStyle(bgcolor=ft.colors.PURPLE, color=ft.colors.WHITE)
                             ),
                             ft.ElevatedButton(
-                                text="Export PDF",
-                                icon=ft.icons.PICTURE_AS_PDF,
-                                on_click=self.export_pdf,
-                                style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
+                                text="Suspicious Activity",
+                                icon=ft.icons.WARNING_AMBER,
+                                on_click=self.show_suspicious_activity,
+                                style=ft.ButtonStyle(bgcolor=ft.colors.ORANGE, color=ft.colors.WHITE)
+                            ),
+                            ft.PopupMenuButton(
+                                content=ft.Row([
+                                    ft.Icon(ft.icons.PICTURE_AS_PDF, color=ft.colors.WHITE),
+                                    ft.Text("Export PDF", color=ft.colors.WHITE)
+                                ], spacing=5),
+                                items=[
+                                    ft.PopupMenuItem(
+                                        text="Export Exam Report",
+                                        icon=ft.icons.QUIZ,
+                                        on_click=self.show_exam_report_selector
+                                    ),
+                                    ft.PopupMenuItem(
+                                        text="Export Student Report",
+                                        icon=ft.icons.PERSON,
+                                        on_click=self.show_student_report_selector
+                                    ),
+                                ],
+                                bgcolor=COLORS['error']
                             ),
                             ft.ElevatedButton(
                                 text="Export Excel",
@@ -531,17 +550,21 @@ class Reports(ft.UserControl):
 
             scores = [row['score'] for row in scores_data]
 
-            # Create histogram with larger size for better quality
+            # Create histogram showing COUNT of exams per score range
             fig, ax = plt.subplots(figsize=(10, 6))
 
-            # Use appropriate number of bins based on data size
-            num_bins = min(20, max(5, len(scores) // 2))
-            ax.hist(scores, bins=num_bins, edgecolor='black', alpha=0.7, color='#38a169')
+            # Create histogram with 10-point bins (0-10, 10-20, 20-30, etc.)
+            bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+            ax.hist(scores, bins=bins, edgecolor='black', alpha=0.7, color='#38a169')
             ax.set_title('Score Distribution', fontsize=14, fontweight='bold')
             ax.set_xlabel('Score (%)')
             ax.set_ylabel('Number of Exams')
             ax.set_xlim(0, 100)
             ax.grid(True, alpha=0.3, axis='y')
+
+            # Set x-axis to show bin edges
+            ax.set_xticks(bins)
+
             plt.tight_layout()
 
             # Convert to base64 image with higher DPI for sharper quality
@@ -723,6 +746,395 @@ class Reports(ft.UserControl):
             import traceback
             traceback.print_exc()
     
+    def show_exam_report_selector(self, e):
+        """Show dialog to select exam for PDF report"""
+        try:
+            # Get all exams
+            exams = self.db.execute_query("""
+                SELECT id, title, created_at FROM exams
+                WHERE is_active = 1
+                ORDER BY created_at DESC
+            """)
+
+            if not exams:
+                self.show_message("No Exams", "No exams available for report generation.")
+                return
+
+            # Create exam selection list
+            exam_items = []
+            for exam in exams:
+                exam_items.append(
+                    ft.ListTile(
+                        leading=ft.Icon(ft.icons.QUIZ, color=COLORS['primary']),
+                        title=ft.Text(exam['title'], weight=ft.FontWeight.BOLD),
+                        subtitle=ft.Text(f"Created: {exam['created_at'][:10]}"),
+                        trailing=ft.IconButton(
+                            icon=ft.icons.PICTURE_AS_PDF,
+                            icon_color=COLORS['error'],
+                            tooltip="Generate PDF Report",
+                            on_click=lambda e, eid=exam['id'], title=exam['title']: self.generate_exam_pdf(eid, title)
+                        )
+                    )
+                )
+
+            content = ft.Column([
+                ft.Text("Select an exam to generate detailed PDF report:", size=14),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column(exam_items, scroll=ft.ScrollMode.AUTO),
+                    height=400,
+                    border=ft.border.all(1, ft.colors.GREY_300),
+                    border_radius=8,
+                    padding=10
+                )
+            ], spacing=0)
+
+            self.safe_show_dialog(
+                title="📄 Generate Exam Report",
+                content=content,
+                width=700,
+                height=600
+            )
+
+        except Exception as ex:
+            print(f"[ERROR] Error showing exam selector: {ex}")
+            self.show_message("Error", f"Failed to load exams: {str(ex)}")
+
+    def show_student_report_selector(self, e):
+        """Show dialog to select student for PDF report"""
+        try:
+            # Get all students with exam attempts
+            students = self.db.execute_query("""
+                SELECT DISTINCT u.id, u.username, u.full_name, u.department,
+                       COUNT(DISTINCT es.id) as exam_count
+                FROM users u
+                JOIN exam_sessions es ON u.id = es.user_id
+                WHERE u.role = 'examinee' AND es.is_completed = 1
+                GROUP BY u.id
+                ORDER BY u.full_name
+            """)
+
+            if not students:
+                self.show_message("No Students", "No students with completed exams found.")
+                return
+
+            # Create student selection list
+            student_items = []
+            for student in students:
+                student_items.append(
+                    ft.ListTile(
+                        leading=ft.Icon(ft.icons.PERSON, color=COLORS['primary']),
+                        title=ft.Text(student['full_name'], weight=ft.FontWeight.BOLD),
+                        subtitle=ft.Text(f"{student['username']} • {student['department']} • {student['exam_count']} exams"),
+                        trailing=ft.IconButton(
+                            icon=ft.icons.PICTURE_AS_PDF,
+                            icon_color=COLORS['error'],
+                            tooltip="Generate PDF Report",
+                            on_click=lambda e, uid=student['id'], name=student['full_name']: self.generate_student_pdf(uid, name)
+                        )
+                    )
+                )
+
+            content = ft.Column([
+                ft.Text("Select a student to generate detailed PDF report:", size=14),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column(student_items, scroll=ft.ScrollMode.AUTO),
+                    height=400,
+                    border=ft.border.all(1, ft.colors.GREY_300),
+                    border_radius=8,
+                    padding=10
+                )
+            ], spacing=0)
+
+            self.safe_show_dialog(
+                title="📄 Generate Student Report",
+                content=content,
+                width=700,
+                height=600
+            )
+
+        except Exception as ex:
+            print(f"[ERROR] Error showing student selector: {ex}")
+            self.show_message("Error", f"Failed to load students: {str(ex)}")
+
+    def generate_exam_pdf(self, exam_id, exam_title):
+        """Generate detailed PDF report for a specific exam"""
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.units import inch
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors as rl_colors
+
+            # Get exam statistics
+            exam_stats = self.db.execute_single("""
+                SELECT
+                    COUNT(es.id) as total_attempts,
+                    AVG(es.score) as avg_score,
+                    MAX(es.score) as max_score,
+                    MIN(es.score) as min_score,
+                    SUM(CASE WHEN es.score >= e.passing_score THEN 1 ELSE 0 END) * 100.0 / COUNT(es.id) as pass_rate
+                FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.exam_id = ? AND es.is_completed = 1
+            """, (exam_id,))
+
+            # Get all attempts for this exam
+            attempts = self.db.execute_query("""
+                SELECT
+                    u.full_name, u.username, u.department,
+                    es.score, es.duration_seconds, es.start_time, es.correct_answers, es.total_questions
+                FROM exam_sessions es
+                JOIN users u ON es.user_id = u.id
+                WHERE es.exam_id = ? AND es.is_completed = 1
+                ORDER BY es.score DESC
+            """, (exam_id,))
+
+            # Create PDF
+            import os
+            import re
+            # Sanitize filename: remove invalid characters
+            safe_title = re.sub(r'[^\w\s-]', '', exam_title).strip().replace(' ', '_')
+            filename = f"exam_report_{safe_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            filepath = os.path.join(os.getcwd(), filename)
+
+            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            story = []
+            styles = getSampleStyleSheet()
+
+            # Title
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'))
+            story.append(Paragraph(f"Exam Report: {exam_title}", title_style))
+            story.append(Spacer(1, 0.3*inch))
+
+            # Date
+            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+            story.append(Spacer(1, 0.3*inch))
+
+            # Statistics
+            story.append(Paragraph("Performance Summary", styles['Heading2']))
+            stats_data = [
+                ['Metric', 'Value'],
+                ['Total Attempts', str(exam_stats['total_attempts']) if exam_stats else '0'],
+                ['Average Score', f"{exam_stats['avg_score']:.2f}%" if exam_stats and exam_stats['avg_score'] else 'N/A'],
+                ['Highest Score', f"{exam_stats['max_score']:.2f}%" if exam_stats and exam_stats['max_score'] else 'N/A'],
+                ['Lowest Score', f"{exam_stats['min_score']:.2f}%" if exam_stats and exam_stats['min_score'] else 'N/A'],
+                ['Pass Rate', f"{exam_stats['pass_rate']:.2f}%" if exam_stats and exam_stats['pass_rate'] else 'N/A'],
+            ]
+
+            stats_table = Table(stats_data, colWidths=[3*inch, 3*inch])
+            stats_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+            ]))
+            story.append(stats_table)
+            story.append(Spacer(1, 0.5*inch))
+
+            # Student attempts
+            story.append(Paragraph("Student Performance", styles['Heading2']))
+            story.append(Spacer(1, 0.2*inch))
+
+            if attempts:
+                attempts_data = [['Student', 'Department', 'Score', 'Correct/Total', 'Duration (min)']]
+                for attempt in attempts:
+                    duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
+                    attempts_data.append([
+                        attempt['full_name'],
+                        attempt['department'] or 'N/A',
+                        f"{attempt['score']:.1f}%",
+                        f"{attempt['correct_answers']}/{attempt['total_questions']}",
+                        str(duration_min)
+                    ])
+
+                attempts_table = Table(attempts_data, colWidths=[2*inch, 1.5*inch, 1*inch, 1*inch, 1*inch])
+                attempts_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
+                    ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+                ]))
+                story.append(attempts_table)
+
+            # Build PDF
+            doc.build(story)
+
+            # Close dialog and show success
+            if self.page and self.page.dialog:
+                self.page.dialog.open = False
+                self.page.update()
+
+            self.show_message("PDF Generated", f"Exam report generated successfully!\nFile: {filename}")
+
+        except Exception as ex:
+            print(f"[ERROR] Error generating exam PDF: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to generate exam PDF: {str(ex)}")
+
+    def generate_student_pdf(self, user_id, student_name):
+        """Generate detailed PDF report for a specific student"""
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.units import inch
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors as rl_colors
+
+            # Get student statistics
+            student_stats = self.db.execute_single("""
+                SELECT
+                    u.username, u.full_name, u.email, u.department,
+                    COUNT(es.id) as total_exams,
+                    AVG(es.score) as avg_score,
+                    MAX(es.score) as max_score,
+                    MIN(es.score) as min_score
+                FROM users u
+                LEFT JOIN exam_sessions es ON u.id = es.user_id AND es.is_completed = 1
+                WHERE u.id = ?
+                GROUP BY u.id
+            """, (user_id,))
+
+            # Get all exam attempts
+            attempts = self.db.execute_query("""
+                SELECT
+                    e.title as exam_title,
+                    es.score, es.duration_seconds, es.start_time,
+                    es.correct_answers, es.total_questions,
+                    CASE WHEN es.score >= e.passing_score THEN 'PASS' ELSE 'FAIL' END as status
+                FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.user_id = ? AND es.is_completed = 1
+                ORDER BY es.start_time DESC
+            """, (user_id,))
+
+            # Create PDF
+            import os
+            import re
+            # Sanitize filename: remove invalid characters
+            safe_name = re.sub(r'[^\w\s-]', '', student_name).strip().replace(' ', '_')
+            filename = f"student_report_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            filepath = os.path.join(os.getcwd(), filename)
+
+            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            story = []
+            styles = getSampleStyleSheet()
+
+            # Title
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'))
+            story.append(Paragraph(f"Student Report: {student_name}", title_style))
+            story.append(Spacer(1, 0.3*inch))
+
+            # Date
+            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+            story.append(Spacer(1, 0.3*inch))
+
+            # Student Info
+            story.append(Paragraph("Student Information", styles['Heading2']))
+            info_data = [
+                ['Field', 'Value'],
+                ['Full Name', student_stats['full_name']],
+                ['Username', student_stats['username']],
+                ['Email', student_stats['email'] or 'N/A'],
+                ['Department', student_stats['department'] or 'N/A'],
+            ]
+
+            info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+            info_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+            ]))
+            story.append(info_table)
+            story.append(Spacer(1, 0.5*inch))
+
+            # Performance Summary
+            story.append(Paragraph("Performance Summary", styles['Heading2']))
+            summary_data = [
+                ['Metric', 'Value'],
+                ['Total Exams Taken', str(student_stats['total_exams'])],
+                ['Average Score', f"{student_stats['avg_score']:.2f}%" if student_stats['avg_score'] else 'N/A'],
+                ['Highest Score', f"{student_stats['max_score']:.2f}%" if student_stats['max_score'] else 'N/A'],
+                ['Lowest Score', f"{student_stats['min_score']:.2f}%" if student_stats['min_score'] else 'N/A'],
+            ]
+
+            summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+            summary_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+            ]))
+            story.append(summary_table)
+            story.append(Spacer(1, 0.5*inch))
+
+            # Exam History
+            story.append(Paragraph("Exam History", styles['Heading2']))
+            story.append(Spacer(1, 0.2*inch))
+
+            if attempts:
+                history_data = [['Exam', 'Date', 'Score', 'Correct/Total', 'Duration (min)', 'Status']]
+                for attempt in attempts:
+                    duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
+                    history_data.append([
+                        attempt['exam_title'][:30],
+                        attempt['start_time'][:10],
+                        f"{attempt['score']:.1f}%",
+                        f"{attempt['correct_answers']}/{attempt['total_questions']}",
+                        str(duration_min),
+                        attempt['status']
+                    ])
+
+                history_table = Table(history_data, colWidths=[2.5*inch, 1*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.6*inch])
+                history_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#9F7AEA')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
+                    ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+                ]))
+                story.append(history_table)
+
+            # Build PDF
+            doc.build(story)
+
+            # Close dialog and show success
+            if self.page and self.page.dialog:
+                self.page.dialog.open = False
+                self.page.update()
+
+            self.show_message("PDF Generated", f"Student report generated successfully!\nFile: {filename}")
+
+        except Exception as ex:
+            print(f"[ERROR] Error generating student PDF: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to generate student PDF: {str(ex)}")
+
     def export_pdf(self, e):
         """Export reports as PDF"""
         try:
@@ -931,13 +1343,38 @@ class Reports(ft.UserControl):
                         ft.DataCell(ft.Text(f"{exam['avg_duration_minutes']:.1f}" if exam['avg_duration_minutes'] else "N/A"))
                     ])
                 )
-            
+
+            # Get current filter name
+            filter_text = "All Exams"
+            if self.selected_exam_id:
+                for exam in self.exams_data:
+                    if exam['id'] == self.selected_exam_id:
+                        filter_text = exam['title']
+                        break
+
             return ft.Container(
-                content=ft.ListView(
-                    controls=[table],
-                    expand=True,
-                    auto_scroll=False
-                ),
+                content=ft.Column([
+                    # Filter display
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.FILTER_ALT, size=20, color=COLORS['primary']),
+                            ft.Text(f"Filtered by: {filter_text}", size=14, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
+                        ], spacing=10),
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                        border_radius=8,
+                        margin=ft.margin.only(bottom=15)
+                    ),
+                    # Table
+                    ft.Container(
+                        content=ft.ListView(
+                            controls=[table],
+                            expand=True,
+                            auto_scroll=False
+                        ),
+                        expand=True
+                    )
+                ], spacing=0),
                 expand=True
             )
             
@@ -1122,9 +1559,28 @@ class Reports(ft.UserControl):
                     ])
                 )
             
+            # Get current filter name
+            filter_text = "All Exams"
+            if self.selected_exam_id:
+                for exam in self.exams_data:
+                    if exam['id'] == self.selected_exam_id:
+                        filter_text = exam['title']
+                        break
+
             # Main layout
             return ft.Container(
                 content=ft.Column([
+                    # Filter display
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.FILTER_ALT, size=20, color=COLORS['primary']),
+                            ft.Text(f"Filtered by: {filter_text}", size=14, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
+                        ], spacing=10),
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                        border_radius=8,
+                        margin=ft.margin.only(bottom=15)
+                    ),
                     # Summary cards
                     ft.Container(
                         content=summary_cards,
@@ -1462,6 +1918,212 @@ class Reports(ft.UserControl):
             import traceback
             traceback.print_exc()
             self.show_message("Error", f"Failed to load activity logs: {str(ex)}")
+
+    def show_suspicious_activity(self, e):
+        """Show detected suspicious exam behavior"""
+        try:
+            from quiz_app.utils.pattern_analyzer import get_pattern_analyzer
+
+            analyzer = get_pattern_analyzer()
+
+            # Get all suspicious sessions (score >= 30)
+            suspicious_sessions = analyzer.get_suspicious_sessions(min_score=30)
+
+            # Summary cards
+            total_suspicious = len(suspicious_sessions)
+            high_risk = len([s for s in suspicious_sessions if s['suspicion_score'] >= 70])
+            medium_risk = len([s for s in suspicious_sessions if 50 <= s['suspicion_score'] < 70])
+            low_risk = len([s for s in suspicious_sessions if 30 <= s['suspicion_score'] < 50])
+
+            # Responsive summary cards
+            summary_cards = ft.ResponsiveRow([
+                ft.Container(
+                    content=self.create_metric_card("Total Flagged", str(total_suspicious), ft.icons.WARNING, ft.colors.ORANGE),
+                    col={"xs": 12, "sm": 6, "md": 3}
+                ),
+                ft.Container(
+                    content=self.create_metric_card("High Risk", str(high_risk), ft.icons.ERROR, ft.colors.RED),
+                    col={"xs": 12, "sm": 6, "md": 3}
+                ),
+                ft.Container(
+                    content=self.create_metric_card("Medium Risk", str(medium_risk), ft.icons.WARNING_AMBER, ft.colors.ORANGE),
+                    col={"xs": 12, "sm": 6, "md": 3}
+                ),
+                ft.Container(
+                    content=self.create_metric_card("Low Risk", str(low_risk), ft.icons.INFO, ft.colors.YELLOW_700),
+                    col={"xs": 12, "sm": 6, "md": 3}
+                ),
+            ])
+
+            # Build table rows
+            table_rows = []
+
+            for session in suspicious_sessions[:100]:  # Show up to 100 recent
+                # Parse issues detected
+                issues_list = []
+                try:
+                    import json
+                    issues_list = json.loads(session['issues_detected']) if session['issues_detected'] else []
+                except:
+                    issues_list = []
+
+                # Color code based on suspicion score
+                if session['suspicion_score'] >= 70:
+                    score_color = ft.colors.RED
+                    risk_level = "HIGH"
+                elif session['suspicion_score'] >= 50:
+                    score_color = ft.colors.ORANGE
+                    risk_level = "MEDIUM"
+                else:
+                    score_color = ft.colors.YELLOW_700
+                    risk_level = "LOW"
+
+                table_rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(str(session['session_id']))),
+                            ft.DataCell(ft.Text(session['username'])),
+                            ft.DataCell(ft.Text(session['exam_title'])),
+                            ft.DataCell(ft.Text(f"{session['exam_score']:.1f}%")),
+                            ft.DataCell(ft.Row([
+                                ft.Text(str(session['suspicion_score']), color=score_color, weight=ft.FontWeight.BOLD),
+                                ft.Text(f" ({risk_level})", color=score_color, size=10)
+                            ], spacing=5)),
+                            ft.DataCell(ft.Text(', '.join(issues_list) if issues_list else 'N/A', size=11)),
+                            ft.DataCell(
+                                ft.IconButton(
+                                    icon=ft.icons.VISIBILITY,
+                                    tooltip="View Details",
+                                    icon_color=COLORS['primary'],
+                                    on_click=lambda e, sid=session['session_id']: self.show_pattern_details(sid)
+                                )
+                            ),
+                        ]
+                    )
+                )
+
+            # Create data table
+            data_table = ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text("Session ID", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Student", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Exam", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Score", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Suspicion", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Issues Detected", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Actions", weight=ft.FontWeight.BOLD)),
+                ],
+                rows=table_rows,
+                border=ft.border.all(1, ft.colors.GREY_300),
+                border_radius=8,
+                horizontal_lines=ft.border.BorderSide(1, ft.colors.GREY_200),
+                heading_row_color=ft.colors.GREY_100,
+            )
+
+            # Build content with responsive layout
+            content = ft.Column([
+                ft.Container(height=10),
+                summary_cards,
+                ft.Container(height=20),
+                ft.Text(
+                    f"Showing {len(table_rows)} flagged exam session(s)",
+                    size=14,
+                    color=ft.colors.GREY_700,
+                    italic=True
+                ),
+                ft.Container(height=10),
+                # Scrollable table container
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            data_table
+                        ], scroll=ft.ScrollMode.ALWAYS)
+                    ]),
+                    padding=ft.padding.all(15),
+                    bgcolor=ft.colors.WHITE,
+                    border_radius=8,
+                    expand=True
+                )
+            ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
+
+            # Show dialog
+            self.safe_show_dialog(
+                title="⚠️  Suspicious Activity Detection",
+                content=content,
+                width=1600,
+                height=900
+            )
+
+        except Exception as ex:
+            print(f"[ERROR] Error showing suspicious activity: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to load suspicious activity: {str(ex)}")
+
+    def show_pattern_details(self, session_id):
+        """Show detailed pattern analysis for a specific session"""
+        try:
+            # Get pattern analysis details
+            pattern_data = self.db.execute_single("""
+                SELECT * FROM pattern_analysis WHERE session_id = ?
+            """, (session_id,))
+
+            if not pattern_data:
+                self.show_message("No Data", "No pattern analysis data found for this session.")
+                return
+
+            import json
+            details = json.loads(pattern_data['details']) if pattern_data['details'] else {}
+            issues = json.loads(pattern_data['issues_detected']) if pattern_data['issues_detected'] else []
+
+            # Build details content
+            details_controls = [
+                ft.Text(f"Session ID: {session_id}", size=16, weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                ft.Text(f"Suspicion Score: {pattern_data['suspicion_score']}/100", size=14, color=ft.colors.RED if pattern_data['suspicion_score'] >= 70 else ft.colors.ORANGE),
+                ft.Text(f"Issues Detected: {', '.join(issues)}", size=14),
+                ft.Divider(),
+                ft.Text("Detailed Analysis:", size=16, weight=ft.FontWeight.BOLD),
+            ]
+
+            # Rapid answers details
+            if 'rapid_answers' in details:
+                details_controls.append(ft.Text("🚀 Rapid Answers:", weight=ft.FontWeight.BOLD, color=ft.colors.ORANGE))
+                for ra in details['rapid_answers'][:10]:  # Show up to 10
+                    details_controls.append(
+                        ft.Text(f"  • Question {ra['question_id']}: {ra['time_spent']}s (threshold: {ra['threshold']}s)", size=12)
+                    )
+
+            # Excessive changes details
+            if 'excessive_changes' in details:
+                details_controls.append(ft.Text("🔄 Excessive Answer Changes:", weight=ft.FontWeight.BOLD, color=ft.colors.ORANGE))
+                for ec in details['excessive_changes'][:10]:  # Show up to 10
+                    details_controls.append(
+                        ft.Text(f"  • Question {ec['question_id']}: {ec['changes']} changes (threshold: {ec['threshold']})", size=12)
+                    )
+
+            # Similarity details
+            if 'similarity' in details:
+                sim = details['similarity']
+                details_controls.append(ft.Text("👥 Answer Similarity:", weight=ft.FontWeight.BOLD, color=ft.colors.RED))
+                details_controls.append(
+                    ft.Text(f"  • {sim['similarity_percentage']}% similar to User ID {sim['similar_user_id']} (threshold: {sim['threshold']}%)", size=12)
+                )
+
+            content = ft.Column(details_controls, spacing=10, scroll=ft.ScrollMode.AUTO)
+
+            self.safe_show_dialog(
+                title=f"📊 Pattern Analysis Details - Session {session_id}",
+                content=content,
+                width=800,
+                height=600
+            )
+
+        except Exception as ex:
+            print(f"[ERROR] Error showing pattern details: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to load pattern details: {str(ex)}")
 
     def close_dialog(self, e=None):
         """Close the current dialog - SIMPLE VERSION like other pages"""
@@ -2047,6 +2709,8 @@ class Reports(ft.UserControl):
     def create_question_analysis_details(self):
         """Create detailed question analysis report"""
         try:
+            print(f"[DEBUG] create_question_analysis_details - selected_exam_id: {self.selected_exam_id}")
+
             # Build query with optional exam filter
             query = """
                 SELECT
@@ -2066,6 +2730,7 @@ class Reports(ft.UserControl):
             if self.selected_exam_id:
                 query += " AND q.exam_id = ?"
                 params.append(self.selected_exam_id)
+                print(f"[DEBUG] Filtering by exam_id: {self.selected_exam_id}")
 
             query += """
                 GROUP BY q.id, q.question_text, q.question_type, q.difficulty_level
@@ -2074,8 +2739,15 @@ class Reports(ft.UserControl):
                 LIMIT 50
             """
 
+            print(f"[DEBUG] Final query: {query}")
+            print(f"[DEBUG] Params: {params}")
+
             question_analysis = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
-            
+
+            print(f"[DEBUG] Question analysis results: {len(question_analysis) if question_analysis else 0} questions")
+            if question_analysis and len(question_analysis) > 0:
+                print(f"[DEBUG] First question: {question_analysis[0]}")
+
             if not question_analysis:
                 return ft.Container(
                     content=ft.Column([
@@ -2169,16 +2841,34 @@ class Reports(ft.UserControl):
                     ])
                 )
             
+            # Get current filter name
+            filter_text = "All Exams"
+            if self.selected_exam_id:
+                for exam in self.exams_data:
+                    if exam['id'] == self.selected_exam_id:
+                        filter_text = exam['title']
+                        break
+
             return ft.Container(
                 content=ft.Column([
+                    # Filter display
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.FILTER_ALT, size=20, color=COLORS['primary']),
+                            ft.Text(f"Filtered by: {filter_text}", size=14, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
+                        ], spacing=10),
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                        border_radius=8
+                    ),
                     # Summary cards
                     ft.Container(
                         content=summary_cards,
-                        padding=ft.padding.only(bottom=20)
+                        padding=ft.padding.only(bottom=20, top = 10)
                     ),
                     # Info text
                     ft.Container(
-                        content=ft.Text("Questions with less than 60% success rate may need review", 
+                        content=ft.Text("Questions with less than 60% success rate may need review",
                                       size=14, color=COLORS['text_secondary'], italic=True),
                         padding=ft.padding.only(bottom=15)
                     ),

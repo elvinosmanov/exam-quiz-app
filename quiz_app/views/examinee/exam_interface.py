@@ -7,6 +7,32 @@ from datetime import datetime, timedelta
 from quiz_app.database.database import Database
 from quiz_app.utils.logging_config import get_audit_logger
 
+
+class ExamInterfaceWrapper(ft.UserControl):
+    """Wrapper UserControl to properly handle page lifecycle for focus detection"""
+
+    def __init__(self, exam_data, user_data, return_callback, exam_state, on_window_blur):
+        super().__init__()
+        self.exam_data = exam_data
+        self.user_data = user_data
+        self.return_callback = return_callback
+        self.exam_state = exam_state
+        self.on_window_blur = on_window_blur
+        self.content_container = None
+
+    def build(self):
+        # Return the main container that was created
+        return self.exam_state['main_container']
+
+    def did_mount(self):
+        """Called when control is added to page - attach focus listener here"""
+        super().did_mount()
+        if self.page and self.exam_state.get('prevent_focus_loss'):
+            self.exam_state['page_ref'] = self.page
+            self.page.on_window_event = self.on_window_blur
+            print(f"[FOCUS] Focus loss detection enabled for exam")
+
+
 def create_exam_interface(exam_data, user_data, return_callback):
     """Create complete exam interface as pure function - no UserControl issues"""
 
@@ -376,7 +402,85 @@ def create_exam_interface(exam_data, user_data, return_callback):
     # Start timer thread
     timer_thread = threading.Thread(target=update_timer, daemon=True)
     timer_thread.start()
-    
+
+    # === Focus Loss Detection (Anti-Cheating) ===
+
+    def on_window_blur(e):
+        """Detect when user switches away from exam window"""
+        if not exam_state['prevent_focus_loss']:
+            return  # Feature not enabled for this exam
+
+        try:
+            # Only track if window loses focus (blur event)
+            if e.data == "blur" or e.data == "hide" or e.data == "minimize":
+                exam_state['focus_loss_count'] += 1
+                print(f"[FOCUS] Focus loss detected! Event: {e.data}, Count: {exam_state['focus_loss_count']}")
+
+                # Log to audit system
+                audit_logger = get_audit_logger()
+                audit_logger.log_focus_loss(
+                    user_id=user_data['id'],
+                    session_id=session_id,
+                    focus_loss_count=exam_state['focus_loss_count']
+                )
+
+                # Update warning banner
+                update_focus_warning()
+
+        except Exception as e:
+            print(f"[FOCUS] Error handling focus loss: {e}")
+
+    def show_focus_warning():
+        """Create the focus loss warning banner"""
+        if not exam_state['prevent_focus_loss']:
+            return None
+
+        warning_banner = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.WARNING_AMBER, color=ft.colors.ORANGE_400, size=20),
+                ft.Text(
+                    "Focus tracking enabled. Do not switch windows during exam.",
+                    size=14,
+                    color=ft.colors.ORANGE_400,
+                    weight=ft.FontWeight.W_500
+                ),
+                ft.Container(expand=True),
+                ft.Text(
+                    f"Focus losses: {exam_state['focus_loss_count']}",
+                    size=14,
+                    color=ft.colors.ORANGE_400,
+                    weight=ft.FontWeight.BOLD
+                )
+            ], spacing=10, alignment=ft.MainAxisAlignment.CENTER),
+            bgcolor=ft.colors.ORANGE_50,
+            padding=10,
+            border_radius=8,
+            border=ft.border.all(1, ft.colors.ORANGE_400)
+        )
+
+        exam_state['focus_warning_banner'] = warning_banner
+        return warning_banner
+
+    def update_focus_warning():
+        """Update the focus warning banner with current count"""
+        try:
+            if exam_state['focus_warning_banner'] and exam_state['page_ref']:
+                # Update the count text in the banner
+                banner = exam_state['focus_warning_banner']
+                if banner.content and len(banner.content.controls) > 3:
+                    count_text = banner.content.controls[3]
+                    count_text.value = f"Focus losses: {exam_state['focus_loss_count']}"
+
+                    # Change color based on severity
+                    if exam_state['focus_loss_count'] >= 5:
+                        banner.bgcolor = ft.colors.RED_50
+                        banner.border = ft.border.all(1, ft.colors.RED_400)
+                        count_text.color = ft.colors.RED_600
+
+                    exam_state['page_ref'].update()
+        except Exception as e:
+            print(f"[FOCUS] Error updating warning banner: {e}")
+
     def create_question_content():
         """Create the current question display"""
         if not questions or exam_state['current_question_index'] >= len(questions):
@@ -807,11 +911,11 @@ def create_exam_interface(exam_data, user_data, return_callback):
                     db.execute_update("""
                         INSERT INTO exam_sessions (
                             id, user_id, exam_id, start_time, end_time, duration_seconds,
-                            score, total_questions, correct_answers, status, attempt_number, is_completed
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            score, total_questions, correct_answers, status, attempt_number, is_completed, focus_loss_count
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         session_id,
-                        user_data['id'], 
+                        user_data['id'],
                         exam_data['id'],
                         exam_state['start_time'].isoformat(),
                         datetime.now().isoformat(),
@@ -821,7 +925,8 @@ def create_exam_interface(exam_data, user_data, return_callback):
                         correct_answers,
                         'completed',
                         1,  # TODO: Calculate actual attempt number
-                        True
+                        True,
+                        exam_state['focus_loss_count']  # Save focus loss count
                     ))
                 except Exception as db_ex:
                     print(f"Database insert failed, trying without explicit ID: {db_ex}")
@@ -860,6 +965,19 @@ def create_exam_interface(exam_data, user_data, return_callback):
                     )
                 except Exception as log_ex:
                     print(f"[AUDIT ERROR] Failed to log exam submission: {log_ex}")
+
+                # Run pattern analysis if enabled
+                if exam_data.get('enable_pattern_analysis', False):
+                    try:
+                        from quiz_app.utils.pattern_analyzer import get_pattern_analyzer
+                        analyzer = get_pattern_analyzer()
+                        analysis_result = analyzer.analyze_session(session_id)
+
+                        if analysis_result['suspicion_score'] > 0:
+                            print(f"[PATTERN] ⚠️  Suspicious activity detected! Score: {analysis_result['suspicion_score']}")
+                            print(f"[PATTERN] Issues: {', '.join(analysis_result['issues_detected'])}")
+                    except Exception as pattern_ex:
+                        print(f"[PATTERN ERROR] Failed to analyze exam session: {pattern_ex}")
 
                 # No need to update user_answers - they already have the correct session_id
 
@@ -1388,7 +1506,8 @@ def create_exam_interface(exam_data, user_data, return_callback):
             padding=ft.padding.only(left=10)
         )
         
-        return ft.Column([
+        # Create column controls list
+        column_controls = [
             # Header
             ft.Container(
                 content=ft.Row([
@@ -1410,7 +1529,21 @@ def create_exam_interface(exam_data, user_data, return_callback):
                 padding=ft.padding.symmetric(horizontal=24, vertical=16),
                 bgcolor=EXAM_COLORS['surface'],
                 border=ft.border.only(bottom=ft.BorderSide(1, EXAM_COLORS['border']))
-            ),
+            )
+        ]
+
+        # Add focus warning banner if feature enabled
+        focus_banner = show_focus_warning()
+        if focus_banner:
+            column_controls.append(
+                ft.Container(
+                    content=focus_banner,
+                    padding=ft.padding.symmetric(horizontal=24, vertical=8)
+                )
+            )
+
+        # Add main content area
+        column_controls.append(
             # Main content area
             ft.Container(
                 content=ft.Row([
@@ -1422,7 +1555,9 @@ def create_exam_interface(exam_data, user_data, return_callback):
                 padding=ft.padding.all(24),
                 bgcolor=EXAM_COLORS['background']
             )
-        ], spacing=0)
+        )
+
+        return ft.Column(column_controls, spacing=0)
     
     # Create the main container that will be returned
     main_container = ft.Container(
@@ -1432,6 +1567,9 @@ def create_exam_interface(exam_data, user_data, return_callback):
 
     # Store main container reference in exam_state
     exam_state['main_container'] = main_container
+
+    # Note: Page reference and focus listener will be attached after container is added to page
+    # This is handled in the did_mount equivalent when the container gets its page reference
 
     # Start timer for the first question
     if questions:
@@ -1451,4 +1589,11 @@ def create_exam_interface(exam_data, user_data, return_callback):
     except Exception as e:
         print(f"[AUDIT ERROR] Failed to log exam start: {e}")
 
-    return main_container
+    # Wrap in UserControl to handle page lifecycle and focus detection
+    return ExamInterfaceWrapper(
+        exam_data=exam_data,
+        user_data=user_data,
+        return_callback=return_callback,
+        exam_state=exam_state,
+        on_window_blur=on_window_blur
+    )
