@@ -17,11 +17,31 @@ class Reports(ft.UserControl):
         self.db = db
         self.chart_images = {}  # Store chart images
         self.current_dialog = None  # Track current dialog
-        
+        self.selected_exam_id = None  # Filter by exam
+
         # Set matplotlib style for better looking charts
         plt.style.use('default')
         plt.rcParams['figure.facecolor'] = 'white'
         plt.rcParams['axes.facecolor'] = 'white'
+
+        # Load exams for filter
+        self.exams_data = self.db.execute_query("""
+            SELECT id, title FROM exams
+            WHERE is_active = 1
+            ORDER BY created_at DESC
+        """)
+
+        # Create exam filter dropdown
+        exam_options = [ft.dropdown.Option("all", "All Exams")]
+        exam_options.extend([ft.dropdown.Option(str(exam['id']), exam['title']) for exam in self.exams_data])
+
+        self.exam_filter = ft.Dropdown(
+            label="Filter by Exam",
+            options=exam_options,
+            value="all",
+            on_change=self.on_exam_filter_change,
+            width=300
+        )
         
     def did_mount(self):
         super().did_mount()
@@ -91,37 +111,67 @@ class Reports(ft.UserControl):
         self.page.update()
         return True
     
+    def on_exam_filter_change(self, e):
+        """Handle exam filter change"""
+        if e.control.value == "all":
+            self.selected_exam_id = None
+        else:
+            self.selected_exam_id = int(e.control.value)
+
+        # Reload data and regenerate charts
+        self.load_analytics_data()
+        self.generate_charts()
+
+        # Rebuild UI
+        if self.page:
+            self.controls.clear()
+            new_content = self.build()
+            self.controls.append(new_content)
+            self.update()
+
     def build(self):
         return ft.Column([
-            # Header section
+            # Header section with filter
             ft.Container(
-                content=ft.Row([
-                    ft.Text("Reports & Analytics", size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-                    ft.Container(expand=True),
+                content=ft.Column([
                     ft.Row([
-                        ft.ElevatedButton(
-                            text="Export PDF",
-                            icon=ft.icons.PICTURE_AS_PDF,
-                            on_click=self.export_pdf,
-                            style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
-                        ),
-                        ft.ElevatedButton(
-                            text="Export Excel",
-                            icon=ft.icons.TABLE_VIEW,
-                            on_click=self.export_excel,
-                            style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
-                        ),
-                        ft.ElevatedButton(
+                        ft.Text("Reports & Analytics", size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Container(expand=True),
+                        ft.Row([
+                            ft.ElevatedButton(
+                                text="Activity Logs",
+                                icon=ft.icons.HISTORY,
+                                on_click=self.show_activity_logs,
+                                style=ft.ButtonStyle(bgcolor=ft.colors.PURPLE, color=ft.colors.WHITE)
+                            ),
+                            ft.ElevatedButton(
+                                text="Export PDF",
+                                icon=ft.icons.PICTURE_AS_PDF,
+                                on_click=self.export_pdf,
+                                style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
+                            ),
+                            ft.ElevatedButton(
+                                text="Export Excel",
+                                icon=ft.icons.TABLE_VIEW,
+                                on_click=self.export_excel,
+                                style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
+                            ),
+                            ft.ElevatedButton(
                             text="Refresh",
                             icon=ft.icons.REFRESH,
                             on_click=self.refresh_data,
                             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                         )
                     ], spacing=10)
+                    ]),
+                    ft.Container(height=15),
+                    ft.Row([
+                        self.exam_filter
+                    ])
                 ]),
                 padding=ft.padding.only(bottom=20)
             ),
-            
+
             # Key metrics cards
             self.create_metrics_section(),
             
@@ -386,15 +436,30 @@ class Reports(ft.UserControl):
         """Generate performance trend over time chart"""
         try:
             print("[DEBUG] Generating performance trend chart...")
-            # Get exam sessions data grouped by date
-            sessions_data = self.db.execute_query("""
+
+            # Build query with optional exam filter
+            query = """
                 SELECT DATE(end_time) as exam_date, AVG(score) as avg_score, COUNT(*) as session_count
                 FROM exam_sessions
                 WHERE is_completed = 1 AND score IS NOT NULL AND end_time IS NOT NULL
+            """
+
+            params = []
+            if self.selected_exam_id:
+                query += " AND exam_id = ?"
+                params.append(self.selected_exam_id)
+
+            query += """
                 GROUP BY DATE(end_time)
                 ORDER BY exam_date DESC
                 LIMIT 30
-            """)
+            """
+
+            # Execute query with or without parameters
+            if params:
+                sessions_data = self.db.execute_query(query, tuple(params))
+            else:
+                sessions_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Performance trend data: {len(sessions_data) if sessions_data else 0} rows")
 
@@ -444,10 +509,19 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating score distribution chart...")
             # Get all scores
-            scores_data = self.db.execute_query("""
-                SELECT score FROM exam_sessions
-                WHERE is_completed = 1 AND score IS NOT NULL
-            """)
+            # Build query with optional exam filter
+            query = "SELECT score FROM exam_sessions WHERE is_completed = 1 AND score IS NOT NULL"
+            params = []
+
+            if self.selected_exam_id:
+                query += " AND exam_id = ?"
+                params.append(self.selected_exam_id)
+
+            # Execute query with or without parameters
+            if params:
+                scores_data = self.db.execute_query(query, tuple(params))
+            else:
+                scores_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Score distribution data: {len(scores_data) if scores_data else 0} scores")
 
@@ -490,8 +564,8 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating pass/fail rate trend chart...")
 
-            # Get pass/fail data grouped by date
-            trend_data = self.db.execute_query("""
+            # Build query with optional exam filter
+            query = """
                 SELECT
                     DATE(end_time) as exam_date,
                     COUNT(*) as total_exams,
@@ -499,10 +573,24 @@ class Reports(ft.UserControl):
                     ROUND((SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)), 1) as pass_rate
                 FROM exam_sessions
                 WHERE is_completed = 1 AND score IS NOT NULL AND end_time IS NOT NULL
+            """
+
+            params = []
+            if self.selected_exam_id:
+                query += " AND exam_id = ?"
+                params.append(self.selected_exam_id)
+
+            query += """
                 GROUP BY DATE(end_time)
                 ORDER BY exam_date DESC
                 LIMIT 30
-            """)
+            """
+
+            # Execute query with or without parameters
+            if params:
+                trend_data = self.db.execute_query(query, tuple(params))
+            else:
+                trend_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Pass/fail trend data: {len(trend_data) if trend_data else 0} rows")
 
@@ -560,17 +648,32 @@ class Reports(ft.UserControl):
         """Generate question difficulty analysis"""
         try:
             print("[DEBUG] Generating question difficulty chart...")
-            # Get question performance data - LOWERED threshold to 5 answers
-            question_data = self.db.execute_query("""
+
+            # Build query with optional exam filter
+            query = """
                 SELECT q.difficulty_level,
                        AVG(CASE WHEN ua.is_correct = 1 THEN 100.0 ELSE 0.0 END) as success_rate,
                        COUNT(ua.id) as answer_count
                 FROM user_answers ua
                 JOIN questions q ON ua.question_id = q.id
                 WHERE ua.is_correct IS NOT NULL AND q.difficulty_level IS NOT NULL AND q.difficulty_level != ''
+            """
+
+            params = []
+            if self.selected_exam_id:
+                query += " AND q.exam_id = ?"
+                params.append(self.selected_exam_id)
+
+            query += """
                 GROUP BY q.difficulty_level
                 HAVING answer_count >= 5
-            """)
+            """
+
+            # Execute query with or without parameters
+            if params:
+                question_data = self.db.execute_query(query, tuple(params))
+            else:
+                question_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Question difficulty data: {len(question_data) if question_data else 0} difficulty levels")
 
@@ -773,8 +876,9 @@ class Reports(ft.UserControl):
     def create_exam_performance_details(self):
         """Create detailed exam performance report"""
         try:
-            exam_details = self.db.execute_query("""
-                SELECT 
+            # Build query with optional exam filter
+            query = """
+                SELECT
                     e.title,
                     COUNT(es.id) as sessions_count,
                     AVG(es.score) as avg_score,
@@ -784,9 +888,19 @@ class Reports(ft.UserControl):
                 FROM exams e
                 LEFT JOIN exam_sessions es ON e.id = es.exam_id AND es.is_completed = 1
                 WHERE e.is_active = 1
+            """
+
+            params = []
+            if self.selected_exam_id:
+                query += " AND e.id = ?"
+                params.append(self.selected_exam_id)
+
+            query += """
                 GROUP BY e.id, e.title
                 ORDER BY sessions_count DESC
-            """)
+            """
+
+            exam_details = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
             
             if not exam_details:
                 return ft.Text("No exam data available.")
@@ -834,10 +948,10 @@ class Reports(ft.UserControl):
         """Create detailed user progress report with working functionality"""
         try:
             print("[DEBUG] Starting create_user_progress_details")
-            
-            # Get user progress data with actual metrics
-            user_progress_data = self.db.execute_query("""
-                SELECT 
+
+            # Build query with exam filter
+            query = """
+                SELECT
                     u.id,
                     u.username,
                     u.full_name,
@@ -851,12 +965,25 @@ class Reports(ft.UserControl):
                     COALESCE(ROUND(AVG(es.duration_seconds)/60, 1), 0) as avg_duration_minutes,
                     MAX(es.end_time) as last_exam_date
                 FROM users u
-                LEFT JOIN exam_sessions es ON u.id = es.user_id AND es.is_completed = 1
-                WHERE u.is_active = 1 AND u.role = 'examinee'
+                LEFT JOIN exam_sessions es ON u.id = es.user_id AND es.is_completed = 1"""
+
+            params = []
+            where_conditions = ["u.is_active = 1", "u.role = 'examinee'"]
+
+            # Add exam filter if selected
+            if self.selected_exam_id:
+                where_conditions.append("(es.exam_id = ? OR es.exam_id IS NULL)")
+                params.append(self.selected_exam_id)
+
+            query += " WHERE " + " AND ".join(where_conditions)
+            query += """
                 GROUP BY u.id, u.username, u.full_name, u.department, u.role
                 ORDER BY u.full_name
                 LIMIT 100
-            """)
+            """
+
+            # Get user progress data with actual metrics
+            user_progress_data = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
             
             print(f"[DEBUG] Retrieved {len(user_progress_data) if user_progress_data else 0} users from database")
             
@@ -1059,6 +1186,283 @@ class Reports(ft.UserControl):
             options.append(ft.dropdown.Option(dept, dept))
         return options
     
+    def show_activity_logs(self, e):
+        """Show audit/activity logs in a searchable dialog"""
+        try:
+            print("[DEBUG] Loading activity logs...")
+
+            # Create filter controls
+            action_filter = ft.Dropdown(
+                label="Filter by Action",
+                options=[
+                    ft.dropdown.Option("ALL", "All Actions"),
+                    ft.dropdown.Option("LOGIN_SUCCESS", "Login Success"),
+                    ft.dropdown.Option("LOGIN_FAILED", "Login Failed"),
+                    ft.dropdown.Option("LOGOUT", "Logout"),
+                    ft.dropdown.Option("EXAM_START", "Exam Start"),
+                    ft.dropdown.Option("EXAM_SUBMIT", "Exam Submit"),
+                    ft.dropdown.Option("ADMIN_", "Admin Actions (any)")
+                ],
+                value="ALL",
+                width=200
+            )
+
+            user_filter = ft.TextField(
+                label="Filter by User ID",
+                hint_text="Enter user ID",
+                width=150
+            )
+
+            date_filter = ft.Dropdown(
+                label="Time Period",
+                options=[
+                    ft.dropdown.Option("TODAY", "Today"),
+                    ft.dropdown.Option("WEEK", "Last 7 Days"),
+                    ft.dropdown.Option("MONTH", "Last 30 Days"),
+                    ft.dropdown.Option("ALL", "All Time")
+                ],
+                value="WEEK",
+                width=150
+            )
+
+            # Function to load and filter logs
+            def load_logs():
+                # Build query based on filters
+                query = "SELECT * FROM audit_log WHERE 1=1"
+                params = []
+
+                # Action filter
+                if action_filter.value and action_filter.value != "ALL":
+                    if action_filter.value == "ADMIN_":
+                        query += " AND action LIKE ?"
+                        params.append("ADMIN_%")
+                    else:
+                        query += " AND action = ?"
+                        params.append(action_filter.value)
+
+                # User filter
+                if user_filter.value and user_filter.value.strip():
+                    try:
+                        query += " AND user_id = ?"
+                        params.append(int(user_filter.value.strip()))
+                    except ValueError:
+                        pass  # Invalid user ID, skip filter
+
+                # Date filter
+                if date_filter.value == "TODAY":
+                    query += " AND DATE(created_at) = DATE('now')"
+                elif date_filter.value == "WEEK":
+                    query += " AND created_at >= datetime('now', '-7 days')"
+                elif date_filter.value == "MONTH":
+                    query += " AND created_at >= datetime('now', '-30 days')"
+
+                query += " ORDER BY created_at DESC LIMIT 500"
+
+                # Execute query with or without parameters
+                if params:
+                    logs = self.db.execute_query(query, tuple(params))
+                else:
+                    logs = self.db.execute_query(query)
+
+                return logs or []
+
+            # Load initial logs
+            logs_data = load_logs()
+
+            # Create logs table
+            logs_table = ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text("ID", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Time", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("User ID", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Action", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Table", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Record ID", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text("Details", weight=ft.FontWeight.BOLD))
+                ],
+                rows=[],
+                width=float("inf"),
+                column_spacing=10,
+                border=ft.border.all(1, ft.colors.BLACK12),
+                border_radius=8
+            )
+
+            # Populate table
+            for log in logs_data:
+                # Format timestamp
+                try:
+                    timestamp = datetime.fromisoformat(log['created_at'].replace('Z', '+00:00')).strftime("%m/%d %H:%M:%S")
+                except:
+                    timestamp = str(log['created_at'])[:19]
+
+                # Color code actions
+                action_color = COLORS['text_primary']
+                if 'FAILED' in log['action']:
+                    action_color = COLORS['error']
+                elif 'SUCCESS' in log['action']:
+                    action_color = COLORS['success']
+                elif 'ADMIN' in log['action']:
+                    action_color = ft.colors.PURPLE
+
+                # Truncate details
+                details = log['new_values'] or ""
+                if len(details) > 50:
+                    details = details[:47] + "..."
+
+                logs_table.rows.append(
+                    ft.DataRow([
+                        ft.DataCell(ft.Text(str(log['id']), size=11)),
+                        ft.DataCell(ft.Text(timestamp, size=11)),
+                        ft.DataCell(ft.Text(str(log['user_id']) if log['user_id'] else "N/A", size=11)),
+                        ft.DataCell(ft.Text(log['action'], size=11, color=action_color, weight=ft.FontWeight.BOLD)),
+                        ft.DataCell(ft.Text(log['table_name'] or "", size=11)),
+                        ft.DataCell(ft.Text(str(log['record_id']) if log['record_id'] else "", size=11)),
+                        ft.DataCell(ft.Text(details, size=10))
+                    ])
+                )
+
+            # Stats summary
+            total_logs = len(logs_data)
+            login_success = len([l for l in logs_data if l['action'] == 'LOGIN_SUCCESS'])
+            login_failed = len([l for l in logs_data if l['action'] == 'LOGIN_FAILED'])
+            exam_starts = len([l for l in logs_data if l['action'] == 'EXAM_START'])
+
+            summary = ft.Container(
+                content=ft.ResponsiveRow([
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(total_logs), size=20, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                            ft.Text("Total Logs", size=11)
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        col={"xs": 6, "sm": 3},
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                        border_radius=6
+                    ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(login_success), size=20, weight=ft.FontWeight.BOLD, color=COLORS['success']),
+                            ft.Text("Login Success", size=11)
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        col={"xs": 6, "sm": 3},
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['success']),
+                        border_radius=6
+                    ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(login_failed), size=20, weight=ft.FontWeight.BOLD, color=COLORS['error']),
+                            ft.Text("Login Failed", size=11)
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        col={"xs": 6, "sm": 3},
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['error']),
+                        border_radius=6
+                    ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(exam_starts), size=20, weight=ft.FontWeight.BOLD, color=COLORS['warning']),
+                            ft.Text("Exams Started", size=11)
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        col={"xs": 6, "sm": 3},
+                        padding=ft.padding.all(10),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['warning']),
+                        border_radius=6
+                    )
+                ]),
+                padding=ft.padding.all(15),
+                bgcolor=ft.colors.WHITE,
+                border_radius=8
+            )
+
+            # Refresh function for filters
+            def refresh_logs(e):
+                logs_data = load_logs()
+                logs_table.rows.clear()
+                for log in logs_data:
+                    try:
+                        timestamp = datetime.fromisoformat(log['created_at'].replace('Z', '+00:00')).strftime("%m/%d %H:%M:%S")
+                    except:
+                        timestamp = str(log['created_at'])[:19]
+
+                    action_color = COLORS['text_primary']
+                    if 'FAILED' in log['action']:
+                        action_color = COLORS['error']
+                    elif 'SUCCESS' in log['action']:
+                        action_color = COLORS['success']
+                    elif 'ADMIN' in log['action']:
+                        action_color = ft.colors.PURPLE
+
+                    details = log['new_values'] or ""
+                    if len(details) > 50:
+                        details = details[:47] + "..."
+
+                    logs_table.rows.append(
+                        ft.DataRow([
+                            ft.DataCell(ft.Text(str(log['id']), size=11)),
+                            ft.DataCell(ft.Text(timestamp, size=11)),
+                            ft.DataCell(ft.Text(str(log['user_id']) if log['user_id'] else "N/A", size=11)),
+                            ft.DataCell(ft.Text(log['action'], size=11, color=action_color, weight=ft.FontWeight.BOLD)),
+                            ft.DataCell(ft.Text(log['table_name'] or "", size=11)),
+                            ft.DataCell(ft.Text(str(log['record_id']) if log['record_id'] else "", size=11)),
+                            ft.DataCell(ft.Text(details, size=10))
+                        ])
+                    )
+                if self.page:
+                    self.page.update()
+
+            # Content
+            content = ft.Column([
+                summary,
+                ft.Container(height=15),
+                ft.Container(
+                    content=ft.Row([
+                        action_filter,
+                        user_filter,
+                        date_filter,
+                        ft.ElevatedButton(
+                            "Apply Filters",
+                            icon=ft.icons.FILTER_ALT,
+                            on_click=refresh_logs,
+                            style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                        )
+                    ], spacing=10, wrap=True),
+                    padding=ft.padding.all(10),
+                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                    border_radius=8
+                ),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("📋 Activity Log Entries", size=16, weight=ft.FontWeight.BOLD),
+                        ft.Container(height=10),
+                        ft.ListView(
+                            controls=[logs_table],
+                            expand=True,
+                            auto_scroll=False
+                        )
+                    ], spacing=5),
+                    padding=ft.padding.all(15),
+                    bgcolor=ft.colors.WHITE,
+                    border_radius=8,
+                    expand=True
+                )
+            ], spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
+
+            # Show dialog
+            self.safe_show_dialog(
+                title="🔒 System Activity Logs",
+                content=content,
+                width=1600,
+                height=900
+            )
+
+        except Exception as ex:
+            print(f"[ERROR] Error showing activity logs: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to load activity logs: {str(ex)}")
+
     def close_dialog(self, e=None):
         """Close the current dialog - SIMPLE VERSION like other pages"""
         if self.page and self.page.dialog:
@@ -1356,7 +1760,7 @@ class Reports(ft.UserControl):
             print(f"[DEBUG] show_question_breakdown called for session_id: {session_id}")
 
             # Get question-by-question details with time spent
-            # Use DISTINCT on question_id and get the LATEST answer for each question
+            # Only show questions that were actually answered in this session (for question pool support)
             question_details = self.db.execute_query("""
                 SELECT
                     q.id,
@@ -1374,22 +1778,26 @@ class Reports(ft.UserControl):
                     (SELECT GROUP_CONCAT(option_text, ' | ')
                      FROM question_options
                      WHERE question_id = q.id AND is_correct = 1) as correct_answer
-                FROM questions q
-                LEFT JOIN (
-                    SELECT *
+                FROM user_answers ua
+                JOIN questions q ON ua.question_id = q.id
+                WHERE ua.session_id = ?
+                AND ua.id IN (
+                    SELECT MAX(id)
                     FROM user_answers
                     WHERE session_id = ?
                     GROUP BY question_id
-                    HAVING id = MAX(id)
-                ) ua ON q.id = ua.question_id
-                WHERE q.exam_id = (SELECT exam_id FROM exam_sessions WHERE id = ?)
-                AND q.is_active = 1
-                ORDER BY q.order_index, q.id
+                )
+                ORDER BY ua.answered_at, q.order_index
             """, (session_id, session_id))
 
             if not question_details:
                 self.show_message("No Data", "No question data found for this exam session.")
                 return
+
+            # Debug: Print time spent values
+            print(f"[DEBUG] Question details count: {len(question_details)}")
+            for idx, q in enumerate(question_details, 1):
+                print(f"[DEBUG] Q{idx}: time_spent_seconds = {q['time_spent_seconds']}, answered_at = {q['answered_at']}")
 
             # Calculate statistics
             total_questions = len(question_details)
@@ -1398,6 +1806,8 @@ class Reports(ft.UserControl):
             total_max_points = sum(q['max_points'] or 1 for q in question_details)
             total_time_spent = sum(q['time_spent_seconds'] or 0 for q in question_details)
             avg_time_per_question = total_time_spent / total_questions if total_questions > 0 else 0
+
+            print(f"[DEBUG] Total time spent: {total_time_spent}s, Average: {avg_time_per_question:.1f}s")
 
             # Summary header
             summary = ft.Container(
@@ -1637,9 +2047,9 @@ class Reports(ft.UserControl):
     def create_question_analysis_details(self):
         """Create detailed question analysis report"""
         try:
-            # Get question analysis data
-            question_analysis = self.db.execute_query("""
-                SELECT 
+            # Build query with optional exam filter
+            query = """
+                SELECT
                     q.id,
                     q.question_text,
                     q.question_type,
@@ -1650,11 +2060,21 @@ class Reports(ft.UserControl):
                 FROM questions q
                 LEFT JOIN user_answers ua ON q.id = ua.question_id
                 WHERE ua.id IS NOT NULL
+            """
+
+            params = []
+            if self.selected_exam_id:
+                query += " AND q.exam_id = ?"
+                params.append(self.selected_exam_id)
+
+            query += """
                 GROUP BY q.id, q.question_text, q.question_type, q.difficulty_level
                 HAVING total_answers >= 3
                 ORDER BY success_rate ASC, total_answers DESC
                 LIMIT 50
-            """)
+            """
+
+            question_analysis = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
             
             if not question_analysis:
                 return ft.Container(

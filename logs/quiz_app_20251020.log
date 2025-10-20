@@ -1,0 +1,32 @@
+2025-10-20 14:42:42,149 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-20 14:42:42,151 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/n2qtdWk9e3
+2025-10-20 14:42:42,151 - flet - INFO - Flet app has started...
+2025-10-20 14:42:42,154 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/n2qtdWk9e3
+2025-10-20 14:42:42,154 - flet_desktop - INFO - Starting Flet View app...
+2025-10-20 14:42:42,154 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-20 14:42:42,914 - flet - INFO - App session started
+2025-10-20 14:42:46,755 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-20 14:48:10,089 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-20 14:48:10,091 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/IYMmILzMYy
+2025-10-20 14:48:10,091 - flet - INFO - Flet app has started...
+2025-10-20 14:48:10,095 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/IYMmILzMYy
+2025-10-20 14:48:10,095 - flet_desktop - INFO - Starting Flet View app...
+2025-10-20 14:48:10,095 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-20 14:48:10,537 - flet - INFO - App session started
+2025-10-20 14:48:17,857 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-20 14:51:25,837 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-20 14:51:25,838 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/SeXjgpftNO
+2025-10-20 14:51:25,839 - flet - INFO - Flet app has started...
+2025-10-20 14:51:25,842 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/SeXjgpftNO
+2025-10-20 14:51:25,842 - flet_desktop - INFO - Starting Flet View app...
+2025-10-20 14:51:25,842 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-20 14:51:26,500 - flet - INFO - App session started
+2025-10-20 14:51:31,166 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-20 17:06:25,547 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-20 17:06:25,550 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/thOxHClAK0
+2025-10-20 17:06:25,551 - flet - INFO - Flet app has started...
+2025-10-20 17:06:25,556 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/thOxHClAK0
+2025-10-20 17:06:25,556 - flet_desktop - INFO - Starting Flet View app...
+2025-10-20 17:06:25,556 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-20 17:06:26,522 - flet - INFO - App session started
+2025-10-20 17:06:30,767 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS

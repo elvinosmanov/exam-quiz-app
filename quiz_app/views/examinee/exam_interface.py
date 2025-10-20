@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from quiz_app.database.database import Database
+from quiz_app.utils.logging_config import get_audit_logger
 
 def create_exam_interface(exam_data, user_data, return_callback):
     """Create complete exam interface as pure function - no UserControl issues"""
@@ -36,7 +37,11 @@ def create_exam_interface(exam_data, user_data, return_callback):
         'main_container': None,
         'session_id': session_id,  # Use the session ID generated for question selection
         'question_start_times': {},  # Track when each question was first viewed
-        'question_time_spent': {}  # Track cumulative time spent on each question
+        'question_time_spent': {},  # Track cumulative time spent on each question
+        'focus_loss_count': 0,  # Track how many times student switched away from exam
+        'focus_warning_banner': None,  # Reference to warning banner
+        'prevent_focus_loss': exam_data.get('prevent_focus_loss', False),  # Is this feature enabled?
+        'page_ref': None  # Reference to page for focus tracking
     }
     
     # Colors
@@ -842,14 +847,27 @@ def create_exam_interface(exam_data, user_data, return_callback):
                 
                 print(f"Exam session created with consistent ID: {session_id}")
                 print(f"Total answers saved: {len(exam_state['user_answers'])}")
-                
+
+                # Log exam submission
+                try:
+                    audit_logger = get_audit_logger()
+                    audit_logger.log_exam_submit(
+                        user_id=user_data['id'],
+                        exam_id=exam_data['id'],
+                        session_id=session_id,
+                        score=score_percentage,
+                        duration_seconds=duration_seconds
+                    )
+                except Exception as log_ex:
+                    print(f"[AUDIT ERROR] Failed to log exam submission: {log_ex}")
+
                 # No need to update user_answers - they already have the correct session_id
-                
+
                 # Show results with calculated scores
                 show_exam_results(
-                    total_questions, 
-                    answered_questions, 
-                    correct_answers, 
+                    total_questions,
+                    answered_questions,
+                    correct_answers,
                     score_percentage,
                     exam_data['passing_score']
                 )
@@ -1420,5 +1438,17 @@ def create_exam_interface(exam_data, user_data, return_callback):
         first_question = questions[0]
         start_question_timer(first_question['id'])
         print(f"[TIME] Exam started - timer started for first question {first_question['id']}")
+
+    # Log exam start
+    try:
+        audit_logger = get_audit_logger()
+        audit_logger.log_exam_start(
+            user_id=user_data['id'],
+            exam_id=exam_data['id'],
+            session_id=session_id,
+            exam_title=exam_data['title']
+        )
+    except Exception as e:
+        print(f"[AUDIT ERROR] Failed to log exam start: {e}")
 
     return main_container

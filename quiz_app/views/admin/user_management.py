@@ -16,7 +16,7 @@ class UserManagement(ft.UserControl):
             label="Search users...",
             prefix_icon=ft.icons.SEARCH,
             on_change=self.apply_filters,
-            width=300
+            expand=True
         )
 
         self.role_filter = ft.Dropdown(
@@ -29,7 +29,7 @@ class UserManagement(ft.UserControl):
             ],
             value="all",
             on_change=self.apply_filters,
-            width=150
+            width=200
         )
         
         # Users table

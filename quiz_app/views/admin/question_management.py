@@ -37,15 +37,15 @@ class QuestionManagement(ft.UserControl):
             label="Select Exam",
             options=[ft.dropdown.Option(str(exam['id']), exam['title']) for exam in self.exams_data],
             on_change=self.exam_selected,
-            width=300
+            expand=True
         )
-        
+
         # Search control
         self.search_field = ft.TextField(
             label="Search questions...",
             prefix_icon=ft.icons.SEARCH,
             on_change=self.apply_filters,
-            width=300
+            expand=True
         )
 
         # Question type filter

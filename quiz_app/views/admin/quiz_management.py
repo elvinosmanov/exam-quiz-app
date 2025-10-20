@@ -16,9 +16,9 @@ class QuizManagement(ft.UserControl):
             label="Search exams...",
             prefix_icon=ft.icons.SEARCH,
             on_change=self.apply_filters,
-            width=300
+            expand=True
         )
-        
+
         # Status filter
         self.status_filter = ft.Dropdown(
             label="Filter by Status",
@@ -30,7 +30,7 @@ class QuizManagement(ft.UserControl):
             ],
             value="all",
             on_change=self.apply_filters,
-            width=150
+            width=200
         )
         
         # Exams table
@@ -303,65 +303,154 @@ class QuizManagement(ft.UserControl):
         )
         
         # Question Pool Settings Section
+        # Get question counts by difficulty if editing
+        has_questions = False
+        total_q = 0
+        easy_q = 0
+        medium_q = 0
+        hard_q = 0
+
+        if is_edit:
+            # Get total questions
+            question_count = self.db.execute_single(
+                "SELECT COUNT(*) as count FROM questions WHERE exam_id = ? AND is_active = 1",
+                (exam['id'],)
+            )
+            has_questions = question_count and question_count['count'] > 0
+            total_q = question_count['count'] if has_questions else 0
+
+            # Get questions by difficulty
+            if has_questions:
+                difficulty_counts = self.db.execute_query("""
+                    SELECT difficulty_level, COUNT(*) as count
+                    FROM questions
+                    WHERE exam_id = ? AND is_active = 1
+                    GROUP BY difficulty_level
+                """, (exam['id'],))
+
+                for row in difficulty_counts:
+                    if row['difficulty_level'] == 'easy':
+                        easy_q = row['count']
+                    elif row['difficulty_level'] == 'medium':
+                        medium_q = row['count']
+                    elif row['difficulty_level'] == 'hard':
+                        hard_q = row['count']
+
+        # Info message for new exams
+        question_pool_info = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.INFO_OUTLINE, color=COLORS['primary'], size=20),
+                ft.Text(
+                    "Question Pool settings will be available after you add questions to this exam.",
+                    size=12,
+                    color=COLORS['text_secondary'],
+                    italic=True
+                )
+            ], spacing=8),
+            padding=ft.padding.all(10),
+            bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+            border_radius=6,
+            visible=not has_questions
+        )
+
+        # Show question counts if editing and has questions
+        question_stats_info = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.INFO, color=COLORS['success'], size=18),
+                ft.Text(
+                    f"Available: {total_q} total ({easy_q} easy, {medium_q} medium, {hard_q} hard)",
+                    size=12,
+                    color=COLORS['text_secondary']
+                )
+            ], spacing=8),
+            padding=ft.padding.all(8),
+            bgcolor=ft.colors.with_opacity(0.1, COLORS['success']),
+            border_radius=6,
+            visible=has_questions
+        )
+
         use_question_pool = ft.Checkbox(
             label="Use Question Pool (Random Selection)",
             value=bool(exam.get('use_question_pool', 0)) if is_edit else False,
-            on_change=lambda e: toggle_question_pool_fields(e.control.value)
+            on_change=lambda e: toggle_question_pool_fields(e.control.value),
+            disabled=not has_questions
         )
-        
-        total_questions_in_pool_field = ft.TextField(
-            label="Total Questions in Pool",
-            value=str(exam.get('total_questions_in_pool', 0)) if is_edit else "0",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
-            hint_text="e.g., 30",
-            width=180,
-            disabled=not bool(exam.get('use_question_pool', 0)) if is_edit else True
+
+        # Create dropdown options based on available questions
+        questions_to_select_options = [ft.dropdown.Option(str(i), str(i)) for i in range(1, total_q + 1)] if total_q > 0 else [ft.dropdown.Option("0", "0")]
+        easy_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, easy_q + 1)]
+        medium_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, medium_q + 1)]
+        hard_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, hard_q + 1)]
+
+        questions_to_select_field = ft.Dropdown(
+            label="Questions to Select per Exam",
+            options=questions_to_select_options,
+            value=str(exam.get('questions_to_select', 0)) if is_edit and exam.get('questions_to_select', 0) > 0 else (str(min(10, total_q)) if total_q > 0 else "0"),
+            width=220,
+            disabled=True,
+            on_change=lambda e: update_difficulty_max()
         )
-        
-        questions_to_select_field = ft.TextField(
-            label="Questions to Select",
-            value=str(exam.get('questions_to_select', 0)) if is_edit else "0",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
-            hint_text="e.g., 10",
-            width=180,
-            disabled=not bool(exam.get('use_question_pool', 0)) if is_edit else True
-        )
-        
-        easy_questions_count_field = ft.TextField(
-            label="Easy Questions",
+
+        easy_questions_count_field = ft.Dropdown(
+            label=f"Easy Questions (max: {easy_q})",
+            options=easy_options,
             value=str(exam.get('easy_questions_count', 0)) if is_edit else "0",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
-            hint_text="e.g., 3",
-            width=150,
-            disabled=not bool(exam.get('use_question_pool', 0)) if is_edit else True
+            width=180,
+            disabled=True,
+            on_change=lambda e: update_difficulty_max()
         )
-        
-        medium_questions_count_field = ft.TextField(
-            label="Medium Questions",
+
+        medium_questions_count_field = ft.Dropdown(
+            label=f"Medium Questions (max: {medium_q})",
+            options=medium_options,
             value=str(exam.get('medium_questions_count', 0)) if is_edit else "0",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
-            hint_text="e.g., 4",
-            width=150,
-            disabled=not bool(exam.get('use_question_pool', 0)) if is_edit else True
+            width=180,
+            disabled=True,
+            on_change=lambda e: update_difficulty_max()
         )
-        
-        hard_questions_count_field = ft.TextField(
-            label="Hard Questions",
+
+        hard_questions_count_field = ft.Dropdown(
+            label=f"Hard Questions (max: {hard_q})",
+            options=hard_options,
             value=str(exam.get('hard_questions_count', 0)) if is_edit else "0",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
-            hint_text="e.g., 3",
-            width=150,
-            disabled=not bool(exam.get('use_question_pool', 0)) if is_edit else True
+            width=180,
+            disabled=True,
+            on_change=lambda e: update_difficulty_max()
         )
+
+        # Validation text
+        difficulty_validation = ft.Text("", size=12, color=COLORS['error'], visible=False)
+
+        def update_difficulty_max():
+            """Update max values message when questions to select changes"""
+            try:
+                selected = int(questions_to_select_field.value) if questions_to_select_field.value else 0
+                easy_val = int(easy_questions_count_field.value) if easy_questions_count_field.value else 0
+                medium_val = int(medium_questions_count_field.value) if medium_questions_count_field.value else 0
+                hard_val = int(hard_questions_count_field.value) if hard_questions_count_field.value else 0
+
+                total_selected = easy_val + medium_val + hard_val
+
+                if total_selected != selected and selected > 0:
+                    difficulty_validation.value = f"⚠️ Distribution total ({total_selected}) must equal questions to select ({selected})"
+                    difficulty_validation.visible = True
+                else:
+                    difficulty_validation.visible = False
+
+                if hasattr(self, 'page') and self.page:
+                    self.page.update()
+            except:
+                pass
+
+        # Enable fields if editing and pool is enabled
+        if is_edit and has_questions and exam.get('use_question_pool', 0):
+            questions_to_select_field.disabled = False
+            easy_questions_count_field.disabled = False
+            medium_questions_count_field.disabled = False
+            hard_questions_count_field.disabled = False
         
         def toggle_question_pool_fields(enabled):
             """Enable/disable question pool fields based on checkbox state"""
-            total_questions_in_pool_field.disabled = not enabled
             questions_to_select_field.disabled = not enabled
             easy_questions_count_field.disabled = not enabled
             medium_questions_count_field.disabled = not enabled
@@ -451,12 +540,11 @@ class QuizManagement(ft.UserControl):
                 
                 # Question pool validation
                 use_pool = use_question_pool.value
-                total_in_pool = int(total_questions_in_pool_field.value) if total_questions_in_pool_field.value else 0
                 to_select = int(questions_to_select_field.value) if questions_to_select_field.value else 0
                 easy_count = int(easy_questions_count_field.value) if easy_questions_count_field.value else 0
                 medium_count = int(medium_questions_count_field.value) if medium_questions_count_field.value else 0
                 hard_count = int(hard_questions_count_field.value) if hard_questions_count_field.value else 0
-                
+
                 if use_pool:
                     # Validate question pool settings
                     if to_select <= 0:
@@ -464,19 +552,19 @@ class QuizManagement(ft.UserControl):
                         error_text.visible = True
                         self.exam_dialog.update()
                         return
-                    
+
                     if easy_count + medium_count + hard_count != to_select:
                         error_text.value = f"Difficulty distribution ({easy_count + medium_count + hard_count}) must equal questions to select ({to_select})"
                         error_text.visible = True
                         self.exam_dialog.update()
                         return
-                    
+
                     if easy_count < 0 or medium_count < 0 or hard_count < 0:
                         error_text.value = "Difficulty counts cannot be negative"
                         error_text.visible = True
                         self.exam_dialog.update()
                         return
-                
+
                 # Prepare data
                 exam_data = {
                     'title': exam_title_field.value.strip(),
@@ -494,7 +582,7 @@ class QuizManagement(ft.UserControl):
                     'enable_logging': 1 if enable_logging.value else 0,
                     'enable_pattern_analysis': 1 if enable_pattern_analysis.value else 0,
                     'use_question_pool': 1 if use_pool else 0,
-                    'total_questions_in_pool': total_in_pool,
+                    'total_questions_in_pool': total_q,  # Use actual count from database
                     'questions_to_select': to_select,
                     'easy_questions_count': easy_count,
                     'medium_questions_count': medium_count,
@@ -593,16 +681,19 @@ class QuizManagement(ft.UserControl):
                     ft.Row([enable_logging, enable_pattern_analysis], spacing=20),
                     
                     ft.Container(height=15),  # Section separator
-                    
+
                     # Question Pool Settings Section
                     ft.Text("Question Pool Settings", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
                     ft.Divider(height=1, color=COLORS['primary']),
+                    question_pool_info,  # Info message for new exams
+                    question_stats_info,  # Stats info for existing exams
                     ft.Row([use_question_pool], spacing=20),
-                    ft.Row([total_questions_in_pool_field, questions_to_select_field], spacing=15),
+                    ft.Row([questions_to_select_field], spacing=15),
                     ft.Text("Difficulty Distribution:", size=14, weight=ft.FontWeight.W_500),
                     ft.Row([easy_questions_count_field, medium_questions_count_field, hard_questions_count_field], spacing=10),
-                    
-                    ft.Container(height=10),  # Section separator  
+                    difficulty_validation,  # Validation message
+
+                    ft.Container(height=10),  # Section separator
                     error_text
                 ], spacing=15, tight=True, scroll=ft.ScrollMode.AUTO),
                 width=800,
