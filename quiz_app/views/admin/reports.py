@@ -150,24 +150,11 @@ class Reports(ft.UserControl):
                                 on_click=self.show_suspicious_activity,
                                 style=ft.ButtonStyle(bgcolor=ft.colors.ORANGE, color=ft.colors.WHITE)
                             ),
-                            ft.PopupMenuButton(
-                                content=ft.Row([
-                                    ft.Icon(ft.icons.PICTURE_AS_PDF, color=ft.colors.WHITE),
-                                    ft.Text("Export PDF", color=ft.colors.WHITE)
-                                ], spacing=5),
-                                items=[
-                                    ft.PopupMenuItem(
-                                        text="Export Exam Report",
-                                        icon=ft.icons.QUIZ,
-                                        on_click=self.show_exam_report_selector
-                                    ),
-                                    ft.PopupMenuItem(
-                                        text="Export Student Report",
-                                        icon=ft.icons.PERSON,
-                                        on_click=self.show_student_report_selector
-                                    ),
-                                ],
-                                bgcolor=COLORS['error']
+                            ft.ElevatedButton(
+                                text="Export PDF",
+                                icon=ft.icons.PICTURE_AS_PDF,
+                                on_click=self.show_export_pdf_dialog,
+                                style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
                             ),
                             ft.ElevatedButton(
                                 text="Export Excel",
@@ -746,6 +733,264 @@ class Reports(ft.UserControl):
             import traceback
             traceback.print_exc()
     
+    def show_export_pdf_dialog(self, e):
+        """Show dialog with PDF export options"""
+        try:
+            # Get all exams
+            exams = self.db.execute_query("""
+                SELECT id, title, created_at FROM exams
+                WHERE is_active = 1
+                ORDER BY created_at DESC
+            """)
+
+            # Get all students with exam attempts
+            students = self.db.execute_query("""
+                SELECT DISTINCT u.id, u.username, u.full_name, u.department, u.unit,
+                       COUNT(DISTINCT es.id) as exam_count
+                FROM users u
+                JOIN exam_sessions es ON u.id = es.user_id
+                WHERE u.role = 'examinee' AND es.is_completed = 1
+                GROUP BY u.id
+                ORDER BY u.full_name
+            """)
+
+            # Create tabs for different export options
+            export_tabs = ft.Tabs(
+                selected_index=0,
+                animation_duration=300,
+                tabs=[
+                    # Tab 1: Export by Exam
+                    ft.Tab(
+                        text="Export by Exam",
+                        icon=ft.icons.QUIZ,
+                        content=self.create_exam_export_tab(exams)
+                    ),
+                    # Tab 2: Export by Student
+                    ft.Tab(
+                        text="Export by Student",
+                        icon=ft.icons.PERSON,
+                        content=self.create_student_export_tab(students)
+                    ),
+                    # Tab 3: Export Student's Specific Exam
+                    ft.Tab(
+                        text="Student's Exam",
+                        icon=ft.icons.ASSIGNMENT,
+                        content=self.create_student_exam_export_tab(students, exams)
+                    ),
+                ],
+                expand=1
+            )
+
+            content = ft.Container(
+                content=export_tabs,
+                padding=10
+            )
+
+            self.safe_show_dialog(
+                title="📄 Export PDF Reports",
+                content=content,
+                width=900,
+                height=700
+            )
+
+        except Exception as ex:
+            print(f"[ERROR] Error showing export dialog: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to load export options: {str(ex)}")
+
+    def create_exam_export_tab(self, exams):
+        """Create the exam export tab content"""
+        if not exams:
+            return ft.Container(
+                content=ft.Text("No exams available for report generation.", size=14),
+                padding=20
+            )
+
+        exam_items = []
+        for exam in exams:
+            exam_items.append(
+                ft.ListTile(
+                    leading=ft.Icon(ft.icons.QUIZ, color=COLORS['primary']),
+                    title=ft.Text(exam['title'], weight=ft.FontWeight.BOLD),
+                    subtitle=ft.Text(f"Created: {exam['created_at'][:10]}"),
+                    trailing=ft.IconButton(
+                        icon=ft.icons.PICTURE_AS_PDF,
+                        icon_color=COLORS['error'],
+                        tooltip="Generate PDF Report",
+                        on_click=lambda e, eid=exam['id'], title=exam['title']: self.generate_exam_pdf(eid, title)
+                    )
+                )
+            )
+
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Select an exam to generate detailed PDF report with all student performances:", size=14),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column(exam_items, scroll=ft.ScrollMode.AUTO),
+                    height=500,
+                    border=ft.border.all(1, ft.colors.GREY_300),
+                    border_radius=8,
+                    padding=10
+                )
+            ], spacing=0),
+            padding=10
+        )
+
+    def create_student_export_tab(self, students):
+        """Create the student export tab content"""
+        if not students:
+            return ft.Container(
+                content=ft.Text("No students with completed exams found.", size=14),
+                padding=20
+            )
+
+        student_items = []
+        for student in students:
+            dept_unit = f"{student['department'] or 'N/A'}"
+            if student.get('unit'):
+                dept_unit += f" / {student['unit']}"
+            student_items.append(
+                ft.ListTile(
+                    leading=ft.Icon(ft.icons.PERSON, color=COLORS['primary']),
+                    title=ft.Text(student['full_name'], weight=ft.FontWeight.BOLD),
+                    subtitle=ft.Text(f"{student['username']} • {dept_unit} • {student['exam_count']} exams"),
+                    trailing=ft.IconButton(
+                        icon=ft.icons.PICTURE_AS_PDF,
+                        icon_color=COLORS['error'],
+                        tooltip="Generate PDF Report",
+                        on_click=lambda e, uid=student['id'], name=student['full_name']: self.generate_student_pdf(uid, name)
+                    )
+                )
+            )
+
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Select a student to generate detailed PDF report with all exam results:", size=14),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column(student_items, scroll=ft.ScrollMode.AUTO),
+                    height=500,
+                    border=ft.border.all(1, ft.colors.GREY_300),
+                    border_radius=8,
+                    padding=10
+                )
+            ], spacing=0),
+            padding=10
+        )
+
+    def create_student_exam_export_tab(self, students, exams):
+        """Create the student-exam export tab content"""
+        if not students or not exams:
+            return ft.Container(
+                content=ft.Text("No data available for student-exam reports.", size=14),
+                padding=20
+            )
+
+        # Create dropdowns for student and exam selection
+        self.selected_student_id = None
+        self.selected_exam_id_for_student = None
+
+        student_dropdown = ft.Dropdown(
+            label="Select Student",
+            hint_text="Choose a student",
+            options=[ft.dropdown.Option(str(s['id']), s['full_name']) for s in students],
+            on_change=lambda e: self.on_student_select_for_exam(e),
+            width=400
+        )
+
+        exam_dropdown = ft.Dropdown(
+            label="Select Exam",
+            hint_text="Choose an exam",
+            options=[ft.dropdown.Option(str(ex['id']), ex['title']) for ex in exams],
+            on_change=lambda e: self.on_exam_select_for_student(e),
+            width=400
+        )
+
+        generate_button = ft.ElevatedButton(
+            text="Generate PDF Report",
+            icon=ft.icons.PICTURE_AS_PDF,
+            on_click=self.generate_selected_student_exam_pdf,
+            style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE),
+            disabled=True
+        )
+
+        # Store references for enabling/disabling button
+        self.student_exam_dropdown = student_dropdown
+        self.exam_for_student_dropdown = exam_dropdown
+        self.generate_student_exam_button = generate_button
+
+        return ft.Container(
+            content=ft.Column([
+                ft.Text("Export detailed report for a specific student's specific exam:", size=14, weight=ft.FontWeight.BOLD),
+                ft.Container(height=20),
+                ft.Text("Step 1: Select a student", size=12),
+                student_dropdown,
+                ft.Container(height=15),
+                ft.Text("Step 2: Select an exam", size=12),
+                exam_dropdown,
+                ft.Container(height=20),
+                generate_button,
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Text(
+                        "This report will show detailed question-by-question breakdown with correct/incorrect answers.",
+                        size=11,
+                        color=ft.colors.GREY_700,
+                        italic=True
+                    ),
+                    padding=10,
+                    bgcolor=ft.colors.BLUE_50,
+                    border_radius=8
+                )
+            ], spacing=5),
+            padding=20
+        )
+
+    def on_student_select_for_exam(self, e):
+        """Handle student selection for student-exam export"""
+        self.selected_student_id = int(e.control.value) if e.control.value else None
+        self.update_generate_button_state()
+
+    def on_exam_select_for_student(self, e):
+        """Handle exam selection for student-exam export"""
+        self.selected_exam_id_for_student = int(e.control.value) if e.control.value else None
+        self.update_generate_button_state()
+
+    def update_generate_button_state(self):
+        """Enable/disable generate button based on selections"""
+        if hasattr(self, 'generate_student_exam_button'):
+            self.generate_student_exam_button.disabled = not (
+                self.selected_student_id and self.selected_exam_id_for_student
+            )
+            if self.page:
+                self.page.update()
+
+    def generate_selected_student_exam_pdf(self, e):
+        """Generate PDF for selected student and exam"""
+        if not self.selected_student_id or not self.selected_exam_id_for_student:
+            self.show_message("Selection Required", "Please select both a student and an exam.")
+            return
+
+        # Get student name and exam title for the filename
+        student = self.db.execute_single(
+            "SELECT full_name FROM users WHERE id = ?",
+            (self.selected_student_id,)
+        )
+        exam = self.db.execute_single(
+            "SELECT title FROM exams WHERE id = ?",
+            (self.selected_exam_id_for_student,)
+        )
+
+        if student and exam:
+            self.generate_student_exam_pdf(
+                self.selected_student_id,
+                self.selected_exam_id_for_student,
+                student['full_name'],
+                exam['title']
+            )
+
     def show_exam_report_selector(self, e):
         """Show dialog to select exam for PDF report"""
         try:
@@ -884,11 +1129,12 @@ class Reports(ft.UserControl):
                 WHERE es.exam_id = ? AND es.is_completed = 1
             """, (exam_id,))
 
-            # Get all attempts for this exam
+            # Get all attempts for this exam with session IDs
             attempts = self.db.execute_query("""
                 SELECT
-                    u.full_name, u.username, u.department,
-                    es.score, es.duration_seconds, es.start_time, es.correct_answers, es.total_questions
+                    u.id as user_id, u.full_name, u.username, u.department,
+                    es.id as session_id, es.score, es.duration_seconds, es.start_time,
+                    es.correct_answers, es.total_questions
                 FROM exam_sessions es
                 JOIN users u ON es.user_id = u.id
                 WHERE es.exam_id = ? AND es.is_completed = 1
@@ -969,6 +1215,55 @@ class Reports(ft.UserControl):
                     ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
                 ]))
                 story.append(attempts_table)
+                story.append(Spacer(1, 0.5*inch))
+
+                # Add question-level analysis for each student
+                story.append(Paragraph("Detailed Question Analysis by Student", styles['Heading2']))
+                story.append(Spacer(1, 0.2*inch))
+
+                for attempt in attempts:
+                    # Get question details for this session
+                    question_breakdown = self.db.execute_query("""
+                        SELECT
+                            q.question_text, q.question_type, q.points,
+                            ua.is_correct
+                        FROM user_answers ua
+                        JOIN questions q ON ua.question_id = q.id
+                        WHERE ua.session_id = ?
+                        ORDER BY q.id
+                    """, (attempt['session_id'],))
+
+                    if question_breakdown:
+                        # Student name header
+                        student_header = f"{attempt['full_name']} ({attempt['username']}) - Score: {attempt['score']:.1f}%"
+                        story.append(Paragraph(student_header, styles['Heading3']))
+                        story.append(Spacer(1, 0.1*inch))
+
+                        # Create question breakdown table
+                        q_data = [['#', 'Question (preview)', 'Type', 'Points', 'Result']]
+                        for idx, qb in enumerate(question_breakdown, 1):
+                            q_text = qb['question_text'][:60] + '...' if len(qb['question_text']) > 60 else qb['question_text']
+                            result = '✓' if qb['is_correct'] else '✗'
+                            q_data.append([
+                                str(idx),
+                                q_text,
+                                qb['question_type'][:10],
+                                str(qb['points']),
+                                result
+                            ])
+
+                        q_table = Table(q_data, colWidths=[0.3*inch, 3*inch, 0.8*inch, 0.5*inch, 0.5*inch])
+                        q_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('ALIGN', (3, 0), (4, -1), 'CENTER'),
+                            ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
+                            ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
+                        ]))
+                        story.append(q_table)
+                        story.append(Spacer(1, 0.3*inch))
 
             # Build PDF
             doc.build(story)
@@ -1010,11 +1305,11 @@ class Reports(ft.UserControl):
                 GROUP BY u.id
             """, (user_id,))
 
-            # Get all exam attempts
+            # Get all exam attempts with session IDs
             attempts = self.db.execute_query("""
                 SELECT
                     e.title as exam_title,
-                    es.score, es.duration_seconds, es.start_time,
+                    es.id as session_id, es.score, es.duration_seconds, es.start_time,
                     es.correct_answers, es.total_questions,
                     CASE WHEN es.score >= e.passing_score THEN 'PASS' ELSE 'FAIL' END as status
                 FROM exam_sessions es
@@ -1122,6 +1417,78 @@ class Reports(ft.UserControl):
                     ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
                 ]))
                 story.append(history_table)
+                story.append(Spacer(1, 0.5*inch))
+
+                # Add question-level breakdown for each exam
+                story.append(Paragraph("Question-Level Performance by Exam", styles['Heading2']))
+                story.append(Spacer(1, 0.2*inch))
+
+                for attempt in attempts:
+                    # Get question details for this session
+                    question_breakdown = self.db.execute_query("""
+                        SELECT
+                            q.question_text, q.question_type, q.points,
+                            ua.is_correct
+                        FROM user_answers ua
+                        JOIN questions q ON ua.question_id = q.id
+                        WHERE ua.session_id = ?
+                        ORDER BY q.id
+                    """, (attempt['session_id'],))
+
+                    if question_breakdown:
+                        # Exam title header
+                        exam_header = f"{attempt['exam_title']} - {attempt['start_time'][:10]} - Score: {attempt['score']:.1f}% ({attempt['status']})"
+                        story.append(Paragraph(exam_header, styles['Heading3']))
+                        story.append(Spacer(1, 0.1*inch))
+
+                        # Calculate correct/incorrect counts
+                        correct_count = sum(1 for q in question_breakdown if q['is_correct'])
+                        total_count = len(question_breakdown)
+
+                        # Create question breakdown table
+                        q_data = [['#', 'Question (preview)', 'Type', 'Points', 'Result']]
+                        for idx, qb in enumerate(question_breakdown, 1):
+                            q_text = qb['question_text'][:50] + '...' if len(qb['question_text']) > 50 else qb['question_text']
+                            result = '✓ Correct' if qb['is_correct'] else '✗ Wrong'
+                            result_color = rl_colors.green if qb['is_correct'] else rl_colors.red
+
+                            q_data.append([
+                                str(idx),
+                                q_text,
+                                qb['question_type'][:10],
+                                str(qb['points']),
+                                result
+                            ])
+
+                        q_table = Table(q_data, colWidths=[0.3*inch, 2.8*inch, 0.8*inch, 0.5*inch, 0.8*inch])
+
+                        # Build style with conditional colors for results
+                        table_style_commands = [
+                            ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('ALIGN', (3, 0), (4, -1), 'CENTER'),
+                            ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
+                            ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
+                        ]
+
+                        # Add color coding for correct/incorrect
+                        for idx, qb in enumerate(question_breakdown, 1):
+                            row = idx
+                            if qb['is_correct']:
+                                table_style_commands.append(('TEXTCOLOR', (4, row), (4, row), rl_colors.green))
+                            else:
+                                table_style_commands.append(('TEXTCOLOR', (4, row), (4, row), rl_colors.red))
+
+                        q_table.setStyle(TableStyle(table_style_commands))
+                        story.append(q_table)
+
+                        # Add summary line
+                        summary_text = f"<i>Summary: {correct_count} correct out of {total_count} questions</i>"
+                        story.append(Spacer(1, 0.05*inch))
+                        story.append(Paragraph(summary_text, styles['Normal']))
+                        story.append(Spacer(1, 0.3*inch))
 
             # Build PDF
             doc.build(story)
@@ -1138,6 +1505,207 @@ class Reports(ft.UserControl):
             import traceback
             traceback.print_exc()
             self.show_message("Error", f"Failed to generate student PDF: {str(ex)}")
+
+    def generate_student_exam_pdf(self, user_id, exam_id, student_name, exam_title):
+        """Generate detailed PDF report for a specific student's specific exam with question breakdown"""
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.units import inch
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib import colors as rl_colors
+
+            # Get exam session
+            session = self.db.execute_single("""
+                SELECT
+                    es.id, es.score, es.duration_seconds, es.start_time, es.end_time,
+                    es.correct_answers, es.total_questions,
+                    e.passing_score, e.title
+                FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.user_id = ? AND es.exam_id = ? AND es.is_completed = 1
+                ORDER BY es.start_time DESC
+                LIMIT 1
+            """, (user_id, exam_id))
+
+            if not session:
+                self.show_message("No Data", "No completed exam session found for this student and exam.")
+                return
+
+            # Get detailed question-level data
+            question_details = self.db.execute_query("""
+                SELECT
+                    q.id, q.question_text, q.question_type, q.points,
+                    ua.answer_text, ua.is_correct, ua.selected_option_id,
+                    GROUP_CONCAT(qo.option_text || '|' || qo.is_correct, ';;;') as options
+                FROM user_answers ua
+                JOIN questions q ON ua.question_id = q.id
+                LEFT JOIN question_options qo ON q.id = qo.question_id
+                WHERE ua.session_id = ?
+                GROUP BY q.id, ua.id
+                ORDER BY q.id
+            """, (session['id'],))
+
+            # Create PDF
+            import os
+            import re
+            safe_name = re.sub(r'[^\w\s-]', '', student_name).strip().replace(' ', '_')
+            safe_exam = re.sub(r'[^\w\s-]', '', exam_title).strip().replace(' ', '_')
+            filename = f"detailed_report_{safe_name}_{safe_exam}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            filepath = os.path.join(os.getcwd(), filename)
+
+            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            story = []
+            styles = getSampleStyleSheet()
+
+            # Custom styles
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=20, textColor=rl_colors.HexColor('#2D3748'))
+            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=rl_colors.grey)
+
+            # Title
+            story.append(Paragraph(f"Detailed Exam Report", title_style))
+            story.append(Paragraph(f"{exam_title}", styles['Heading2']))
+            story.append(Paragraph(f"Student: {student_name}", subtitle_style))
+            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
+            story.append(Spacer(1, 0.3*inch))
+
+            # Exam Summary
+            story.append(Paragraph("Exam Summary", styles['Heading2']))
+            duration_min = session['duration_seconds'] // 60 if session['duration_seconds'] else 0
+            status = 'PASS' if session['score'] >= session['passing_score'] else 'FAIL'
+            status_color = rl_colors.green if status == 'PASS' else rl_colors.red
+
+            summary_data = [
+                ['Metric', 'Value'],
+                ['Final Score', f"{session['score']:.2f}%"],
+                ['Correct Answers', f"{session['correct_answers']} / {session['total_questions']}"],
+                ['Passing Score', f"{session['passing_score']}%"],
+                ['Status', status],
+                ['Duration', f"{duration_min} minutes"],
+                ['Start Time', session['start_time'][:19]],
+                ['End Time', session['end_time'][:19] if session['end_time'] else 'N/A'],
+            ]
+
+            summary_table = Table(summary_data, colWidths=[2.5*inch, 3.5*inch])
+            summary_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 11),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black),
+                ('TEXTCOLOR', (1, 4), (1, 4), status_color),  # Status color
+                ('FONTNAME', (1, 4), (1, 4), 'Helvetica-Bold'),
+            ]))
+            story.append(summary_table)
+            story.append(Spacer(1, 0.4*inch))
+
+            # Question-by-Question Breakdown
+            story.append(Paragraph("Question-by-Question Breakdown", styles['Heading2']))
+            story.append(Spacer(1, 0.2*inch))
+
+            if question_details:
+                for idx, q in enumerate(question_details, 1):
+                    # Question header with result icon
+                    result_icon = "✓" if q['is_correct'] else "✗"
+                    result_color = rl_colors.green if q['is_correct'] else rl_colors.red
+
+                    q_header_style = ParagraphStyle(
+                        f'QHeader{idx}',
+                        parent=styles['Heading3'],
+                        fontSize=12,
+                        textColor=result_color,
+                        spaceAfter=6
+                    )
+
+                    story.append(Paragraph(f"{result_icon} Question {idx}: {q['question_type'].upper()} ({q['points']} pts)", q_header_style))
+
+                    # Question text
+                    question_text = q['question_text'][:500]  # Limit length
+                    story.append(Paragraph(f"<b>Q:</b> {question_text}", styles['Normal']))
+                    story.append(Spacer(1, 0.1*inch))
+
+                    # Handle different question types
+                    if q['question_type'] in ['multiple_choice', 'true_false']:
+                        # Parse options
+                        if q['options']:
+                            options_list = q['options'].split(';;;')
+                            options_data = [['Option', 'Correct Answer', 'Student Selected']]
+
+                            for opt in options_list:
+                                if '|' in opt:
+                                    opt_text, is_correct = opt.rsplit('|', 1)
+                                    is_correct_bool = is_correct == '1'
+
+                                    # Check if this option was selected by the student
+                                    was_selected = ''
+                                    if q['selected_option_id']:
+                                        # Find option ID (would need to enhance query to get option IDs)
+                                        was_selected = '✓' if is_correct_bool and q['is_correct'] else ''
+
+                                    options_data.append([
+                                        opt_text[:60],
+                                        '✓' if is_correct_bool else '',
+                                        '✓' if q['answer_text'] and opt_text in q['answer_text'] else ''
+                                    ])
+
+                            if len(options_data) > 1:
+                                opts_table = Table(options_data, colWidths=[3*inch, 1*inch, 1*inch])
+                                opts_table.setStyle(TableStyle([
+                                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
+                                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                                    ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+                                    ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
+                                    ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
+                                ]))
+                                story.append(opts_table)
+
+                    elif q['question_type'] in ['short_answer', 'essay']:
+                        # Show student's answer
+                        answer_data = [
+                            ['Student Answer', q['answer_text'][:200] if q['answer_text'] else 'No answer provided'],
+                        ]
+
+                        answer_table = Table(answer_data, colWidths=[1.5*inch, 4.5*inch])
+                        answer_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (0, -1), rl_colors.HexColor('#E2E8F0')),
+                            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 9),
+                            ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('BACKGROUND', (1, 0), (1, -1), rl_colors.white),
+                        ]))
+                        story.append(answer_table)
+
+                    # Result
+                    result_text = f"<b>Result:</b> <font color=\"{'green' if q['is_correct'] else 'red'}\">{'CORRECT' if q['is_correct'] else 'INCORRECT'}</font>"
+                    story.append(Spacer(1, 0.05*inch))
+                    story.append(Paragraph(result_text, styles['Normal']))
+                    story.append(Spacer(1, 0.2*inch))
+
+                    # Add separator
+                    story.append(Paragraph("<hr/>", styles['Normal']))
+                    story.append(Spacer(1, 0.1*inch))
+
+            # Build PDF
+            doc.build(story)
+
+            # Close dialog and show success
+            if self.page and self.page.dialog:
+                self.page.dialog.open = False
+                self.page.update()
+
+            self.show_message("PDF Generated", f"Detailed exam report generated successfully!\nFile: {filename}")
+
+        except Exception as ex:
+            print(f"[ERROR] Error generating student-exam PDF: {ex}")
+            import traceback
+            traceback.print_exc()
+            self.show_message("Error", f"Failed to generate detailed exam PDF: {str(ex)}")
 
     def export_pdf(self, e):
         """Export reports as PDF"""
