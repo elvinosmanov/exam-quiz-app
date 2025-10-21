@@ -493,9 +493,9 @@ class QuizManagement(ft.UserControl):
         assignment_name_field = ft.TextField(
             label="Assignment Name *",
             value=assignment['assignment_name'] if is_edit else f"{exam['title']} - Assignment",
-            content_padding=8,
+            content_padding=5,
             hint_text="e.g., Midterm Exam - Section A",
-            width=600
+            expand=True
         )
 
         # Duration, Passing Score, Max Attempts
@@ -503,27 +503,27 @@ class QuizManagement(ft.UserControl):
             label="Duration (minutes)",
             value=str(assignment['duration_minutes']) if is_edit else "60",
             keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
+            content_padding=5,
             hint_text="e.g., 90",
-            width=180
+            width=150
         )
 
         passing_score_field = ft.TextField(
             label="Passing Score (%)",
             value=str(assignment['passing_score']) if is_edit else "70",
             keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
+            content_padding=5,
             hint_text="e.g., 80",
-            width=180
+            width=150
         )
 
         max_attempts_field = ft.TextField(
             label="Max Attempts",
             value=str(assignment['max_attempts']) if is_edit else "1",
             keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=8,
+            content_padding=5,
             hint_text="e.g., 3",
-            width=180
+            width=150
         )
 
         # Security Settings
@@ -606,24 +606,16 @@ class QuizManagement(ft.UserControl):
             visible=has_questions
         )
 
-        questions_to_select_options = [ft.dropdown.Option(str(i), str(i)) for i in range(1, total_q + 1)] if total_q > 0 else [ft.dropdown.Option("0", "0")]
         easy_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, easy_q + 1)]
         medium_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, medium_q + 1)]
         hard_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, hard_q + 1)]
-
-        questions_to_select_field = ft.Dropdown(
-            label=f"How many questions should each student get? (Total available: {total_q})",
-            options=questions_to_select_options,
-            value=str(assignment['questions_to_select']) if is_edit and assignment['questions_to_select'] else (str(min(10, total_q)) if total_q > 0 else "0"),
-            width=400,
-            disabled=not use_pool_value
-        )
 
         easy_questions_count_field = ft.Dropdown(
             label=f"Easy (Available: {easy_q})",
             options=easy_options,
             value=str(assignment['easy_questions_count']) if is_edit and assignment['easy_questions_count'] else "0",
-            width=180,
+            width=150,
+            content_padding=5,
             disabled=not use_pool_value
         )
 
@@ -631,7 +623,8 @@ class QuizManagement(ft.UserControl):
             label=f"Medium (Available: {medium_q})",
             options=medium_options,
             value=str(assignment['medium_questions_count']) if is_edit and assignment['medium_questions_count'] else "0",
-            width=180,
+            width=150,
+            content_padding=5,
             disabled=not use_pool_value
         )
 
@@ -639,90 +632,72 @@ class QuizManagement(ft.UserControl):
             label=f"Hard (Available: {hard_q})",
             options=hard_options,
             value=str(assignment['hard_questions_count']) if is_edit and assignment['hard_questions_count'] else "0",
-            width=180,
+            width=150,
+            content_padding=5,
             disabled=not use_pool_value
         )
 
+        # Total questions counter (auto-calculated)
+        total_questions_text = ft.Text(
+            f"Total questions: 0",
+            size=14,
+            weight=ft.FontWeight.BOLD,
+            color=COLORS['primary']
+        )
+
+        def update_total_questions(e=None):
+            """Auto-calculate total from difficulty counts"""
+            try:
+                easy = int(easy_questions_count_field.value) if easy_questions_count_field.value else 0
+                medium = int(medium_questions_count_field.value) if medium_questions_count_field.value else 0
+                hard = int(hard_questions_count_field.value) if hard_questions_count_field.value else 0
+                total = easy + medium + hard
+                total_questions_text.value = f"Total questions: {total}"
+                if self.page:
+                    total_questions_text.update()
+            except:
+                pass
+
+        easy_questions_count_field.on_change = update_total_questions
+        medium_questions_count_field.on_change = update_total_questions
+        hard_questions_count_field.on_change = update_total_questions
+
+        # Initialize total
+        update_total_questions()
+
         def toggle_question_pool_fields(e):
             enabled = e.control.value
-            questions_to_select_field.disabled = not enabled
             easy_questions_count_field.disabled = not enabled
             medium_questions_count_field.disabled = not enabled
             hard_questions_count_field.disabled = not enabled
+            total_questions_text.visible = enabled
             if self.page:
                 self.page.update()
 
         use_question_pool.on_change = toggle_question_pool_fields
 
-        # Date pickers - Initialize with assignment dates if editing
-        self.assignment_start_date = None
-        self.assignment_end_date = None
+        # Date picker - Initialize with assignment deadline if editing
         self.assignment_deadline = None
 
         if is_edit:
-            if assignment.get('start_date'):
-                try:
-                    self.assignment_start_date = datetime.fromisoformat(assignment['start_date']).date()
-                except:
-                    pass
-            if assignment.get('end_date'):
-                try:
-                    self.assignment_end_date = datetime.fromisoformat(assignment['end_date']).date()
-                except:
-                    pass
             if assignment.get('deadline'):
                 try:
                     self.assignment_deadline = datetime.fromisoformat(assignment['deadline']).date()
                 except:
                     pass
 
-        self.assignment_start_date_picker = ft.DatePicker(
-            first_date=date.today(),
-            last_date=date(2030, 12, 31)
-        )
-
-        self.assignment_end_date_picker = ft.DatePicker(
-            first_date=date.today(),
-            last_date=date(2030, 12, 31)
-        )
-
         self.assignment_deadline_picker = ft.DatePicker(
             first_date=date.today(),
             last_date=date(2030, 12, 31)
         )
 
-        start_date_field = ft.TextField(
-            label="Start Date (optional)",
-            value=self.assignment_start_date.strftime("%Y-%m-%d") if self.assignment_start_date else "",
-            read_only=True,
-            content_padding=8,
-            hint_text="Click to select date",
-            on_click=lambda e: self.page.open(self.assignment_start_date_picker),
-            suffix=ft.IconButton(
-                icon=ft.icons.CALENDAR_TODAY,
-                on_click=lambda e: self.page.open(self.assignment_start_date_picker)
-            )
-        )
-
-        end_date_field = ft.TextField(
-            label="End Date (optional)",
-            value=self.assignment_end_date.strftime("%Y-%m-%d") if self.assignment_end_date else "",
-            read_only=True,
-            content_padding=8,
-            hint_text="Click to select date",
-            on_click=lambda e: self.page.open(self.assignment_end_date_picker),
-            suffix=ft.IconButton(
-                icon=ft.icons.CALENDAR_TODAY,
-                on_click=lambda e: self.page.open(self.assignment_end_date_picker)
-            )
-        )
-
         deadline_field = ft.TextField(
-            label="Deadline",
+            label="Deadline (optional)",
             value=self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else "",
             read_only=True,
-            content_padding=8,
+            content_padding=5,
             hint_text="Click to select deadline",
+            width=250,
             on_click=lambda e: self.page.open(self.assignment_deadline_picker),
             suffix=ft.IconButton(
                 icon=ft.icons.CALENDAR_TODAY,
@@ -730,24 +705,12 @@ class QuizManagement(ft.UserControl):
             )
         )
 
-        # Date picker event handlers
-        def start_date_changed(e):
-            self.assignment_start_date = e.control.value
-            start_date_field.value = self.assignment_start_date.strftime("%Y-%m-%d") if self.assignment_start_date else ""
-            start_date_field.update()
-
-        def end_date_changed(e):
-            self.assignment_end_date = e.control.value
-            end_date_field.value = self.assignment_end_date.strftime("%Y-%m-%d") if self.assignment_end_date else ""
-            end_date_field.update()
-
+        # Date picker event handler
         def deadline_changed(e):
             self.assignment_deadline = e.control.value
             deadline_field.value = self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else ""
             deadline_field.update()
 
-        self.assignment_start_date_picker.on_change = start_date_changed
-        self.assignment_end_date_picker.on_change = end_date_changed
         self.assignment_deadline_picker.on_change = deadline_changed
 
         # User selection containers
@@ -773,14 +736,16 @@ class QuizManagement(ft.UserControl):
             label="Select Users",
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
-            width=400
+            width=250,
+            content_padding=5
         )
 
         department_dropdown = ft.Dropdown(
             label="Select Departments",
             hint_text="Choose departments to assign",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
-            width=400
+            width=250,
+            content_padding=5
         )
 
         selected_items_container = ft.Column([
@@ -885,16 +850,12 @@ class QuizManagement(ft.UserControl):
                     return
 
                 use_pool = use_question_pool.value
-                to_select = int(questions_to_select_field.value) if questions_to_select_field.value else 0
                 easy_count = int(easy_questions_count_field.value) if easy_questions_count_field.value else 0
                 medium_count = int(medium_questions_count_field.value) if medium_questions_count_field.value else 0
                 hard_count = int(hard_questions_count_field.value) if hard_questions_count_field.value else 0
 
-                if use_pool and (easy_count + medium_count + hard_count != to_select):
-                    error_text.value = f"Difficulty distribution must equal questions to select"
-                    error_text.visible = True
-                    assignment_dialog.update()
-                    return
+                # Auto-calculate total questions from difficulty counts
+                to_select = easy_count + medium_count + hard_count
 
                 if is_edit:
                     # Update existing assignment
@@ -915,8 +876,6 @@ class QuizManagement(ft.UserControl):
                             easy_questions_count = ?,
                             medium_questions_count = ?,
                             hard_questions_count = ?,
-                            start_date = ?,
-                            end_date = ?,
                             deadline = ?
                         WHERE id = ?
                     """
@@ -936,8 +895,6 @@ class QuizManagement(ft.UserControl):
                         easy_count,
                         medium_count,
                         hard_count,
-                        self.assignment_start_date.isoformat() if self.assignment_start_date else None,
-                        self.assignment_end_date.isoformat() if self.assignment_end_date else None,
                         self.assignment_deadline.isoformat() if self.assignment_deadline else None,
                         assignment['id']
                     )
@@ -984,8 +941,8 @@ class QuizManagement(ft.UserControl):
                             randomize_questions, show_results, enable_fullscreen, prevent_focus_loss,
                             enable_logging, enable_pattern_analysis, use_question_pool, questions_to_select,
                             easy_questions_count, medium_questions_count, hard_questions_count,
-                            start_date, end_date, deadline, created_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            deadline, created_by
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam['id'],
@@ -1004,8 +961,6 @@ class QuizManagement(ft.UserControl):
                         easy_count,
                         medium_count,
                         hard_count,
-                        self.assignment_start_date.isoformat() if self.assignment_start_date else None,
-                        self.assignment_end_date.isoformat() if self.assignment_end_date else None,
                         self.assignment_deadline.isoformat() if self.assignment_deadline else None,
                         self.user_data['id']
                     )
@@ -1066,39 +1021,32 @@ class QuizManagement(ft.UserControl):
             assignment_dialog.open = False
             self.page.update()
 
-        # Add date pickers to page overlays
+        # Add date picker to page overlay
         if self.page:
-            self.page.overlay.extend([
-                self.assignment_start_date_picker,
-                self.assignment_end_date_picker,
-                self.assignment_deadline_picker
-            ])
+            self.page.overlay.append(self.assignment_deadline_picker)
 
         # Build dialog content based on mode (hide user selection in edit mode)
         dialog_content_controls = [
             assignment_name_field,
-            ft.Row([duration_field, passing_score_field, max_attempts_field], spacing=10),
-            ft.Row([start_date_field, end_date_field], spacing=15),
-            deadline_field,
-            ft.Container(height=15),
+            ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
+            ft.Container(height=8),
 
             # Security Settings
-            ft.Text("Security Settings", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
-            ft.Row([randomize_questions, show_results], spacing=20),
-            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=20),
-            ft.Row([enable_logging, enable_pattern_analysis], spacing=20),
-            ft.Container(height=15),
+            ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
+            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=15, wrap=True),
+            ft.Row([enable_logging, enable_pattern_analysis], spacing=15, wrap=True),
+            ft.Container(height=8),
 
             # Random Question Selection
-            ft.Text("Random Question Selection (Optional)", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Text("Random Question Selection", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
-            ft.Row([use_question_pool], spacing=20),
+            use_question_pool,
             pool_info_text,
-            ft.Row([questions_to_select_field], spacing=15),
-            ft.Text("Question Mix by Difficulty Level (must add up to total):", size=14, weight=ft.FontWeight.W_500),
-            ft.Row([easy_questions_count_field, medium_questions_count_field, hard_questions_count_field], spacing=10),
-            ft.Container(height=15),
+            ft.Text("Select questions by difficulty:", size=13, weight=ft.FontWeight.W_500),
+            ft.Row([easy_questions_count_field, medium_questions_count_field, hard_questions_count_field, total_questions_text], spacing=10, alignment=ft.MainAxisAlignment.START),
+            ft.Container(height=8),
         ]
 
         # Always show user selection section (in both create and edit modes)
@@ -1145,9 +1093,9 @@ class QuizManagement(ft.UserControl):
             modal=True,
             title=ft.Text(dialog_title),
             content=ft.Container(
-                content=ft.Column(dialog_content_controls, spacing=15, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=800,
-                height=700
+                content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
+                width=1000,
+                height=650
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
