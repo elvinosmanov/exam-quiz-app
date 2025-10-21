@@ -109,10 +109,18 @@ class QuestionManagement(ft.UserControl):
             on_click=self.export_questions,
             style=ft.ButtonStyle(bgcolor=COLORS['warning'], color=ft.colors.WHITE)
         )
-        
+
+        self.create_exam_btn = ft.ElevatedButton(
+            text="Create Exam Template",
+            icon=ft.icons.LIBRARY_ADD,
+            on_click=self.show_create_exam_dialog,
+            style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+        )
+
         # Dialogs
         self.question_dialog = None
         self.bulk_import_dialog = None
+        self.exam_dialog = None
     
     def preselect_exam(self, exam_id):
         """Pre-select an exam in the dropdown and load its questions"""
@@ -134,9 +142,9 @@ class QuestionManagement(ft.UserControl):
         return ft.Column([
             # Header
             ft.Row([
-                ft.Text("Question Management", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text("Question Bank", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
-                ft.Row([self.download_template_btn, self.bulk_import_btn, self.export_questions_btn, self.add_question_btn], spacing=10)
+                ft.Row([self.create_exam_btn, self.download_template_btn, self.bulk_import_btn, self.export_questions_btn, self.add_question_btn], spacing=10)
             ]),
             ft.Divider(),
             
@@ -1712,4 +1720,132 @@ class QuestionManagement(ft.UserControl):
         
         self.page.dialog = image_dialog
         image_dialog.open = True
+        self.page.update()
+
+    def show_create_exam_dialog(self, e):
+        """Show dialog to create a new exam template"""
+        self.show_exam_dialog()
+
+    def show_exam_dialog(self, exam=None):
+        """Create or edit exam template dialog"""
+        is_edit = exam is not None
+        title = "Edit Exam Template" if is_edit else "Create New Exam Template"
+
+        # Form fields - Only basic template information
+        exam_title_field = ft.TextField(
+            label="Exam Title *",
+            value=exam['title'] if is_edit else "",
+            content_padding=8,
+            hint_text="Enter a descriptive exam title",
+            width=600
+        )
+
+        description_field = ft.TextField(
+            label="Description (optional)",
+            value=exam['description'] if is_edit else "",
+            multiline=True,
+            min_lines=3,
+            max_lines=6,
+            content_padding=8,
+            hint_text="Provide exam instructions or description",
+            width=600
+        )
+
+        category_field = ft.TextField(
+            label="Category (optional)",
+            value=exam.get('category', '') if is_edit else "",
+            content_padding=8,
+            hint_text="e.g., Mathematics, Programming, Science",
+            width=600
+        )
+
+        error_text = ft.Text("", color=COLORS['error'], visible=False)
+
+        def save_exam(e):
+            # Validate required fields
+            if not exam_title_field.value.strip():
+                error_text.value = "Exam title is required"
+                error_text.visible = True
+                self.exam_dialog.update()
+                return
+
+            try:
+                if is_edit:
+                    # Update existing exam
+                    query = """
+                        UPDATE exams
+                        SET title = ?, description = ?, category = ?
+                        WHERE id = ?
+                    """
+                    params = (
+                        exam_title_field.value.strip(),
+                        description_field.value.strip() or None,
+                        category_field.value.strip() or None,
+                        exam['id']
+                    )
+                    self.db.execute_update(query, params)
+                else:
+                    # Create new exam - need user_id from somewhere
+                    # Get current user from session or pass it in
+                    query = """
+                        INSERT INTO exams (title, description, category, created_by)
+                        VALUES (?, ?, ?, ?)
+                    """
+                    params = (
+                        exam_title_field.value.strip(),
+                        description_field.value.strip() or None,
+                        category_field.value.strip() or None,
+                        1  # TODO: Get actual user ID
+                    )
+                    self.db.execute_insert(query, params)
+
+                # Close dialog and refresh
+                self.exam_dialog.open = False
+                if self.page:
+                    self.page.update()
+
+                # Reload exams dropdown
+                self.load_exams()
+                self.exam_selector.options = [ft.dropdown.Option(str(exam['id']), exam['title']) for exam in self.exams_data]
+
+                # Update UI
+                if self.page:
+                    self.update()
+
+            except Exception as ex:
+                error_text.value = f"Error saving exam: {str(ex)}"
+                error_text.visible = True
+                self.exam_dialog.update()
+
+        def close_dialog(e):
+            self.exam_dialog.open = False
+            self.page.update()
+
+        self.exam_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(title),
+            content=ft.Container(
+                content=ft.Column([
+                    exam_title_field,
+                    description_field,
+                    category_field,
+                    ft.Container(height=10),
+                    error_text
+                ], spacing=15, tight=True),
+                width=600,
+                height=350
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.ElevatedButton(
+                    "Save" if is_edit else "Create",
+                    on_click=save_exam,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = self.exam_dialog
+        self.exam_dialog.open = True
         self.page.update()

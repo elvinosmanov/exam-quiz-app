@@ -41,6 +41,7 @@ class UserManagement(ft.UserControl):
                 ft.DataColumn(ft.Text("Email")),
                 ft.DataColumn(ft.Text("Role")),
                 ft.DataColumn(ft.Text("Department")),
+                ft.DataColumn(ft.Text("Unit")),
                 ft.DataColumn(ft.Text("Status")),
                 ft.DataColumn(ft.Text("Actions"))
             ],
@@ -103,7 +104,7 @@ class UserManagement(ft.UserControl):
     
     def load_users(self):
         self.all_users_data = self.db.execute_query("""
-            SELECT id, username, full_name, email, role, department, employee_id, is_active, created_at
+            SELECT id, username, full_name, email, role, department, unit, employee_id, is_active, created_at
             FROM users
             ORDER BY created_at DESC
         """)
@@ -126,6 +127,7 @@ class UserManagement(ft.UserControl):
                         ft.DataCell(ft.Text(user['email'])),
                         ft.DataCell(ft.Text(user['role'].title())),
                         ft.DataCell(ft.Text(user['department'] or "N/A")),
+                        ft.DataCell(ft.Text(user['unit'] or "N/A")),
                         ft.DataCell(ft.Text(status, color=status_color)),
                         ft.DataCell(
                             ft.Row([
@@ -219,7 +221,12 @@ class UserManagement(ft.UserControl):
             label="Department",
             value=user['department'] if is_edit else ""
         )
-        
+
+        unit_field = ft.TextField(
+            label="Unit",
+            value=user['unit'] if is_edit else ""
+        )
+
         employee_id_field = ft.TextField(
             label="Employee ID",
             value=user['employee_id'] if is_edit else ""
@@ -245,7 +252,7 @@ class UserManagement(ft.UserControl):
                 if is_edit:
                     # Update user
                     query = """
-                        UPDATE users SET email = ?, full_name = ?, role = ?, department = ?, employee_id = ?
+                        UPDATE users SET email = ?, full_name = ?, role = ?, department = ?, unit = ?, employee_id = ?
                         WHERE id = ?
                     """
                     params = (
@@ -253,6 +260,7 @@ class UserManagement(ft.UserControl):
                         full_name_field.value.strip(),
                         role_dropdown.value,
                         department_field.value.strip() or None,
+                        unit_field.value.strip() or None,
                         employee_id_field.value.strip() or None,
                         user['id']
                     )
@@ -270,6 +278,7 @@ class UserManagement(ft.UserControl):
                         full_name_field.value.strip(),
                         role_dropdown.value,
                         department_field.value.strip() or None,
+                        unit_field.value.strip() or None,
                         employee_id_field.value.strip() or None
                     )
                     
@@ -311,11 +320,12 @@ class UserManagement(ft.UserControl):
                     password_field,
                     role_dropdown,
                     department_field,
+                    unit_field,
                     employee_id_field,
                     error_text
-                ], spacing=10, tight=True),
-                width=400,
-                height=400
+                ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+                width=500,
+                padding=ft.padding.all(10)
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),

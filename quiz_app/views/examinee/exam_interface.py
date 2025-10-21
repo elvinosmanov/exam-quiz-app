@@ -33,7 +33,7 @@ class ExamInterfaceWrapper(ft.UserControl):
             print(f"[FOCUS] Focus loss detection enabled for exam")
 
 
-def create_exam_interface(exam_data, user_data, return_callback):
+def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, assignment_id=None):
     """Create complete exam interface as pure function - no UserControl issues"""
 
     # Initialize data
@@ -42,9 +42,16 @@ def create_exam_interface(exam_data, user_data, return_callback):
     # Generate session ID first
     session_id = int(datetime.now().timestamp())
 
+    # Determine the actual exam_id for fetching questions
+    # If exam_id is provided separately (new assignment-based approach), use it
+    # Otherwise fall back to exam_data['id'] (old exam-based approach)
+    actual_exam_id = exam_id if exam_id is not None else exam_data.get('id')
+
     # Use question selector to get questions (handles both regular and question pool exams)
     from quiz_app.utils.question_selector import select_questions_for_exam_session
-    questions = select_questions_for_exam_session(exam_data, session_id)
+    # Pass a modified exam_data dict with the correct exam_id for question fetching
+    exam_data_for_questions = {**exam_data, 'id': actual_exam_id}
+    questions = select_questions_for_exam_session(exam_data_for_questions, session_id)
 
     if not questions:
         return ft.Container(
@@ -910,13 +917,14 @@ def create_exam_interface(exam_data, user_data, return_callback):
                 try:
                     db.execute_update("""
                         INSERT INTO exam_sessions (
-                            id, user_id, exam_id, start_time, end_time, duration_seconds,
+                            id, user_id, exam_id, assignment_id, start_time, end_time, duration_seconds,
                             score, total_questions, correct_answers, status, attempt_number, is_completed, focus_loss_count
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         session_id,
                         user_data['id'],
-                        exam_data['id'],
+                        actual_exam_id,
+                        assignment_id,
                         exam_state['start_time'].isoformat(),
                         datetime.now().isoformat(),
                         duration_seconds,
@@ -933,12 +941,13 @@ def create_exam_interface(exam_data, user_data, return_callback):
                     # Fallback to auto-generated ID
                     session_id = db.execute_insert("""
                         INSERT INTO exam_sessions (
-                            user_id, exam_id, start_time, end_time, duration_seconds,
+                            user_id, exam_id, assignment_id, start_time, end_time, duration_seconds,
                             score, total_questions, correct_answers, status, attempt_number, is_completed
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
-                        user_data['id'], 
-                        exam_data['id'],
+                        user_data['id'],
+                        actual_exam_id,
+                        assignment_id,
                         exam_state['start_time'].isoformat(),
                         datetime.now().isoformat(),
                         duration_seconds,

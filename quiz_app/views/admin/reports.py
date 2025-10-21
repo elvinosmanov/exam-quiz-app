@@ -805,7 +805,7 @@ class Reports(ft.UserControl):
         try:
             # Get all students with exam attempts
             students = self.db.execute_query("""
-                SELECT DISTINCT u.id, u.username, u.full_name, u.department,
+                SELECT DISTINCT u.id, u.username, u.full_name, u.department, u.unit,
                        COUNT(DISTINCT es.id) as exam_count
                 FROM users u
                 JOIN exam_sessions es ON u.id = es.user_id
@@ -821,11 +821,14 @@ class Reports(ft.UserControl):
             # Create student selection list
             student_items = []
             for student in students:
+                dept_unit = f"{student['department'] or 'N/A'}"
+                if student.get('unit'):
+                    dept_unit += f" / {student['unit']}"
                 student_items.append(
                     ft.ListTile(
                         leading=ft.Icon(ft.icons.PERSON, color=COLORS['primary']),
                         title=ft.Text(student['full_name'], weight=ft.FontWeight.BOLD),
-                        subtitle=ft.Text(f"{student['username']} • {student['department']} • {student['exam_count']} exams"),
+                        subtitle=ft.Text(f"{student['username']} • {dept_unit} • {student['exam_count']} exams"),
                         trailing=ft.IconButton(
                             icon=ft.icons.PICTURE_AS_PDF,
                             icon_color=COLORS['error'],
@@ -996,7 +999,7 @@ class Reports(ft.UserControl):
             # Get student statistics
             student_stats = self.db.execute_single("""
                 SELECT
-                    u.username, u.full_name, u.email, u.department,
+                    u.username, u.full_name, u.email, u.department, u.unit,
                     COUNT(es.id) as total_exams,
                     AVG(es.score) as avg_score,
                     MAX(es.score) as max_score,
@@ -1049,6 +1052,7 @@ class Reports(ft.UserControl):
                 ['Username', student_stats['username']],
                 ['Email', student_stats['email'] or 'N/A'],
                 ['Department', student_stats['department'] or 'N/A'],
+                ['Unit', student_stats.get('unit') or 'N/A'],
             ]
 
             info_table = Table(info_data, colWidths=[2*inch, 4*inch])

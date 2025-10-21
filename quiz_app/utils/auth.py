@@ -43,9 +43,9 @@ class AuthManager:
         
         return None
     
-    def create_user(self, username: str, email: str, password: str, 
-                   full_name: str, role: str = 'examinee', 
-                   department: str = None, employee_id: str = None) -> Optional[int]:
+    def create_user(self, username: str, email: str, password: str,
+                   full_name: str, role: str = 'examinee',
+                   department: str = None, unit: str = None, employee_id: str = None) -> Optional[int]:
         """Create a new user"""
         try:
             # Check if username or email already exists
@@ -53,16 +53,16 @@ class AuthManager:
                 "SELECT id FROM users WHERE username = ? OR email = ?",
                 (username, email)
             )
-            
+
             if existing:
                 return None
-            
+
             password_hash = self.hash_password(password)
-            
+
             user_id = self.db.execute_insert('''
-                INSERT INTO users (username, email, password_hash, full_name, role, department, employee_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (username, email, password_hash, full_name, role, department, employee_id))
+                INSERT INTO users (username, email, password_hash, full_name, role, department, unit, employee_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (username, email, password_hash, full_name, role, department, unit, employee_id))
             
             return user_id
         except Exception as e:

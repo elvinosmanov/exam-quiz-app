@@ -229,17 +229,17 @@ class ExamineeDashboard(ft.UserControl):
         )
     
     def show_available_exams(self):
-        # Get available exams for the user
+        # Get available assignments for the user
         available_exams = self.get_available_exams()
-        
+
         exam_cards = []
         for exam in available_exams:
-            # Check if user has already taken this exam
+            # Check if user has already taken this assignment
             sessions = self.db.execute_query("""
                 SELECT COUNT(*) as attempt_count, MAX(is_completed) as has_completed
-                FROM exam_sessions 
-                WHERE user_id = ? AND exam_id = ?
-            """, (self.user_data['id'], exam['id']))
+                FROM exam_sessions
+                WHERE user_id = ? AND assignment_id = ?
+            """, (self.user_data['id'], exam['assignment_id']))
             
             attempt_count = sessions[0]['attempt_count'] if sessions else 0
             has_completed = sessions[0]['has_completed'] if sessions else False
@@ -335,7 +335,7 @@ class ExamineeDashboard(ft.UserControl):
                         ft.Row([
                             ft.Icon(ft.icons.CALENDAR_TODAY, size=14, color=COLORS['text_secondary']),
                             ft.Text(
-                                f"{exam['end_date'][:10] if exam.get('end_date') else 'No Deadline'}" if status != "Scheduled" 
+                                f"Deadline: {exam['deadline'][:10] if exam.get('deadline') else 'No Deadline'}" if status != "Scheduled"
                                 else f"Starts {exam['start_date'][:10] if exam.get('start_date') else 'TBD'}",
                                 size=12,
                                 color=COLORS['text_secondary']
@@ -344,7 +344,7 @@ class ExamineeDashboard(ft.UserControl):
                         ft.ElevatedButton(
                             text="Take Exam" if not has_completed else "Retake",
                             icon=ft.icons.PLAY_ARROW if can_take else ft.icons.BLOCK,
-                            on_click=lambda e, exam_id=exam['id']: self.start_exam(exam_id),
+                            on_click=lambda e, assignment_id=exam['assignment_id']: self.start_exam(assignment_id),
                             disabled=not can_take,
                             style=ft.ButtonStyle(
                                 bgcolor=COLORS['primary'] if can_take else COLORS['secondary'],
@@ -547,6 +547,18 @@ class ExamineeDashboard(ft.UserControl):
                     read_only=True
                 )
             ], spacing=20),
+            ft.Row([
+                ft.TextField(
+                    label="Unit",
+                    value=self.user_data.get('unit') or "Not specified",
+                    read_only=True
+                ),
+                ft.TextField(
+                    label="Employee ID",
+                    value=self.user_data.get('employee_id') or "Not specified",
+                    read_only=True
+                )
+            ], spacing=20),
             ft.Container(height=20),
             ft.ElevatedButton(
                 text="Change Password",
@@ -603,14 +615,38 @@ class ExamineeDashboard(ft.UserControl):
         }
     
     def get_available_exams(self):
-        # Get exams user has permission to take
+        # Get assignments (not exams) user has permission to take
         return self.db.execute_query("""
-            SELECT e.* FROM exams e
-            JOIN exam_permissions ep ON e.id = ep.exam_id
-            WHERE e.is_active = 1 
-            AND ep.user_id = ? 
-            AND ep.is_active = 1
-            ORDER BY e.created_at DESC
+            SELECT
+                ea.id as assignment_id,
+                ea.assignment_name as title,
+                e.description,
+                e.category,
+                ea.duration_minutes,
+                ea.passing_score,
+                ea.max_attempts,
+                ea.start_date,
+                ea.end_date,
+                ea.deadline,
+                ea.exam_id,
+                ea.randomize_questions,
+                ea.show_results,
+                ea.enable_fullscreen,
+                ea.prevent_focus_loss,
+                ea.enable_logging,
+                ea.enable_pattern_analysis,
+                ea.use_question_pool,
+                ea.questions_to_select,
+                ea.easy_questions_count,
+                ea.medium_questions_count,
+                ea.hard_questions_count
+            FROM exam_assignments ea
+            JOIN exams e ON ea.exam_id = e.id
+            JOIN assignment_users au ON ea.id = au.assignment_id
+            WHERE ea.is_active = 1
+            AND au.user_id = ?
+            AND au.is_active = 1
+            ORDER BY ea.created_at DESC
         """, (self.user_data['id'],))
     
     def get_recent_exam_sessions(self):
@@ -712,12 +748,12 @@ class ExamineeDashboard(ft.UserControl):
             ORDER BY es.start_time DESC
         """, (self.user_data['id'],))
     
-    def start_exam(self, exam_id):
-        """Start taking an exam"""
+    def start_exam(self, assignment_id):
+        """Start taking an assignment"""
         try:
             # Get page reference - try multiple sources
             page_ref = None
-            
+
             # First try the stored page reference from main.py
             if hasattr(self, '_page_ref') and self._page_ref:
                 page_ref = self._page_ref
@@ -732,53 +768,66 @@ class ExamineeDashboard(ft.UserControl):
                 print(f"Stored page reference: {getattr(self, '_page_ref', 'Not set')}")
                 self.show_error_dialog("Cannot start exam: Page context not available")
                 return
-            
-            # Get exam data
-            exam_data = self.db.execute_single("""
-                SELECT * FROM exams WHERE id = ? AND is_active = 1
-            """, (exam_id,))
-            
-            if not exam_data:
-                self.show_error_dialog("Exam not found or inactive")
+
+            # Get assignment data with exam information
+            assignment_data = self.db.execute_single("""
+                SELECT
+                    ea.*,
+                    e.title as exam_title,
+                    e.description as exam_description,
+                    e.category
+                FROM exam_assignments ea
+                JOIN exams e ON ea.exam_id = e.id
+                WHERE ea.id = ? AND ea.is_active = 1
+            """, (assignment_id,))
+
+            if not assignment_data:
+                self.show_error_dialog("Assignment not found or inactive")
                 return
-            
-            # Check if user has permission to take this exam
+
+            # Check if user has permission to take this assignment
             permission = self.db.execute_single("""
-                SELECT * FROM exam_permissions 
-                WHERE user_id = ? AND exam_id = ? AND is_active = 1
-            """, (self.user_data['id'], exam_id))
-            
+                SELECT * FROM assignment_users
+                WHERE user_id = ? AND assignment_id = ? AND is_active = 1
+            """, (self.user_data['id'], assignment_id))
+
             if not permission:
-                self.show_error_dialog("You don't have permission to take this exam")
+                self.show_error_dialog("You don't have permission to take this assignment")
                 return
-            
+
             # Check attempt limits
             attempts = self.db.execute_single("""
-                SELECT COUNT(*) as count FROM exam_sessions 
-                WHERE user_id = ? AND exam_id = ?
-            """, (self.user_data['id'], exam_id))
-            
+                SELECT COUNT(*) as count FROM exam_sessions
+                WHERE user_id = ? AND assignment_id = ?
+            """, (self.user_data['id'], assignment_id))
+
             attempt_count = attempts['count'] if attempts else 0
-            if attempt_count >= exam_data['max_attempts']:
-                self.show_error_dialog(f"Maximum attempts ({exam_data['max_attempts']}) reached for this exam")
+            if attempt_count >= assignment_data['max_attempts']:
+                self.show_error_dialog(f"Maximum attempts ({assignment_data['max_attempts']}) reached for this assignment")
                 return
-            
-            # Check exam schedule
+
+            # Check assignment schedule
             now = datetime.now()
-            if exam_data['start_date']:
-                start_date = datetime.fromisoformat(exam_data['start_date'])
+            if assignment_data['start_date']:
+                start_date = datetime.fromisoformat(assignment_data['start_date'])
                 if now < start_date:
-                    self.show_error_dialog("This exam is not yet available")
+                    self.show_error_dialog("This assignment is not yet available")
                     return
-            
-            if exam_data['end_date']:
-                end_date = datetime.fromisoformat(exam_data['end_date'])
+
+            if assignment_data['end_date']:
+                end_date = datetime.fromisoformat(assignment_data['end_date'])
                 if now > end_date:
-                    self.show_error_dialog("This exam has expired")
+                    self.show_error_dialog("This assignment has expired")
                     return
-            
-            # Check if fullscreen mode is enabled for this exam
-            enable_fullscreen = bool(exam_data.get('enable_fullscreen', 0))
+
+            if assignment_data['deadline']:
+                deadline = datetime.fromisoformat(assignment_data['deadline'])
+                if now > deadline:
+                    self.show_error_dialog("This assignment deadline has passed")
+                    return
+
+            # Check if fullscreen mode is enabled for this assignment
+            enable_fullscreen = bool(assignment_data.get('enable_fullscreen', 0))
             original_fullscreen_state = page_ref.window_full_screen if page_ref else False
             
             # Enable fullscreen if required
@@ -817,10 +866,13 @@ class ExamineeDashboard(ft.UserControl):
                     print(f"Error returning from exam: {ex}")
             
             # Create exam interface using pure function (no UserControl issues)
+            # Pass both assignment data and exam_id for the exam interface
             exam_interface = create_exam_interface(
-                exam_data=exam_data,
+                exam_data=assignment_data,  # Contains all assignment settings
                 user_data=self.user_data,
-                return_callback=return_callback
+                return_callback=return_callback,
+                exam_id=assignment_data['exam_id'],  # The actual exam template ID
+                assignment_id=assignment_id  # The assignment instance ID
             )
             
             # Replace current content with exam interface
