@@ -1170,6 +1170,8 @@ class Reports(ft.UserControl):
             from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
             import os
 
             # Get exam/assignment statistics
@@ -1204,13 +1206,24 @@ class Reports(ft.UserControl):
             filename = f"exam_report_{safe_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             filepath = os.path.join(os.getcwd(), filename)
 
+            # Register Unicode font for Azerbaijani characters
+            try:
+                pdfmetrics.registerFont(TTFont('DejaVu', '/System/Library/Fonts/Supplemental/DejaVuSans.ttf'))
+                pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf'))
+                unicode_font = 'DejaVu'
+                unicode_font_bold = 'DejaVu-Bold'
+            except:
+                # Fallback to Helvetica if DejaVu not available
+                unicode_font = 'Helvetica'
+                unicode_font_bold = 'Helvetica-Bold'
+
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
                 """Add header with logo and footer with confidential warning"""
                 canvas_obj.saveState()
 
                 # Header - Azercosmos Logo (Centered)
-                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos-logo.png')
                 page_width = A4[0]
                 logo_width = 150
                 logo_height = 40
@@ -1233,10 +1246,10 @@ class Reports(ft.UserControl):
                     'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
                 ]
 
-                canvas_obj.setFont('Helvetica-Bold', 8)
+                canvas_obj.setFont(unicode_font_bold, 8)
                 canvas_obj.drawCentredString(A4[0] / 2, 50, footer_text[0])
 
-                canvas_obj.setFont('Helvetica', 7)
+                canvas_obj.setFont(unicode_font, 7)
                 canvas_obj.drawCentredString(A4[0] / 2, 35, footer_text[1])
 
                 # Page number
@@ -1391,6 +1404,8 @@ class Reports(ft.UserControl):
             from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
             import os
 
             # Get student statistics
@@ -1427,13 +1442,24 @@ class Reports(ft.UserControl):
             filename = f"student_report_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             filepath = os.path.join(os.getcwd(), filename)
 
+            # Register Unicode font for Azerbaijani characters
+            try:
+                pdfmetrics.registerFont(TTFont('DejaVu', '/System/Library/Fonts/Supplemental/DejaVuSans.ttf'))
+                pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf'))
+                unicode_font = 'DejaVu'
+                unicode_font_bold = 'DejaVu-Bold'
+            except:
+                # Fallback to Helvetica if DejaVu not available
+                unicode_font = 'Helvetica'
+                unicode_font_bold = 'Helvetica-Bold'
+
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
                 """Add header with logo and footer with confidential warning"""
                 canvas_obj.saveState()
 
                 # Header - Azercosmos Logo (Centered)
-                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos-logo.png')
                 page_width = A4[0]
                 logo_width = 150
                 logo_height = 40
@@ -1456,10 +1482,10 @@ class Reports(ft.UserControl):
                     'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
                 ]
 
-                canvas_obj.setFont('Helvetica-Bold', 8)
+                canvas_obj.setFont(unicode_font_bold, 8)
                 canvas_obj.drawCentredString(A4[0] / 2, 50, footer_text[0])
 
-                canvas_obj.setFont('Helvetica', 7)
+                canvas_obj.setFont(unicode_font, 7)
                 canvas_obj.drawCentredString(A4[0] / 2, 35, footer_text[1])
 
                 # Page number
@@ -1663,6 +1689,8 @@ class Reports(ft.UserControl):
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
             from reportlab.lib.utils import ImageReader
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
             import os
 
             # Get exam session
