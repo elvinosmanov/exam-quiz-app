@@ -762,12 +762,31 @@ class Reports(ft.UserControl):
     def show_export_pdf_dialog(self, e):
         """Show dialog with PDF export options"""
         try:
-            # Get all exams
-            exams = self.db.execute_query("""
-                SELECT id, title, created_at FROM exams
-                WHERE is_active = 1
-                ORDER BY created_at DESC
+            # Get all assignments (what users actually take)
+            assignments = self.db.execute_query("""
+                SELECT DISTINCT
+                    ea.id,
+                    ea.assignment_name as title,
+                    ea.created_at
+                FROM exam_assignments ea
+                WHERE ea.id IN (SELECT DISTINCT assignment_id FROM exam_sessions WHERE assignment_id IS NOT NULL)
+                ORDER BY ea.created_at DESC
             """)
+
+            # Get standalone exams (legacy, without assignments)
+            standalone_exams = self.db.execute_query("""
+                SELECT DISTINCT
+                    e.id,
+                    e.title || ' (Legacy)' as title,
+                    e.created_at
+                FROM exams e
+                WHERE e.is_active = 1
+                AND e.id IN (SELECT DISTINCT exam_id FROM exam_sessions WHERE assignment_id IS NULL)
+                ORDER BY e.created_at DESC
+            """)
+
+            # Combine both lists
+            exams = assignments + standalone_exams
 
             # Get all students with exam attempts
             students = self.db.execute_query("""
