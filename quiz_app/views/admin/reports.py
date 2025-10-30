@@ -1013,27 +1013,37 @@ class Reports(ft.UserControl):
                 self.page.update()
 
     def generate_selected_student_exam_pdf(self, e):
-        """Generate PDF for selected student and exam"""
+        """Generate PDF for selected student and exam/assignment"""
         if not self.selected_student_id or not self.selected_exam_id_for_student:
             self.show_message("Selection Required", "Please select both a student and an exam.")
             return
 
-        # Get student name and exam title for the filename
+        # Get student name
         student = self.db.execute_single(
             "SELECT full_name FROM users WHERE id = ?",
             (self.selected_student_id,)
         )
-        exam = self.db.execute_single(
-            "SELECT title FROM exams WHERE id = ?",
+
+        # Get assignment or exam title
+        # First try to get assignment name
+        assignment = self.db.execute_single(
+            "SELECT assignment_name as title FROM exam_assignments WHERE id = ?",
             (self.selected_exam_id_for_student,)
         )
 
-        if student and exam:
+        # If not found, try exam title (legacy)
+        if not assignment:
+            assignment = self.db.execute_single(
+                "SELECT title FROM exams WHERE id = ?",
+                (self.selected_exam_id_for_student,)
+            )
+
+        if student and assignment:
             self.generate_student_exam_pdf(
                 self.selected_student_id,
                 self.selected_exam_id_for_student,
                 student['full_name'],
-                exam['title']
+                assignment['title']
             )
 
     def show_exam_report_selector(self, e):
@@ -1564,17 +1574,22 @@ class Reports(ft.UserControl):
             from reportlab.lib import colors as rl_colors
 
             # Get exam session
+            # exam_id parameter could be assignment_id or exam_id
             session = self.db.execute_single("""
                 SELECT
                     es.id, es.score, es.duration_seconds, es.start_time, es.end_time,
                     es.correct_answers, es.total_questions,
-                    e.passing_score, e.title
+                    COALESCE(ea.passing_score, e.passing_score) as passing_score,
+                    COALESCE(ea.assignment_name, e.title) as title
                 FROM exam_sessions es
                 JOIN exams e ON es.exam_id = e.id
-                WHERE es.user_id = ? AND es.exam_id = ? AND es.is_completed = 1
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
+                WHERE es.user_id = ?
+                  AND (es.assignment_id = ? OR (es.assignment_id IS NULL AND es.exam_id = ?))
+                  AND es.is_completed = 1
                 ORDER BY es.start_time DESC
                 LIMIT 1
-            """, (user_id, exam_id))
+            """, (user_id, exam_id, exam_id))
 
             if not session:
                 self.show_message("No Data", "No completed exam session found for this student and exam.")
