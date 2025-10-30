@@ -1208,14 +1208,21 @@ class Reports(ft.UserControl):
 
             # Register Unicode font for Azerbaijani characters
             try:
-                pdfmetrics.registerFont(TTFont('DejaVu', '/System/Library/Fonts/Supplemental/DejaVuSans.ttf'))
-                pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf'))
-                unicode_font = 'DejaVu'
-                unicode_font_bold = 'DejaVu-Bold'
+                # Try Arial Unicode MS first (supports Azerbaijani)
+                pdfmetrics.registerFont(TTFont('ArialUnicode', '/System/Library/Fonts/Supplemental/Arial Unicode.ttf'))
+                unicode_font = 'ArialUnicode'
+                unicode_font_bold = 'ArialUnicode'
             except:
-                # Fallback to Helvetica if DejaVu not available
-                unicode_font = 'Helvetica'
-                unicode_font_bold = 'Helvetica-Bold'
+                try:
+                    # Fallback to regular Arial
+                    pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
+                    pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
+                    unicode_font = 'Arial'
+                    unicode_font_bold = 'Arial-Bold'
+                except:
+                    # Last resort: Helvetica (won't display special characters properly)
+                    unicode_font = 'Helvetica'
+                    unicode_font_bold = 'Helvetica-Bold'
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1224,6 +1231,7 @@ class Reports(ft.UserControl):
 
                 # Header - Azercosmos Logo (Centered)
                 logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos-logo.png')
+                logo_path = os.path.abspath(logo_path)  # Resolve to absolute path
                 page_width = A4[0]
                 logo_width = 150
                 logo_height = 40
@@ -1232,11 +1240,15 @@ class Reports(ft.UserControl):
                     try:
                         # Center the logo horizontally
                         x_position = (page_width - logo_width) / 2
-                        canvas_obj.drawImage(logo_path, x_position, A4[1] - 60, width=logo_width, height=logo_height, preserveAspectRatio=True, mask='auto')
-                    except:
+                        canvas_obj.drawImage(logo_path, x_position, A4[1] - 60,
+                                           width=logo_width, height=logo_height,
+                                           preserveAspectRatio=True, mask='auto')
+                    except Exception as e:
+                        print(f"[ERROR] Failed to draw logo: {e}")
                         canvas_obj.setFont('Helvetica-Bold', 12)
                         canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
                 else:
+                    print(f"[ERROR] Logo file not found at: {logo_path}")
                     canvas_obj.setFont('Helvetica-Bold', 12)
                     canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
 
@@ -1444,14 +1456,21 @@ class Reports(ft.UserControl):
 
             # Register Unicode font for Azerbaijani characters
             try:
-                pdfmetrics.registerFont(TTFont('DejaVu', '/System/Library/Fonts/Supplemental/DejaVuSans.ttf'))
-                pdfmetrics.registerFont(TTFont('DejaVu-Bold', '/System/Library/Fonts/Supplemental/DejaVuSans-Bold.ttf'))
-                unicode_font = 'DejaVu'
-                unicode_font_bold = 'DejaVu-Bold'
+                # Try Arial Unicode MS first (supports Azerbaijani)
+                pdfmetrics.registerFont(TTFont('ArialUnicode', '/System/Library/Fonts/Supplemental/Arial Unicode.ttf'))
+                unicode_font = 'ArialUnicode'
+                unicode_font_bold = 'ArialUnicode'
             except:
-                # Fallback to Helvetica if DejaVu not available
-                unicode_font = 'Helvetica'
-                unicode_font_bold = 'Helvetica-Bold'
+                try:
+                    # Fallback to regular Arial
+                    pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
+                    pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
+                    unicode_font = 'Arial'
+                    unicode_font_bold = 'Arial-Bold'
+                except:
+                    # Last resort: Helvetica (won't display special characters properly)
+                    unicode_font = 'Helvetica'
+                    unicode_font_bold = 'Helvetica-Bold'
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1460,6 +1479,7 @@ class Reports(ft.UserControl):
 
                 # Header - Azercosmos Logo (Centered)
                 logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos-logo.png')
+                logo_path = os.path.abspath(logo_path)  # Resolve to absolute path
                 page_width = A4[0]
                 logo_width = 150
                 logo_height = 40
@@ -1468,11 +1488,15 @@ class Reports(ft.UserControl):
                     try:
                         # Center the logo horizontally
                         x_position = (page_width - logo_width) / 2
-                        canvas_obj.drawImage(logo_path, x_position, A4[1] - 60, width=logo_width, height=logo_height, preserveAspectRatio=True, mask='auto')
-                    except:
+                        canvas_obj.drawImage(logo_path, x_position, A4[1] - 60,
+                                           width=logo_width, height=logo_height,
+                                           preserveAspectRatio=True, mask='auto')
+                    except Exception as e:
+                        print(f"[ERROR] Failed to draw logo: {e}")
                         canvas_obj.setFont('Helvetica-Bold', 12)
                         canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
                 else:
+                    print(f"[ERROR] Logo file not found at: {logo_path}")
                     canvas_obj.setFont('Helvetica-Bold', 12)
                     canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
 
