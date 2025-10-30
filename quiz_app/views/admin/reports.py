@@ -1167,9 +1167,10 @@ class Reports(ft.UserControl):
             from reportlab.pdfgen import canvas
             from reportlab.lib.pagesizes import letter, A4
             from reportlab.lib.units import inch
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
+            import os
 
             # Get exam/assignment statistics
             exam_stats = self.db.execute_single("""
@@ -1197,15 +1198,53 @@ class Reports(ft.UserControl):
                 ORDER BY es.score DESC
             """, (exam_id, exam_id))
 
-            # Create PDF
-            import os
+            # Create PDF with custom header/footer
             import re
-            # Sanitize filename: remove invalid characters
             safe_title = re.sub(r'[^\w\s-]', '', exam_title).strip().replace(' ', '_')
             filename = f"exam_report_{safe_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             filepath = os.path.join(os.getcwd(), filename)
 
-            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            # Custom document template with header and footer
+            def add_header_footer(canvas_obj, doc):
+                """Add header with logo and footer with confidential warning"""
+                canvas_obj.saveState()
+
+                # Header - Azercosmos Logo
+                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                if os.path.exists(logo_path):
+                    try:
+                        canvas_obj.drawImage(logo_path, 50, A4[1] - 60, width=150, height=40, preserveAspectRatio=True, mask='auto')
+                    except:
+                        canvas_obj.setFont('Helvetica-Bold', 10)
+                        canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                else:
+                    canvas_obj.setFont('Helvetica-Bold', 10)
+                    canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+
+                # Footer - Confidential Warning
+                footer_text = [
+                    "XÜSUSİ XƏBƏRDARLIQ",
+                    'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
+                ]
+
+                canvas_obj.setFont('Helvetica-Bold', 8)
+                canvas_obj.drawCentredString(A4[0] / 2, 50, footer_text[0])
+
+                canvas_obj.setFont('Helvetica', 7)
+                canvas_obj.drawCentredString(A4[0] / 2, 35, footer_text[1])
+
+                # Page number
+                canvas_obj.setFont('Helvetica', 8)
+                canvas_obj.drawCentredString(A4[0] / 2, 15, f"Page {doc.page}")
+
+                canvas_obj.restoreState()
+
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=A4,
+                topMargin=80,
+                bottomMargin=70
+            )
             story = []
             styles = getSampleStyleSheet()
 
@@ -1321,8 +1360,8 @@ class Reports(ft.UserControl):
                         story.append(q_table)
                         story.append(Spacer(1, 0.3*inch))
 
-            # Build PDF
-            doc.build(story)
+            # Build PDF with custom header and footer
+            doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
 
             # Close dialog and show success
             if self.page and self.page.dialog:
@@ -1343,9 +1382,10 @@ class Reports(ft.UserControl):
             from reportlab.pdfgen import canvas
             from reportlab.lib.pagesizes import letter, A4
             from reportlab.lib.units import inch
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
+            import os
 
             # Get student statistics
             student_stats = self.db.execute_single("""
@@ -1375,15 +1415,53 @@ class Reports(ft.UserControl):
                 ORDER BY es.start_time DESC
             """, (user_id,))
 
-            # Create PDF
-            import os
+            # Create PDF with custom header/footer
             import re
-            # Sanitize filename: remove invalid characters
             safe_name = re.sub(r'[^\w\s-]', '', student_name).strip().replace(' ', '_')
             filename = f"student_report_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             filepath = os.path.join(os.getcwd(), filename)
 
-            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            # Custom document template with header and footer
+            def add_header_footer(canvas_obj, doc):
+                """Add header with logo and footer with confidential warning"""
+                canvas_obj.saveState()
+
+                # Header - Azercosmos Logo
+                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                if os.path.exists(logo_path):
+                    try:
+                        canvas_obj.drawImage(logo_path, 50, A4[1] - 60, width=150, height=40, preserveAspectRatio=True, mask='auto')
+                    except:
+                        canvas_obj.setFont('Helvetica-Bold', 10)
+                        canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                else:
+                    canvas_obj.setFont('Helvetica-Bold', 10)
+                    canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+
+                # Footer - Confidential Warning
+                footer_text = [
+                    "XÜSUSİ XƏBƏRDARLIQ",
+                    'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
+                ]
+
+                canvas_obj.setFont('Helvetica-Bold', 8)
+                canvas_obj.drawCentredString(A4[0] / 2, 50, footer_text[0])
+
+                canvas_obj.setFont('Helvetica', 7)
+                canvas_obj.drawCentredString(A4[0] / 2, 35, footer_text[1])
+
+                # Page number
+                canvas_obj.setFont('Helvetica', 8)
+                canvas_obj.drawCentredString(A4[0] / 2, 15, f"Page {doc.page}")
+
+                canvas_obj.restoreState()
+
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=A4,
+                topMargin=80,
+                bottomMargin=70
+            )
             story = []
             styles = getSampleStyleSheet()
 
@@ -1547,8 +1625,8 @@ class Reports(ft.UserControl):
                         story.append(Paragraph(summary_text, styles['Normal']))
                         story.append(Spacer(1, 0.3*inch))
 
-            # Build PDF
-            doc.build(story)
+            # Build PDF with custom header and footer
+            doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
 
             # Close dialog and show success
             if self.page and self.page.dialog:
@@ -1569,9 +1647,11 @@ class Reports(ft.UserControl):
             from reportlab.pdfgen import canvas
             from reportlab.lib.pagesizes import letter, A4
             from reportlab.lib.units import inch
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
+            from reportlab.lib.utils import ImageReader
+            import os
 
             # Get exam session
             # exam_id parameter could be assignment_id or exam_id
@@ -1609,15 +1689,56 @@ class Reports(ft.UserControl):
                 ORDER BY q.id
             """, (session['id'],))
 
-            # Create PDF
-            import os
+            # Create PDF with custom header/footer
             import re
             safe_name = re.sub(r'[^\w\s-]', '', student_name).strip().replace(' ', '_')
             safe_exam = re.sub(r'[^\w\s-]', '', exam_title).strip().replace(' ', '_')
             filename = f"detailed_report_{safe_name}_{safe_exam}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             filepath = os.path.join(os.getcwd(), filename)
 
-            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            # Custom document template with header and footer
+            def add_header_footer(canvas_obj, doc):
+                """Add header with logo and footer with confidential warning"""
+                canvas_obj.saveState()
+
+                # Header - Azercosmos Logo
+                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                if os.path.exists(logo_path):
+                    try:
+                        canvas_obj.drawImage(logo_path, 50, A4[1] - 60, width=150, height=40, preserveAspectRatio=True, mask='auto')
+                    except:
+                        # If logo fails to load, just show text
+                        canvas_obj.setFont('Helvetica-Bold', 10)
+                        canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                else:
+                    # Fallback if logo doesn't exist
+                    canvas_obj.setFont('Helvetica-Bold', 10)
+                    canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+
+                # Footer - Confidential Warning
+                footer_text = [
+                    "XÜSUSİ XƏBƏRDARLIQ",
+                    'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
+                ]
+
+                canvas_obj.setFont('Helvetica-Bold', 8)
+                canvas_obj.drawCentredString(A4[0] / 2, 50, footer_text[0])
+
+                canvas_obj.setFont('Helvetica', 7)
+                canvas_obj.drawCentredString(A4[0] / 2, 35, footer_text[1])
+
+                # Page number
+                canvas_obj.setFont('Helvetica', 8)
+                canvas_obj.drawCentredString(A4[0] / 2, 15, f"Page {doc.page}")
+
+                canvas_obj.restoreState()
+
+            doc = SimpleDocTemplate(
+                filepath,
+                pagesize=A4,
+                topMargin=80,  # Space for header
+                bottomMargin=70  # Space for footer
+            )
             story = []
             styles = getSampleStyleSheet()
 
@@ -1753,8 +1874,8 @@ class Reports(ft.UserControl):
                     story.append(Paragraph("<hr/>", styles['Normal']))
                     story.append(Spacer(1, 0.1*inch))
 
-            # Build PDF
-            doc.build(story)
+            # Build PDF with custom header and footer
+            doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
 
             # Close dialog and show success
             if self.page and self.page.dialog:
