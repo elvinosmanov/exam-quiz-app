@@ -38,7 +38,6 @@ class QuizManagement(ft.UserControl):
             columns=[
                 ft.DataColumn(ft.Text("#")),
                 ft.DataColumn(ft.Text("Assignment (Exam)")),
-                ft.DataColumn(ft.Text("Category")),
                 ft.DataColumn(ft.Text("Duration")),
                 ft.DataColumn(ft.Text("Passing Score")),
                 ft.DataColumn(ft.Text("Questions")),
@@ -53,7 +52,7 @@ class QuizManagement(ft.UserControl):
         
         # Action buttons
         self.add_exam_btn = ft.ElevatedButton(
-            text="Create Exam",
+            text="Create Topic",
             icon=ft.icons.ADD,
             on_click=self.show_add_exam_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -118,7 +117,6 @@ class QuizManagement(ft.UserControl):
             SELECT ea.*,
                    e.title as exam_title,
                    e.description as exam_description,
-                   e.category,
                    COUNT(DISTINCT q.id) as question_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
                    u.full_name as creator_name
@@ -148,7 +146,6 @@ class QuizManagement(ft.UserControl):
                     cells=[
                         ft.DataCell(ft.Text(str(idx))),
                         ft.DataCell(ft.Text(assignment_title)),
-                        ft.DataCell(ft.Text(assignment.get('category') or "No Category")),
                         ft.DataCell(ft.Text(f"{assignment['duration_minutes']} min")),
                         ft.DataCell(ft.Text(f"{assignment['passing_score']}%")),
                         ft.DataCell(ft.Text(str(assignment['question_count'] or 0))),
@@ -192,8 +189,7 @@ class QuizManagement(ft.UserControl):
             filtered_exams = [
                 exam for exam in filtered_exams
                 if search_term in exam['title'].lower() or
-                   search_term in (exam['description'] or "").lower() or
-                   search_term in (exam.get('category') or "").lower()
+                   search_term in (exam['description'] or "").lower()
             ]
 
         # Apply status filter
@@ -224,14 +220,14 @@ class QuizManagement(ft.UserControl):
     
     def show_exam_dialog(self, exam=None):
         is_edit = exam is not None
-        title = "Edit Exam Template" if is_edit else "Create New Exam Template"
+        title = "Edit Topic" if is_edit else "Create Topic"
 
-        # Form fields - Only basic template information
+        # Form fields - Only basic topic information
         exam_title_field = ft.TextField(
-            label="Exam Title *",
+            label="Topic Title *",
             value=exam['title'] if is_edit else "",
             content_padding=8,
-            hint_text="Enter a descriptive exam title",
+            hint_text="e.g., Python Programming, Safety Training",
             width=600
         )
 
@@ -242,15 +238,7 @@ class QuizManagement(ft.UserControl):
             min_lines=3,
             max_lines=6,
             content_padding=8,
-            hint_text="Provide exam instructions or description",
-            width=600
-        )
-
-        category_field = ft.TextField(
-            label="Category (optional)",
-            value=exam.get('category', '') if is_edit else "",
-            content_padding=8,
-            hint_text="e.g., Mathematics, Programming, Science",
+            hint_text="Provide topic description",
             width=600
         )
 
@@ -259,7 +247,7 @@ class QuizManagement(ft.UserControl):
         def save_exam(e):
             # Validate required fields
             if not exam_title_field.value.strip():
-                error_text.value = "Exam title is required"
+                error_text.value = "Topic title is required"
                 error_text.visible = True
                 self.exam_dialog.update()
                 return
@@ -269,26 +257,24 @@ class QuizManagement(ft.UserControl):
                     # Update existing exam
                     query = """
                         UPDATE exams
-                        SET title = ?, description = ?, category = ?
+                        SET title = ?, description = ?
                         WHERE id = ?
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        category_field.value.strip() or None,
                         exam['id']
                     )
                     self.db.execute_update(query, params)
                 else:
                     # Create new exam
                     query = """
-                        INSERT INTO exams (title, description, category, created_by)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO exams (title, description, created_by)
+                        VALUES (?, ?, ?)
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        category_field.value.strip() or None,
                         self.user_data['id']
                     )
                     self.db.execute_insert(query, params)
@@ -321,12 +307,11 @@ class QuizManagement(ft.UserControl):
                 content=ft.Column([
                     exam_title_field,
                     description_field,
-                    category_field,
                     ft.Container(height=10),
                     error_text
                 ], spacing=15, tight=True),
                 width=600,
-                height=350
+                height=300
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -408,10 +393,11 @@ class QuizManagement(ft.UserControl):
         self.page.update()
 
     def show_add_assignment_dialog(self, e):
-        """Show dialog to create a new assignment by selecting an exam template"""
+        """Show dialog to create a new assignment by selecting one or more exam templates"""
         # Load all available exam templates
         exam_templates = self.db.execute_query("""
-            SELECT id, title, description, category
+            SELECT id, title, description,
+                   (SELECT COUNT(*) FROM questions WHERE exam_id = exams.id AND is_active = 1) as question_count
             FROM exams
             ORDER BY title
         """)
@@ -425,32 +411,94 @@ class QuizManagement(ft.UserControl):
             self.page.update()
             return
 
-        selected_exam_id = None
+        # Track selected exam templates
+        self.selected_exam_templates = []
 
+        # Available exams dropdown
         exam_dropdown = ft.Dropdown(
-            label="Select Exam Template",
-            hint_text="Choose an exam to create assignment from",
+            label="Select Exam Templates",
+            hint_text="Choose exams to combine into one assignment",
             options=[
-                ft.dropdown.Option(key=str(exam['id']), text=f"{exam['title']} {('(' + exam['category'] + ')') if exam.get('category') else ''}")
+                ft.dropdown.Option(
+                    key=str(exam['id']),
+                    text=f"{exam['title']} - {exam['question_count']} questions"
+                )
                 for exam in exam_templates
             ],
             width=600
         )
 
-        def on_create_assignment(e):
-            nonlocal selected_exam_id
-            if not exam_dropdown.value:
+        # Container for selected exam chips
+        selected_exams_container = ft.Column([
+            ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
+            ft.Text("(Exams will be combined into one continuous test)", size=12, color=COLORS['text_secondary'], italic=True)
+        ], spacing=5)
+
+        def on_exam_selected(e):
+            if not e.control.value:
                 return
 
-            selected_exam_id = int(exam_dropdown.value)
-            # Get the selected exam
-            selected_exam = next((ex for ex in exam_templates if ex['id'] == selected_exam_id), None)
+            exam_id = int(e.control.value)
 
-            if selected_exam:
-                select_dialog.open = False
-                self.page.update()
-                # Open the assignment creation dialog with the selected exam
-                self.show_assignment_creation_dialog(selected_exam)
+            # Check if already selected
+            if exam_id in [ex['id'] for ex in self.selected_exam_templates]:
+                e.control.value = None
+                select_dialog.update()
+                return
+
+            # Find exam details
+            exam = next((ex for ex in exam_templates if ex['id'] == exam_id), None)
+            if exam:
+                self.selected_exam_templates.append(exam)
+
+                # Create chip for selected exam
+                chip = ft.Chip(
+                    label=ft.Text(f"{exam['title']} - {exam['question_count']}Q"),
+                    on_delete=lambda e, ex_id=exam_id: remove_exam(ex_id),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_exams_container.controls.append(chip)
+
+            # Clear dropdown
+            e.control.value = None
+            select_dialog.update()
+
+        def remove_exam(exam_id):
+            # Remove from selected list
+            self.selected_exam_templates = [ex for ex in self.selected_exam_templates if ex['id'] != exam_id]
+
+            # Remove chip from UI
+            for i, control in enumerate(selected_exams_container.controls[2:], 2):
+                if isinstance(control, ft.Chip):
+                    # Extract exam_id from chip (stored in lambda)
+                    selected_exams_container.controls.clear()
+                    selected_exams_container.controls.extend([
+                        ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
+                        ft.Text("(Exams will be combined into one continuous test)", size=12, color=COLORS['text_secondary'], italic=True)
+                    ])
+
+                    # Re-add remaining chips
+                    for exam in self.selected_exam_templates:
+                        chip = ft.Chip(
+                            label=ft.Text(f"{exam['title']} - {exam['question_count']}Q"),
+                            on_delete=lambda e, ex_id=exam['id']: remove_exam(ex_id),
+                            delete_icon_color=COLORS['error']
+                        )
+                        selected_exams_container.controls.append(chip)
+                    break
+
+            select_dialog.update()
+
+        exam_dropdown.on_change = on_exam_selected
+
+        def on_create_assignment(e):
+            if not self.selected_exam_templates:
+                return
+
+            select_dialog.open = False
+            self.page.update()
+            # Open the assignment creation dialog with selected exams
+            self.show_assignment_creation_dialog_multi(self.selected_exam_templates)
 
         def close_dialog(e):
             select_dialog.open = False
@@ -458,15 +506,17 @@ class QuizManagement(ft.UserControl):
 
         select_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Create New Assignment"),
+            title=ft.Text("Create New Assignment - Select Exam Templates"),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("Select an exam template to create an assignment from:", size=14),
+                    ft.Text("Select one or more exam templates to combine:", size=14),
                     ft.Container(height=10),
-                    exam_dropdown
-                ], spacing=10, tight=True),
-                width=600,
-                height=150
+                    exam_dropdown,
+                    ft.Container(height=15),
+                    selected_exams_container
+                ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+                width=700,
+                height=400
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -481,6 +531,445 @@ class QuizManagement(ft.UserControl):
 
         self.page.dialog = select_dialog
         select_dialog.open = True
+        self.page.update()
+
+    def show_assignment_creation_dialog_multi(self, exams, assignment=None):
+        """Show dialog for creating assignment from multiple exam templates"""
+        from datetime import datetime, date
+
+        is_edit = assignment is not None
+
+        # Calculate total question count across all selected exams
+        total_questions = sum(exam['question_count'] for exam in exams)
+        exam_titles = ", ".join([exam['title'] for exam in exams])
+
+        # Assignment name
+        assignment_name_field = ft.TextField(
+            label="Assignment Name *",
+            value=assignment['assignment_name'] if is_edit else f"Combined Exam - {datetime.now().strftime('%Y-%m-%d')}",
+            content_padding=5,
+            hint_text="e.g., Midterm Exam - All Subjects",
+            expand=True
+        )
+
+        # Show selected exam templates (read-only in creation dialog)
+        selected_exams_display = ft.Column([
+            ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
+            ft.Container(height=5)
+        ])
+
+        for exam in exams:
+            selected_exams_display.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
+                        ft.Text(f"{exam['title']}", size=13),
+                        ft.Container(expand=True),
+                        ft.Text(f"{exam['question_count']} questions", size=12, color=COLORS['text_secondary'])
+                    ], spacing=8),
+                    padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                    border_radius=4
+                )
+            )
+
+        selected_exams_display.controls.append(
+            ft.Container(
+                content=ft.Text(
+                    f"Total: {total_questions} questions from {len(exams)} exam(s)",
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    color=COLORS['primary']
+                ),
+                padding=ft.padding.only(top=8)
+            )
+        )
+
+        # Duration, Passing Score, Max Attempts
+        duration_field = ft.TextField(
+            label="Duration (minutes)",
+            value=str(assignment['duration_minutes']) if is_edit else "60",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            content_padding=5,
+            hint_text="e.g., 90",
+            width=150
+        )
+
+        passing_score_field = ft.TextField(
+            label="Passing Score (%)",
+            value=str(assignment['passing_score']) if is_edit else "70",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            content_padding=5,
+            hint_text="e.g., 80",
+            width=150
+        )
+
+        max_attempts_field = ft.TextField(
+            label="Max Attempts",
+            value=str(assignment['max_attempts']) if is_edit else "1",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            content_padding=5,
+            hint_text="e.g., 3",
+            width=150
+        )
+
+        # Security Settings
+        randomize_questions = ft.Checkbox(
+            label="Randomize Questions (within each exam/topic)",
+            value=bool(assignment['randomize_questions']) if is_edit else False
+        )
+
+        show_results = ft.Checkbox(
+            label="Show Results to Students",
+            value=bool(assignment['show_results']) if is_edit else True
+        )
+
+        enable_fullscreen = ft.Checkbox(
+            label="Enable Full Window Mode",
+            value=bool(assignment['enable_fullscreen']) if is_edit else False
+        )
+
+        prevent_focus_loss = ft.Checkbox(
+            label="Prevent Focus Loss",
+            value=bool(assignment['prevent_focus_loss']) if is_edit else False
+        )
+
+        enable_logging = ft.Checkbox(
+            label="Enable Activity Logging",
+            value=bool(assignment['enable_logging']) if is_edit else False
+        )
+
+        enable_pattern_analysis = ft.Checkbox(
+            label="Enable Answer Pattern Analysis",
+            value=bool(assignment['enable_pattern_analysis']) if is_edit else False
+        )
+
+        # Date picker - Initialize with assignment deadline if editing
+        self.assignment_deadline = None
+
+        if is_edit:
+            if assignment.get('deadline'):
+                try:
+                    self.assignment_deadline = datetime.fromisoformat(assignment['deadline']).date()
+                except:
+                    pass
+
+        self.assignment_deadline_picker = ft.DatePicker(
+            first_date=date.today(),
+            last_date=date(2030, 12, 31)
+        )
+
+        deadline_field = ft.TextField(
+            label="Deadline (optional)",
+            value=self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else "",
+            read_only=True,
+            content_padding=5,
+            hint_text="Click to select deadline",
+            width=250,
+            on_click=lambda e: self.page.open(self.assignment_deadline_picker),
+            suffix=ft.IconButton(
+                icon=ft.icons.CALENDAR_TODAY,
+                on_click=lambda e: self.page.open(self.assignment_deadline_picker)
+            )
+        )
+
+        # Date picker event handler
+        def deadline_changed(e):
+            self.assignment_deadline = e.control.value
+            deadline_field.value = self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else ""
+            deadline_field.update()
+
+        self.assignment_deadline_picker.on_change = deadline_changed
+
+        # User selection containers (same as single-template version)
+        self.selected_assignment_users = []
+        self.selected_assignment_departments = []
+
+        # Load users and departments for selection
+        users = self.db.execute_query("""
+            SELECT id, full_name, username
+            FROM users
+            WHERE role = 'examinee' AND is_active = 1
+            ORDER BY full_name
+        """)
+
+        departments = self.db.execute_query("""
+            SELECT DISTINCT department
+            FROM users
+            WHERE department IS NOT NULL AND department != '' AND role = 'examinee'
+            ORDER BY department
+        """)
+
+        user_dropdown = ft.Dropdown(
+            label="Select Users",
+            hint_text="Choose users to assign",
+            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
+            width=250,
+            content_padding=5
+        )
+
+        department_dropdown = ft.Dropdown(
+            label="Select Departments",
+            hint_text="Choose departments to assign",
+            options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
+            width=250,
+            content_padding=5
+        )
+
+        selected_items_container = ft.Column([
+            ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
+        ], spacing=5)
+
+        def on_user_selection(e):
+            if not e.control.value:
+                return
+
+            user_id = int(e.control.value)
+            if user_id not in self.selected_assignment_users:
+                self.selected_assignment_users.append(user_id)
+
+                # Find user name
+                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
+
+                chip = ft.Chip(
+                    label=ft.Text(user_name),
+                    on_delete=lambda e, uid=user_id: remove_user(uid),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_items_container.controls.append(chip)
+
+            e.control.value = None
+            if self.page:
+                self.page.update()
+
+        def on_department_selection(e):
+            if not e.control.value:
+                return
+
+            dept = e.control.value
+            if dept not in self.selected_assignment_departments:
+                self.selected_assignment_departments.append(dept)
+
+                chip = ft.Chip(
+                    label=ft.Text(f"Department: {dept}"),
+                    on_delete=lambda e, d=dept: remove_department(d),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_items_container.controls.append(chip)
+
+            e.control.value = None
+            if self.page:
+                self.page.update()
+
+        def remove_user(user_id):
+            if user_id in self.selected_assignment_users:
+                self.selected_assignment_users.remove(user_id)
+                # Remove chip from UI
+                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
+                        user_name = control.label.value
+                        # Check if this is the user to remove
+                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
+                            selected_items_container.controls.pop(i)
+                            break
+                if self.page:
+                    self.page.update()
+
+        def remove_department(dept):
+            if dept in self.selected_assignment_departments:
+                self.selected_assignment_departments.remove(dept)
+                # Remove chip from UI
+                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
+                        selected_items_container.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
+        user_dropdown.on_change = on_user_selection
+        department_dropdown.on_change = on_department_selection
+
+        error_text = ft.Text("", color=COLORS['error'], visible=False)
+
+        def save_assignment(e):
+            # Validate
+            if not assignment_name_field.value.strip():
+                error_text.value = "Assignment name is required"
+                error_text.visible = True
+                assignment_dialog.update()
+                return
+
+            # For create mode, validate user/department selection
+            if not is_edit and not self.selected_assignment_users and not self.selected_assignment_departments:
+                error_text.value = "Please select at least one user or department"
+                error_text.visible = True
+                assignment_dialog.update()
+                return
+
+            try:
+                duration = int(duration_field.value)
+                passing_score = float(passing_score_field.value)
+                max_attempts = int(max_attempts_field.value)
+
+                if duration <= 0 or passing_score <= 0 or passing_score > 100 or max_attempts <= 0:
+                    error_text.value = "Invalid values for duration, passing score, or max attempts"
+                    error_text.visible = True
+                    assignment_dialog.update()
+                    return
+
+                # Create assignment (use first exam as primary, others stored in junction table)
+                primary_exam_id = exams[0]['id']
+
+                query = """
+                    INSERT INTO exam_assignments (
+                        exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
+                        randomize_questions, show_results, enable_fullscreen, prevent_focus_loss,
+                        enable_logging, enable_pattern_analysis, use_question_pool, questions_to_select,
+                        easy_questions_count, medium_questions_count, hard_questions_count,
+                        deadline, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                params = (
+                    primary_exam_id,
+                    assignment_name_field.value.strip(),
+                    duration,
+                    passing_score,
+                    max_attempts,
+                    1 if randomize_questions.value else 0,
+                    1 if show_results.value else 0,
+                    1 if enable_fullscreen.value else 0,
+                    1 if prevent_focus_loss.value else 0,
+                    1 if enable_logging.value else 0,
+                    1 if enable_pattern_analysis.value else 0,
+                    0,  # Not using question pool for multi-template
+                    0, 0, 0, 0,  # Question counts (not used)
+                    self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                    self.user_data['id']
+                )
+                assignment_id = self.db.execute_insert(query, params)
+
+                # Store ALL selected exam templates in junction table (including primary)
+                for order_idx, exam in enumerate(exams):
+                    self.db.execute_insert("""
+                        INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
+                        VALUES (?, ?, ?)
+                    """, (assignment_id, exam['id'], order_idx))
+
+                # Assign users (only for create mode)
+                for user_id in self.selected_assignment_users:
+                    self.db.execute_insert("""
+                        INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                        VALUES (?, ?, ?)
+                    """, (assignment_id, user_id, self.user_data['id']))
+
+                # Assign departments (only for create mode)
+                for dept in self.selected_assignment_departments:
+                    dept_users = self.db.execute_query("""
+                        SELECT id FROM users
+                        WHERE department = ? AND role = 'examinee' AND is_active = 1
+                    """, (dept,))
+
+                    for user in dept_users:
+                        # Check if already assigned
+                        existing = self.db.execute_single("""
+                            SELECT id FROM assignment_users
+                            WHERE assignment_id = ? AND user_id = ?
+                        """, (assignment_id, user['id']))
+
+                        if not existing:
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                                VALUES (?, ?, ?)
+                            """, (assignment_id, user['id'], self.user_data['id']))
+
+                # Close dialog
+                assignment_dialog.open = False
+                if self.page:
+                    self.page.update()
+
+                # Reload exams and update UI
+                self.load_exams()
+                if self.page:
+                    self.update()
+
+                # Show success message
+                success_message = f"Multi-template assignment '{assignment_name_field.value.strip()}' created successfully with {len(exams)} exam templates!"
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(success_message),
+                    bgcolor=COLORS['success']
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+
+            except Exception as ex:
+                error_text.value = f"Error creating assignment: {str(ex)}"
+                error_text.visible = True
+                assignment_dialog.update()
+                import traceback
+                traceback.print_exc()
+
+        def close_dialog(e):
+            assignment_dialog.open = False
+            self.page.update()
+
+        # Add date picker to page overlay
+        if self.page:
+            self.page.overlay.append(self.assignment_deadline_picker)
+
+        # Build dialog content
+        dialog_content_controls = [
+            assignment_name_field,
+            ft.Container(height=10),
+
+            # Selected exams display
+            selected_exams_display,
+            ft.Container(height=10),
+
+            ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
+            ft.Container(height=8),
+
+            # Security Settings
+            ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
+            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=15, wrap=True),
+            ft.Row([enable_logging, enable_pattern_analysis], spacing=15, wrap=True),
+            ft.Container(height=8),
+
+            # User Selection
+            ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            ft.Row([user_dropdown, department_dropdown], spacing=20),
+            selected_items_container,
+            ft.Container(height=10),
+        ]
+
+        dialog_content_controls.append(error_text)
+
+        dialog_title = f"Create Multi-Template Assignment ({len(exams)} exams)"
+        button_text = "Create Assignment"
+
+        assignment_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(dialog_title),
+            content=ft.Container(
+                content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
+                width=900,
+                height=650
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.ElevatedButton(
+                    button_text,
+                    on_click=save_assignment,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = assignment_dialog
+        assignment_dialog.open = True
         self.page.update()
 
     def show_assignment_creation_dialog(self, exam, assignment=None):
@@ -1709,7 +2198,7 @@ class QuizManagement(ft.UserControl):
         """Edit an existing assignment - reuses creation dialog with pre-filled values"""
         # Get the exam template info for this assignment
         exam = self.db.execute_single("""
-            SELECT id, title, description, category
+            SELECT id, title, description
             FROM exams
             WHERE id = ?
         """, (assignment['exam_id'],))

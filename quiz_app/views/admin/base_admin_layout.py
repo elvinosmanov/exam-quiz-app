@@ -19,7 +19,7 @@ class BaseAdminLayout(ft.UserControl):
         self.nav_items = [
             {"title": "Dashboard", "icon": ft.icons.DASHBOARD, "route": "dashboard"},
             {"title": "User Management", "icon": ft.icons.PEOPLE, "route": "users"},
-            {"title": "Exam Management", "icon": ft.icons.QUIZ, "route": "exams"},
+            {"title": "Exam Assignments", "icon": ft.icons.QUIZ, "route": "exams"},
             {"title": "Question Bank", "icon": ft.icons.HELP, "route": "questions"},
             {"title": "Grading", "icon": ft.icons.GRADING, "route": "grading"},
             {"title": "Reports", "icon": ft.icons.ANALYTICS, "route": "reports"},

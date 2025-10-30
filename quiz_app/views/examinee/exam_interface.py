@@ -9,15 +9,15 @@ from quiz_app.utils.logging_config import get_audit_logger
 
 
 class ExamInterfaceWrapper(ft.UserControl):
-    """Wrapper UserControl to properly handle page lifecycle for focus detection"""
+    """Wrapper UserControl to properly handle page lifecycle for fullscreen lock"""
 
-    def __init__(self, exam_data, user_data, return_callback, exam_state, on_window_blur):
+    def __init__(self, exam_data, user_data, return_callback, exam_state, on_fullscreen_change):
         super().__init__()
         self.exam_data = exam_data
         self.user_data = user_data
         self.return_callback = return_callback
         self.exam_state = exam_state
-        self.on_window_blur = on_window_blur
+        self.on_fullscreen_change = on_fullscreen_change
         self.content_container = None
 
     def build(self):
@@ -25,12 +25,22 @@ class ExamInterfaceWrapper(ft.UserControl):
         return self.exam_state['main_container']
 
     def did_mount(self):
-        """Called when control is added to page - attach focus listener here"""
+        """Called when control is added to page - attach fullscreen lock listener here"""
         super().did_mount()
-        if self.page and self.exam_state.get('prevent_focus_loss'):
+
+        # CRITICAL: Set page reference for all exam operations (timer, navigation, etc.)
+        if self.page:
             self.exam_state['page_ref'] = self.page
-            self.page.on_window_event = self.on_window_blur
-            print(f"[FOCUS] Focus loss detection enabled for exam")
+            print(f"[PAGE] Page reference set successfully for exam interface")
+
+            # Enable fullscreen lock if feature is enabled
+            if self.exam_state.get('enable_fullscreen_lock'):
+                try:
+                    self.page.on_window_event = self.on_fullscreen_change
+                    print(f"[FULLSCREEN] Fullscreen lock enabled for exam")
+                except AttributeError as e:
+                    print(f"[FULLSCREEN] Warning: Could not enable fullscreen lock: {e}")
+                    # Fullscreen lock is optional, continue without it
 
 
 def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, assignment_id=None):
@@ -47,11 +57,11 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
     # Otherwise fall back to exam_data['id'] (old exam-based approach)
     actual_exam_id = exam_id if exam_id is not None else exam_data.get('id')
 
-    # Use question selector to get questions (handles both regular and question pool exams)
+    # Use question selector to get questions (handles both regular and multi-template exams)
     from quiz_app.utils.question_selector import select_questions_for_exam_session
     # Pass a modified exam_data dict with the correct exam_id for question fetching
     exam_data_for_questions = {**exam_data, 'id': actual_exam_id}
-    questions = select_questions_for_exam_session(exam_data_for_questions, session_id)
+    questions = select_questions_for_exam_session(exam_data_for_questions, session_id, assignment_id)
 
     if not questions:
         return ft.Container(
@@ -71,10 +81,9 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         'session_id': session_id,  # Use the session ID generated for question selection
         'question_start_times': {},  # Track when each question was first viewed
         'question_time_spent': {},  # Track cumulative time spent on each question
-        'focus_loss_count': 0,  # Track how many times student switched away from exam
-        'focus_warning_banner': None,  # Reference to warning banner
-        'prevent_focus_loss': exam_data.get('prevent_focus_loss', False),  # Is this feature enabled?
-        'page_ref': None  # Reference to page for focus tracking
+        'enable_fullscreen_lock': exam_data.get('enable_fullscreen', False),  # Fullscreen lock feature
+        'fullscreen_lock_active': False,  # Is fullscreen currently locked?
+        'page_ref': None  # Reference to page for fullscreen lock
     }
     
     # Colors
@@ -104,32 +113,27 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         """, (question_id,))
 
     def track_question_time(question_id):
-        """Track time spent on current question before leaving it"""
-        try:
-            current_time = datetime.now()
-
-            # If this question has a start time, calculate time spent
-            if question_id in exam_state['question_start_times']:
-                start_time = exam_state['question_start_times'][question_id]
-                time_spent = (current_time - start_time).total_seconds()
-
-                # Add to cumulative time for this question
-                if question_id in exam_state['question_time_spent']:
-                    exam_state['question_time_spent'][question_id] += time_spent
-                else:
-                    exam_state['question_time_spent'][question_id] = time_spent
-
-                print(f"[TIME] Question {question_id}: spent {time_spent:.1f}s (total: {exam_state['question_time_spent'][question_id]:.1f}s)")
-        except Exception as e:
-            print(f"Error tracking question time: {e}")
+        """Track time spent on current question before leaving it - DISABLED"""
+        pass  # Disabled to fix page update issues
+        # try:
+        #     current_time = datetime.now()
+        #     if question_id in exam_state['question_start_times']:
+        #         start_time = exam_state['question_start_times'][question_id]
+        #         time_spent = (current_time - start_time).total_seconds()
+        #         if question_id in exam_state['question_time_spent']:
+        #             exam_state['question_time_spent'][question_id] += time_spent
+        #         else:
+        #             exam_state['question_time_spent'][question_id] = time_spent
+        # except Exception as e:
+        #     print(f"Error tracking question time: {e}")
 
     def start_question_timer(question_id):
-        """Start timing for a new question"""
-        try:
-            exam_state['question_start_times'][question_id] = datetime.now()
-            print(f"[TIME] Started timer for question {question_id}")
-        except Exception as e:
-            print(f"Error starting question timer: {e}")
+        """Start timing for a new question - DISABLED"""
+        pass  # Disabled to fix page update issues
+        # try:
+        #     exam_state['question_start_times'][question_id] = datetime.now()
+        # except Exception as e:
+        #     print(f"Error starting question timer: {e}")
     
     def render_question_image(image_path):
         """Render question image if present - same logic as admin interface"""
@@ -173,9 +177,12 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
     def show_image_fullscreen(image_path):
         """Show image in fullscreen dialog"""
         try:
-            # Access page through main container
-            if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page') and exam_state['main_container'].page:
+            # Access page through main_container
+            page = None
+            if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
                 page = exam_state['main_container'].page
+
+            if page:
                 
                 def close_image_dialog(e):
                     image_dialog.open = False
@@ -373,17 +380,20 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     seconds = exam_state['time_remaining'] % 60
                     exam_state['timer_display'].value = f"{minutes:02d}:{seconds:02d}"
 
-                    # Update page if available
-                    if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
-                        try:
+                    # Update page - try multiple methods to get page reference
+                    try:
+                        page = None
+                        # Try to get page from main_container
+                        if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
                             page = exam_state['main_container'].page
-                            if page:
-                                page.update()
-                        except Exception as e:
-                            # Page closed or unavailable - stop timer gracefully
-                            print(f"[TIMER] Page unavailable, stopping timer: {e}")
-                            exam_state['timer_running'] = False
-                            break
+
+                        if page:
+                            page.update()
+                    except Exception as e:
+                        # Page closed or unavailable - stop timer gracefully
+                        print(f"[TIMER] Page unavailable, stopping timer: {e}")
+                        exam_state['timer_running'] = False
+                        break
 
                 # Time warnings
                 if exam_state['time_remaining'] == 600:  # 10 minutes
@@ -410,83 +420,55 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
     timer_thread = threading.Thread(target=update_timer, daemon=True)
     timer_thread.start()
 
-    # === Focus Loss Detection (Anti-Cheating) ===
+    # === Fullscreen Lock (Anti-Cheating) ===
 
-    def on_window_blur(e):
-        """Detect when user switches away from exam window"""
-        if not exam_state['prevent_focus_loss']:
-            return  # Feature not enabled for this exam
+    def on_fullscreen_change(e):
+        """Detect and prevent fullscreen exit during exam"""
+        if not exam_state['enable_fullscreen_lock'] or not exam_state['fullscreen_lock_active']:
+            return  # Feature not enabled or lock not active
 
         try:
-            # Only track if window loses focus (blur event)
-            if e.data == "blur" or e.data == "hide" or e.data == "minimize":
-                exam_state['focus_loss_count'] += 1
-                print(f"[FOCUS] Focus loss detected! Event: {e.data}, Count: {exam_state['focus_loss_count']}")
+            print(f"[FULLSCREEN] Window event detected: {e.data}")
 
-                # Log to audit system
-                audit_logger = get_audit_logger()
-                audit_logger.log_focus_loss(
-                    user_id=user_data['id'],
-                    session_id=session_id,
-                    focus_loss_count=exam_state['focus_loss_count']
-                )
+            # Check if page reference is available
+            if not exam_state.get('page_ref'):
+                return
 
-                # Update warning banner
-                update_focus_warning()
+            page = exam_state['page_ref']
 
-        except Exception as e:
-            print(f"[FOCUS] Error handling focus loss: {e}")
+            # Re-enable fullscreen if it was disabled
+            # This runs on any window event to catch fullscreen exits
+            if hasattr(page, 'window_full_screen'):
+                if not page.window_full_screen:
+                    print(f"[FULLSCREEN] Fullscreen exit detected - re-enabling lock")
+                    page.window_full_screen = True
+                    page.update()
 
-    def show_focus_warning():
-        """Create the focus loss warning banner"""
-        if not exam_state['prevent_focus_loss']:
+        except Exception as ex:
+            print(f"[FULLSCREEN] Error handling fullscreen change: {ex}")
+
+    def show_fullscreen_lock_banner():
+        """Create the fullscreen lock warning banner"""
+        if not exam_state['enable_fullscreen_lock']:
             return None
 
-        warning_banner = ft.Container(
+        lock_banner = ft.Container(
             content=ft.Row([
-                ft.Icon(ft.icons.WARNING_AMBER, color=ft.colors.ORANGE_400, size=20),
+                ft.Icon(ft.icons.LOCK, color=ft.colors.BLUE_700, size=20),
                 ft.Text(
-                    "Focus tracking enabled. Do not switch windows during exam.",
+                    "🔒 Fullscreen mode locked - Submit exam to exit",
                     size=14,
-                    color=ft.colors.ORANGE_400,
+                    color=ft.colors.BLUE_700,
                     weight=ft.FontWeight.W_500
-                ),
-                ft.Container(expand=True),
-                ft.Text(
-                    f"Focus losses: {exam_state['focus_loss_count']}",
-                    size=14,
-                    color=ft.colors.ORANGE_400,
-                    weight=ft.FontWeight.BOLD
                 )
             ], spacing=10, alignment=ft.MainAxisAlignment.CENTER),
-            bgcolor=ft.colors.ORANGE_50,
+            bgcolor=ft.colors.BLUE_50,
             padding=10,
             border_radius=8,
-            border=ft.border.all(1, ft.colors.ORANGE_400)
+            border=ft.border.all(1, ft.colors.BLUE_400)
         )
 
-        exam_state['focus_warning_banner'] = warning_banner
-        return warning_banner
-
-    def update_focus_warning():
-        """Update the focus warning banner with current count"""
-        try:
-            if exam_state['focus_warning_banner'] and exam_state['page_ref']:
-                # Update the count text in the banner
-                banner = exam_state['focus_warning_banner']
-                if banner.content and len(banner.content.controls) > 3:
-                    count_text = banner.content.controls[3]
-                    count_text.value = f"Focus losses: {exam_state['focus_loss_count']}"
-
-                    # Change color based on severity
-                    if exam_state['focus_loss_count'] >= 5:
-                        banner.bgcolor = ft.colors.RED_50
-                        banner.border = ft.border.all(1, ft.colors.RED_400)
-                        count_text.color = ft.colors.RED_600
-
-                    exam_state['page_ref'].update()
-        except Exception as e:
-            print(f"[FOCUS] Error updating warning banner: {e}")
+        return lock_banner
 
     def create_question_content():
         """Create the current question display"""
@@ -681,15 +663,19 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 save_current_answer()
                 exam_state['current_question_index'] -= 1
                 exam_state['main_container'].content = create_main_content()
+
+                # Update page
                 if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page') and exam_state['main_container'].page:
                     exam_state['main_container'].page.update()
-        
+
         def go_next(e):
             if exam_state['current_question_index'] < len(questions) - 1:
                 # Save current answer before navigation
                 save_current_answer()
                 exam_state['current_question_index'] += 1
                 exam_state['main_container'].content = create_main_content()
+
+                # Update page
                 if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page') and exam_state['main_container'].page:
                     exam_state['main_container'].page.update()
         
@@ -707,9 +693,14 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 new_q = questions[index]
                 start_question_timer(new_q['id'])
 
+                # Update UI with new question content
                 exam_state['main_container'].content = create_main_content()
+
+                # Update page
                 if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page') and exam_state['main_container'].page:
                     exam_state['main_container'].page.update()
+                else:
+                    print("[NAV] Warning: No page reference available for navigation update")
         
         def submit_exam(e):
             """Show confirmation dialog before submitting exam"""
@@ -934,7 +925,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                         'completed',
                         1,  # TODO: Calculate actual attempt number
                         True,
-                        exam_state['focus_loss_count']  # Save focus loss count
+                        0  # No longer tracking focus loss
                     ))
                 except Exception as db_ex:
                     print(f"Database insert failed, trying without explicit ID: {db_ex}")
@@ -1020,14 +1011,19 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 page = None
                 if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
                     page = exam_state['main_container'].page
-                
+
                 if not page:
                     print("No page context for submission confirmation - returning to dashboard")
                     if return_callback and callable(return_callback):
                         return_callback()
                     return
-                
+
                 def close_dialog(e):
+                    # Deactivate fullscreen lock before exiting
+                    if exam_state['enable_fullscreen_lock']:
+                        exam_state['fullscreen_lock_active'] = False
+                        print("[FULLSCREEN] Fullscreen lock released after exam submission")
+
                     if page and page.dialog:
                         page.dialog.open = False
                         page.update()
@@ -1072,14 +1068,19 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 page = None
                 if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
                     page = exam_state['main_container'].page
-                
+
                 if not page:
                     print("No page context for pending release confirmation - returning to dashboard")
                     if return_callback and callable(return_callback):
                         return_callback()
                     return
-                
+
                 def close_dialog(e):
+                    # Deactivate fullscreen lock before exiting
+                    if exam_state['enable_fullscreen_lock']:
+                        exam_state['fullscreen_lock_active'] = False
+                        print("[FULLSCREEN] Fullscreen lock released after exam submission")
+
                     if page and page.dialog:
                         page.dialog.open = False
                         page.update()
@@ -1274,14 +1275,20 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         def return_to_dashboard():
             """Return to dashboard from results dialog"""
             try:
+                # Deactivate fullscreen lock before exiting
+                if exam_state['enable_fullscreen_lock']:
+                    exam_state['fullscreen_lock_active'] = False
+                    print("[FULLSCREEN] Fullscreen lock released after exam submission")
+
                 # Close dialog first
+                page = None
                 if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
                     page = exam_state['main_container'].page
-                    if page and page.dialog:
-                        page.dialog.open = False
-                        page.update()
-                
-                # Then return to dashboard
+                if page and page.dialog:
+                    page.dialog.open = False
+                    page.update()
+
+                # Then return to dashboard (this will restore fullscreen state via callback)
                 if return_callback and callable(return_callback):
                     return_callback()
                 else:
@@ -1358,76 +1365,200 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             border_radius=8
         )
         
-        progress_overview = ft.Container(
-            content=ft.Column([
-                ft.Text("Progress Overview", size=14, weight=ft.FontWeight.BOLD),
-                ft.Container(height=12),
-                ft.Text(f"{answered_count} of {total_q} answered", size=16),
-                ft.Container(height=8),
-                ft.ProgressBar(
-                    value=answered_count/total_q if total_q > 0 else 0, 
-                    height=8,
-                    color=EXAM_COLORS['primary'],
-                    bgcolor=EXAM_COLORS['unanswered']
+        # Get exam template names for each question (for multi-template assignments)
+        # Build a map of question_id -> exam_title
+        question_to_exam_map = {}
+        if assignment_id:
+            # Multi-template assignment - get exam titles for each question
+            exam_templates = db.execute_query("""
+                SELECT DISTINCT e.id, e.title
+                FROM assignment_exam_templates aet
+                JOIN exams e ON aet.exam_id = e.id
+                WHERE aet.assignment_id = ?
+                ORDER BY aet.order_index
+            """, (assignment_id,))
+
+            # Map each question to its exam title
+            for question in questions:
+                for exam in exam_templates:
+                    # Check if this question belongs to this exam
+                    question_exam = db.execute_single("""
+                        SELECT exam_id FROM questions WHERE id = ?
+                    """, (question['id'],))
+
+                    if question_exam and question_exam['exam_id'] == exam['id']:
+                        question_to_exam_map[question['id']] = exam['title']
+                        break
+        else:
+            # Single template - use exam title from exam_data
+            exam_title = exam_data.get('title', 'Exam')
+            for question in questions:
+                question_to_exam_map[question['id']] = exam_title
+
+        # Progress overview with per-exam breakdown
+        # Group questions by exam template name for progress calculation
+        topic_progress = {}
+        for question in questions:
+            exam_title = question_to_exam_map.get(question['id'], 'Unknown')
+            if exam_title not in topic_progress:
+                topic_progress[exam_title] = {'total': 0, 'answered': 0}
+            topic_progress[exam_title]['total'] += 1
+            if question['id'] in exam_state['user_answers']:
+                topic_progress[exam_title]['answered'] += 1
+
+        # Build progress display
+        progress_items = [
+            ft.Text("Progress Overview", size=14, weight=ft.FontWeight.BOLD),
+            ft.Container(height=8),
+            ft.Text(f"{answered_count} of {total_q} answered", size=16, weight=ft.FontWeight.W_500),
+            ft.Container(height=8),
+            ft.ProgressBar(
+                value=answered_count/total_q if total_q > 0 else 0,
+                height=8,
+                color=EXAM_COLORS['primary'],
+                bgcolor=EXAM_COLORS['unanswered']
+            )
+        ]
+
+        # Add per-topic progress if multiple topics exist
+        if len(topic_progress) > 1:
+            progress_items.append(ft.Container(height=12))
+            progress_items.append(ft.Divider(height=1, color=EXAM_COLORS['border']))
+            progress_items.append(ft.Container(height=8))
+
+            for topic in sorted(topic_progress.keys()):
+                stats = topic_progress[topic]
+                percentage = (stats['answered'] / stats['total'] * 100) if stats['total'] > 0 else 0
+
+                progress_items.append(
+                    ft.Row([
+                        ft.Text(
+                            f"{topic}:",
+                            size=12,
+                            color=EXAM_COLORS['text_secondary'],
+                            weight=ft.FontWeight.W_500
+                        ),
+                        ft.Container(expand=True),
+                        ft.Text(
+                            f"{stats['answered']}/{stats['total']}",
+                            size=12,
+                            weight=ft.FontWeight.W_500
+                        )
+                    ], spacing=6)
                 )
-            ]),
+
+        progress_overview = ft.Container(
+            content=ft.Column(progress_items, spacing=4),
             padding=ft.padding.all(16),
             bgcolor=EXAM_COLORS['surface'],
             border_radius=8
         )
         
-        # Question Navigator/Palette
-        navigator_buttons = []
+        # Question Navigator/Palette - Grouped by Exam Template Name
+        # Group questions by their original exam template
+        topic_groups = {}
+        topic_question_indices = {}  # Map exam_title to list of question indices
+
         for i in range(len(questions)):
-            question_id = questions[i]['id']
-            is_current = i == exam_state['current_question_index']
-            is_answered = question_id in exam_state['user_answers']
-            is_marked = question_id in exam_state['marked_for_review']
-            
-            # Determine button color priority: current > marked > answered > unanswered
-            if is_current:
-                bg_color = EXAM_COLORS['current']
-                text_color = ft.colors.WHITE
-            elif is_marked:
-                bg_color = EXAM_COLORS['marked']
-                text_color = ft.colors.WHITE
-            elif is_answered:
-                bg_color = EXAM_COLORS['answered'] 
-                text_color = ft.colors.WHITE
-            else:
-                bg_color = EXAM_COLORS['unanswered']
-                text_color = EXAM_COLORS['text_primary']
-            
-            navigator_buttons.append(
-                ft.Container(
-                    content=ft.Text(
-                        str(i + 1),
-                        size=12,
+            exam_title = question_to_exam_map.get(questions[i]['id'], 'Unknown')
+            if exam_title not in topic_groups:
+                topic_groups[exam_title] = []
+                topic_question_indices[exam_title] = []
+            topic_groups[exam_title].append(questions[i])
+            topic_question_indices[exam_title].append(i)
+
+        # Build navigator with topic groups
+        navigator_sections = []
+
+        for topic in sorted(topic_groups.keys()):
+            topic_questions = topic_groups[topic]
+            topic_indices = topic_question_indices[topic]
+
+            # Calculate topic progress
+            topic_answered = sum(1 for q in topic_questions if q['id'] in exam_state['user_answers'])
+            topic_total = len(topic_questions)
+
+            # Topic header
+            topic_header = ft.Container(
+                content=ft.Row([
+                    ft.Text(
+                        f"{topic} ({topic_indices[0] + 1}-{topic_indices[-1] + 1})",
+                        size=13,
                         weight=ft.FontWeight.BOLD,
-                        color=text_color
+                        color=EXAM_COLORS['text_primary']
                     ),
-                    width=35,
-                    height=35,
-                    bgcolor=bg_color,
-                    border_radius=4,
-                    alignment=ft.alignment.center,
-                    on_click=lambda e, idx=i: navigate_to_question(idx)
+                    ft.Container(expand=True),
+                    ft.Text(
+                        f"{topic_answered}/{topic_total}",
+                        size=11,
+                        color=EXAM_COLORS['text_secondary']
+                    )
+                ], spacing=6),
+                padding=ft.padding.only(top=8, bottom=4)
+            )
+
+            navigator_sections.append(topic_header)
+
+            # Create question buttons for this topic
+            topic_buttons = []
+            for idx in topic_indices:
+                question_id = questions[idx]['id']
+                is_current = idx == exam_state['current_question_index']
+                is_answered = question_id in exam_state['user_answers']
+                is_marked = question_id in exam_state['marked_for_review']
+
+                # Determine button color priority: current > marked > answered > unanswered
+                if is_current:
+                    bg_color = EXAM_COLORS['current']
+                    text_color = ft.colors.WHITE
+                elif is_marked:
+                    bg_color = EXAM_COLORS['marked']
+                    text_color = ft.colors.WHITE
+                elif is_answered:
+                    bg_color = EXAM_COLORS['answered']
+                    text_color = ft.colors.WHITE
+                else:
+                    bg_color = EXAM_COLORS['unanswered']
+                    text_color = EXAM_COLORS['text_primary']
+
+                topic_buttons.append(
+                    ft.Container(
+                        content=ft.Text(
+                            str(idx + 1),
+                            size=11,
+                            weight=ft.FontWeight.BOLD,
+                            color=text_color
+                        ),
+                        width=32,
+                        height=32,
+                        bgcolor=bg_color,
+                        border_radius=4,
+                        alignment=ft.alignment.center,
+                        on_click=lambda e, i=idx: navigate_to_question(i)
+                    )
+                )
+
+            # Create rows of 5 buttons each for this topic
+            topic_rows = []
+            for i in range(0, len(topic_buttons), 5):
+                row_buttons = topic_buttons[i:i+5]
+                topic_rows.append(ft.Row(row_buttons, spacing=4))
+
+            # Add topic button grid
+            navigator_sections.append(
+                ft.Container(
+                    content=ft.Column(topic_rows, spacing=6),
+                    padding=ft.padding.only(bottom=8)
                 )
             )
-        
-        # Create rows of 5 buttons each
-        navigator_rows = []
-        for i in range(0, len(navigator_buttons), 5):
-            row_buttons = navigator_buttons[i:i+5]
-            navigator_rows.append(ft.Row(row_buttons, spacing=5))
-        
+
         question_navigator = ft.Container(
             content=ft.Column([
                 ft.Text("Question Navigator", size=14, weight=ft.FontWeight.BOLD),
-                ft.Container(height=12),
+                ft.Container(height=8),
                 ft.Container(
-                    content=ft.Column(navigator_rows, spacing=8, scroll=ft.ScrollMode.AUTO),
-                    height=200
+                    content=ft.Column(navigator_sections, spacing=4, scroll=ft.ScrollMode.AUTO),
+                    height=280
                 )
             ]),
             padding=ft.padding.all(16),
@@ -1541,15 +1672,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             )
         ]
 
-        # Add focus warning banner if feature enabled
-        focus_banner = show_focus_warning()
-        if focus_banner:
-            column_controls.append(
-                ft.Container(
-                    content=focus_banner,
-                    padding=ft.padding.symmetric(horizontal=24, vertical=8)
-                )
-            )
+        # Fullscreen lock banner removed (feature temporarily disabled)
 
         # Add main content area
         column_controls.append(
@@ -1598,11 +1721,6 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
     except Exception as e:
         print(f"[AUDIT ERROR] Failed to log exam start: {e}")
 
-    # Wrap in UserControl to handle page lifecycle and focus detection
-    return ExamInterfaceWrapper(
-        exam_data=exam_data,
-        user_data=user_data,
-        return_callback=return_callback,
-        exam_state=exam_state,
-        on_window_blur=on_window_blur
-    )
+    # Return the main container directly (no wrapper to avoid page reference issues)
+    # Note: Fullscreen lock disabled for now due to technical limitations
+    return main_container

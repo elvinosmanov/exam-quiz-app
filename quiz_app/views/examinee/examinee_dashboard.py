@@ -292,15 +292,8 @@ class ExamineeDashboard(ft.UserControl):
                         ], spacing=6)
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     
-                    # Second row: Category + Duration + Pass score + Attempts  
+                    # Second row: Duration + Pass score + Attempts
                     ft.Row([
-                        ft.Text(
-                            f"Category: {exam.get('category') or 'None'}",
-                            size=12,
-                            color=COLORS['primary'],
-                            weight=ft.FontWeight.W_500
-                        ),
-                        ft.Text("|", size=12, color=COLORS['text_secondary']),
                         ft.Text(
                             f"Duration: {exam['duration_minutes']} min",
                             size=12,
@@ -773,9 +766,10 @@ class ExamineeDashboard(ft.UserControl):
             assignment_data = self.db.execute_single("""
                 SELECT
                     ea.*,
-                    e.title as exam_title,
-                    e.description as exam_description,
-                    e.category
+                    e.title,
+                    e.description,
+                    e.category,
+                    e.passing_score
                 FROM exam_assignments ea
                 JOIN exams e ON ea.exam_id = e.id
                 WHERE ea.id = ? AND ea.is_active = 1

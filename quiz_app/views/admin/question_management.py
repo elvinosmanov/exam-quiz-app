@@ -32,9 +32,9 @@ class QuestionManagement(ft.UserControl):
         self.current_image_full_path = None  # Full path for display
         self.image_file_picker = None
         
-        # Exam selector
+        # Topic selector
         self.exam_selector = ft.Dropdown(
-            label="Select Exam",
+            label="Select Topic",
             options=[ft.dropdown.Option(str(exam['id']), exam['title']) for exam in self.exams_data],
             on_change=self.exam_selected,
             expand=True
@@ -111,7 +111,7 @@ class QuestionManagement(ft.UserControl):
         )
 
         self.create_exam_btn = ft.ElevatedButton(
-            text="Create Exam Template",
+            text="New Topic",
             icon=ft.icons.LIBRARY_ADD,
             on_click=self.show_create_exam_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -1729,11 +1729,11 @@ class QuestionManagement(ft.UserControl):
     def show_exam_dialog(self, exam=None):
         """Create or edit exam template dialog"""
         is_edit = exam is not None
-        title = "Edit Exam Template" if is_edit else "Create New Exam Template"
+        title = "Edit Topic" if is_edit else "Create Topic"
 
-        # Form fields - Only basic template information
+        # Form fields - Only basic topic information
         exam_title_field = ft.TextField(
-            label="Exam Title *",
+            label="Topic Title *",
             value=exam['title'] if is_edit else "",
             content_padding=8,
             hint_text="Enter a descriptive exam title",
@@ -1748,14 +1748,6 @@ class QuestionManagement(ft.UserControl):
             max_lines=6,
             content_padding=8,
             hint_text="Provide exam instructions or description",
-            width=600
-        )
-
-        category_field = ft.TextField(
-            label="Category (optional)",
-            value=exam.get('category', '') if is_edit else "",
-            content_padding=8,
-            hint_text="e.g., Mathematics, Programming, Science",
             width=600
         )
 
@@ -1774,13 +1766,12 @@ class QuestionManagement(ft.UserControl):
                     # Update existing exam
                     query = """
                         UPDATE exams
-                        SET title = ?, description = ?, category = ?
+                        SET title = ?, description = ?
                         WHERE id = ?
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        category_field.value.strip() or None,
                         exam['id']
                     )
                     self.db.execute_update(query, params)
@@ -1788,13 +1779,12 @@ class QuestionManagement(ft.UserControl):
                     # Create new exam - need user_id from somewhere
                     # Get current user from session or pass it in
                     query = """
-                        INSERT INTO exams (title, description, category, created_by)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO exams (title, description, created_by)
+                        VALUES (?, ?, ?)
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        category_field.value.strip() or None,
                         1  # TODO: Get actual user ID
                     )
                     self.db.execute_insert(query, params)
@@ -1828,12 +1818,11 @@ class QuestionManagement(ft.UserControl):
                 content=ft.Column([
                     exam_title_field,
                     description_field,
-                    category_field,
                     ft.Container(height=10),
                     error_text
                 ], spacing=15, tight=True),
                 width=600,
-                height=350
+                height=300
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
