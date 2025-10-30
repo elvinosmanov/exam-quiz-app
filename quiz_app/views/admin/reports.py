@@ -1209,17 +1209,23 @@ class Reports(ft.UserControl):
                 """Add header with logo and footer with confidential warning"""
                 canvas_obj.saveState()
 
-                # Header - Azercosmos Logo
+                # Header - Azercosmos Logo (Centered)
                 logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                page_width = A4[0]
+                logo_width = 150
+                logo_height = 40
+
                 if os.path.exists(logo_path):
                     try:
-                        canvas_obj.drawImage(logo_path, 50, A4[1] - 60, width=150, height=40, preserveAspectRatio=True, mask='auto')
+                        # Center the logo horizontally
+                        x_position = (page_width - logo_width) / 2
+                        canvas_obj.drawImage(logo_path, x_position, A4[1] - 60, width=logo_width, height=logo_height, preserveAspectRatio=True, mask='auto')
                     except:
-                        canvas_obj.setFont('Helvetica-Bold', 10)
-                        canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                        canvas_obj.setFont('Helvetica-Bold', 12)
+                        canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
                 else:
-                    canvas_obj.setFont('Helvetica-Bold', 10)
-                    canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                    canvas_obj.setFont('Helvetica-Bold', 12)
+                    canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
 
                 # Footer - Confidential Warning
                 footer_text = [
@@ -1426,17 +1432,23 @@ class Reports(ft.UserControl):
                 """Add header with logo and footer with confidential warning"""
                 canvas_obj.saveState()
 
-                # Header - Azercosmos Logo
+                # Header - Azercosmos Logo (Centered)
                 logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                page_width = A4[0]
+                logo_width = 150
+                logo_height = 40
+
                 if os.path.exists(logo_path):
                     try:
-                        canvas_obj.drawImage(logo_path, 50, A4[1] - 60, width=150, height=40, preserveAspectRatio=True, mask='auto')
+                        # Center the logo horizontally
+                        x_position = (page_width - logo_width) / 2
+                        canvas_obj.drawImage(logo_path, x_position, A4[1] - 60, width=logo_width, height=logo_height, preserveAspectRatio=True, mask='auto')
                     except:
-                        canvas_obj.setFont('Helvetica-Bold', 10)
-                        canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                        canvas_obj.setFont('Helvetica-Bold', 12)
+                        canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
                 else:
-                    canvas_obj.setFont('Helvetica-Bold', 10)
-                    canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                    canvas_obj.setFont('Helvetica-Bold', 12)
+                    canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
 
                 # Footer - Confidential Warning
                 footer_text = [
