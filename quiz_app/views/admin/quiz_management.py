@@ -75,11 +75,30 @@ class QuizManagement(ft.UserControl):
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
         )
 
+        # Create Preset Template button
+        self.add_preset_btn = ft.ElevatedButton(
+            "Create Preset Template",
+            icon=ft.icons.BOOKMARK_ADD,
+            on_click=self.show_create_preset_dialog,
+            style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
+        )
+
+        # Manage Presets button
+        self.manage_presets_btn = ft.OutlinedButton(
+            "Manage Presets",
+            icon=ft.icons.BOOKMARKS,
+            on_click=self.show_manage_presets_dialog,
+        )
+
         return ft.Column([
             # Header
             ft.Row([
                 ft.Text("Assignment Management", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
+                self.manage_presets_btn,
+                ft.Container(width=10),
+                self.add_preset_btn,
+                ft.Container(width=10),
                 self.add_assignment_btn
             ]),
             ft.Divider(),
@@ -393,7 +412,7 @@ class QuizManagement(ft.UserControl):
         self.page.update()
 
     def show_add_assignment_dialog(self, e):
-        """Show dialog to create a new assignment by selecting one or more exam templates"""
+        """Show dialog to create a new assignment - with option to use preset template or manual selection"""
         # Load all available exam templates
         exam_templates = self.db.execute_query("""
             SELECT id, title, description,
@@ -411,10 +430,46 @@ class QuizManagement(ft.UserControl):
             self.page.update()
             return
 
+        # Load preset templates
+        preset_templates = self.db.execute_query("""
+            SELECT pt.id, pt.name, pt.description,
+                   SUM(pte.easy_count + pte.medium_count + pte.hard_count) as total_questions
+            FROM exam_preset_templates pt
+            LEFT JOIN preset_template_exams pte ON pt.id = pte.template_id
+            GROUP BY pt.id
+            ORDER BY pt.name
+        """)
+
+        # Track selection mode
+        self.assignment_mode = ft.RadioGroup(
+            content=ft.Column([
+                ft.Radio(value="preset", label="Use Preset Template"),
+                ft.Radio(value="manual", label="Select Exam Templates Manually")
+            ]),
+            value="manual" if not preset_templates else "preset"
+        )
+
         # Track selected exam templates
         self.selected_exam_templates = []
+        self.selected_preset_id = None
 
-        # Available exams dropdown
+        # Preset template dropdown
+        preset_dropdown = ft.Dropdown(
+            label="Select Preset Template",
+            hint_text="Choose a preset template",
+            options=[
+                ft.dropdown.Option(
+                    key=str(preset['id']),
+                    text=f"{preset['name']} - {preset['total_questions'] or 0} questions"
+                )
+                for preset in preset_templates
+            ],
+            width=600,
+            visible=bool(preset_templates) and self.assignment_mode.value == "preset",
+            disabled=not preset_templates
+        )
+
+        # Available exams dropdown (manual selection)
         exam_dropdown = ft.Dropdown(
             label="Select Exam Templates",
             hint_text="Choose exams to combine into one assignment",
@@ -425,14 +480,77 @@ class QuizManagement(ft.UserControl):
                 )
                 for exam in exam_templates
             ],
-            width=600
+            width=600,
+            visible=self.assignment_mode.value == "manual"
         )
 
-        # Container for selected exam chips
+        def on_mode_change(e):
+            """Toggle between preset and manual mode"""
+            mode = e.control.value
+            preset_dropdown.visible = (mode == "preset")
+            exam_dropdown.visible = (mode == "manual")
+            selected_exams_container.visible = (mode == "manual")
+            preset_info_container.visible = (mode == "preset")
+            select_dialog.update()
+
+        self.assignment_mode.on_change = on_mode_change
+
+        # Container for preset info
+        preset_info_container = ft.Column([
+            ft.Text("Preset Template Details:", size=13, weight=ft.FontWeight.BOLD),
+        ], spacing=5, visible=self.assignment_mode.value == "preset")
+
+        # Container for selected exam chips (manual mode)
         selected_exams_container = ft.Column([
             ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
             ft.Text("(Exams will be combined into one continuous test)", size=12, color=COLORS['text_secondary'], italic=True)
-        ], spacing=5)
+        ], spacing=5, visible=self.assignment_mode.value == "manual")
+
+        def on_preset_selected(e):
+            """Handle preset template selection"""
+            if not e.control.value:
+                return
+
+            preset_id = int(e.control.value)
+            self.selected_preset_id = preset_id
+
+            # Load preset details
+            preset_details = self.db.execute_query("""
+                SELECT e.title, pte.easy_count, pte.medium_count, pte.hard_count
+                FROM preset_template_exams pte
+                JOIN exams e ON pte.exam_id = e.id
+                WHERE pte.template_id = ?
+            """, (preset_id,))
+
+            # Display preset details
+            preset_info_container.controls.clear()
+            preset_info_container.controls.append(
+                ft.Text("Preset Template Details:", size=13, weight=ft.FontWeight.BOLD)
+            )
+
+            for detail in preset_details:
+                topic_total = detail['easy_count'] + detail['medium_count'] + detail['hard_count']
+                preset_info_container.controls.append(
+                    ft.Container(
+                        content=ft.Text(
+                            f"• {detail['title']}: {detail['easy_count']}E / {detail['medium_count']}M / {detail['hard_count']}H (Total: {topic_total})",
+                            size=12
+                        ),
+                        padding=ft.padding.only(left=10)
+                    )
+                )
+
+            total = sum(d['easy_count'] + d['medium_count'] + d['hard_count'] for d in preset_details)
+            preset_info_container.controls.append(
+                ft.Container(
+                    content=ft.Text(f"Total Questions: {total}", weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    padding=ft.padding.only(top=5)
+                )
+            )
+
+            select_dialog.update()
+
+        preset_dropdown.on_change = on_preset_selected
 
         def on_exam_selected(e):
             if not e.control.value:
@@ -492,13 +610,50 @@ class QuizManagement(ft.UserControl):
         exam_dropdown.on_change = on_exam_selected
 
         def on_create_assignment(e):
-            if not self.selected_exam_templates:
-                return
+            """Handle assignment creation based on selected mode"""
+            mode = self.assignment_mode.value
 
-            select_dialog.open = False
-            self.page.update()
-            # Open the assignment creation dialog with selected exams
-            self.show_assignment_creation_dialog_multi(self.selected_exam_templates)
+            if mode == "preset":
+                if not self.selected_preset_id:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Please select a preset template"),
+                        bgcolor=COLORS['error']
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                    return
+
+                # Load exam templates from preset
+                preset_config = self.db.execute_query("""
+                    SELECT pte.exam_id, e.title, e.description,
+                           pte.easy_count, pte.medium_count, pte.hard_count
+                    FROM preset_template_exams pte
+                    JOIN exams e ON pte.exam_id = e.id
+                    WHERE pte.template_id = ?
+                """, (self.selected_preset_id,))
+
+                # Get preset name for assignment naming
+                preset = next((p for p in preset_templates if p['id'] == self.selected_preset_id), None)
+
+                select_dialog.open = False
+                self.page.update()
+                # Open preset-based assignment dialog
+                self.show_assignment_creation_dialog_from_preset(preset_config, preset['name'] if preset else "Preset")
+
+            elif mode == "manual":
+                if not self.selected_exam_templates:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Please select at least one exam template"),
+                        bgcolor=COLORS['error']
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                    return
+
+                select_dialog.open = False
+                self.page.update()
+                # Open manual multi-template assignment dialog
+                self.show_assignment_creation_dialog_multi(self.selected_exam_templates)
 
         def close_dialog(e):
             select_dialog.open = False
@@ -506,17 +661,19 @@ class QuizManagement(ft.UserControl):
 
         select_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Create New Assignment - Select Exam Templates"),
+            title=ft.Text("Create New Assignment"),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("Select one or more exam templates to combine:", size=14),
-                    ft.Container(height=10),
+                    ft.Text("Assignment Method:", size=15, weight=ft.FontWeight.BOLD),
+                    self.assignment_mode,
+                    ft.Divider(),
+                    preset_dropdown,
+                    preset_info_container,
                     exam_dropdown,
-                    ft.Container(height=15),
                     selected_exams_container
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
                 width=700,
-                height=400
+                height=500
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -961,6 +1118,431 @@ class QuizManagement(ft.UserControl):
                 ft.TextButton("Cancel", on_click=close_dialog),
                 ft.ElevatedButton(
                     button_text,
+                    on_click=save_assignment,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = assignment_dialog
+        assignment_dialog.open = True
+        self.page.update()
+
+    def show_assignment_creation_dialog_from_preset(self, preset_config, preset_name):
+        """Show assignment dialog using preset template configuration"""
+        from datetime import datetime, date
+
+        # Calculate total questions from preset
+        total_questions = sum(c['easy_count'] + c['medium_count'] + c['hard_count'] for c in preset_config)
+
+        # Assignment name (auto-filled with preset name)
+        assignment_name_field = ft.TextField(
+            label="Assignment Name *",
+            value=f"{preset_name} - {datetime.now().strftime('%Y-%m-%d')}",
+            content_padding=5,
+            hint_text="e.g., SOC Interview - John Doe",
+            expand=True
+        )
+
+        # Show preset configuration (read-only)
+        preset_display = ft.Column([
+            ft.Text("Preset Configuration:", size=14, weight=ft.FontWeight.BOLD),
+            ft.Text(f"Using preset: {preset_name}", size=12, italic=True, color=COLORS['text_secondary'])
+        ])
+
+        for config in preset_config:
+            topic_total = config['easy_count'] + config['medium_count'] + config['hard_count']
+            preset_display.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
+                        ft.Text(f"{config['title']}", size=13),
+                        ft.Container(expand=True),
+                        ft.Text(
+                            f"{config['easy_count']}E / {config['medium_count']}M / {config['hard_count']}H = {topic_total}Q",
+                            size=12,
+                            color=COLORS['text_secondary']
+                        )
+                    ], spacing=8),
+                    padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                    border_radius=4
+                )
+            )
+
+        preset_display.controls.append(
+            ft.Container(
+                content=ft.Text(
+                    f"Total: {total_questions} questions",
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    color=COLORS['primary']
+                ),
+                padding=ft.padding.only(top=8)
+            )
+        )
+
+        # Duration, Passing Score, Max Attempts
+        duration_field = ft.TextField(
+            label="Duration (minutes)",
+            value="60",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            content_padding=5,
+            hint_text="e.g., 90",
+            width=150
+        )
+
+        passing_score_field = ft.TextField(
+            label="Passing Score (%)",
+            value="70",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            content_padding=5,
+            hint_text="e.g., 80",
+            width=150
+        )
+
+        max_attempts_field = ft.TextField(
+            label="Max Attempts",
+            value="1",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            content_padding=5,
+            hint_text="e.g., 3",
+            width=150
+        )
+
+        # Security Settings
+        randomize_questions = ft.Checkbox(
+            label="Randomize Questions",
+            value=True
+        )
+
+        show_results = ft.Checkbox(
+            label="Show Results to Students",
+            value=True
+        )
+
+        enable_fullscreen = ft.Checkbox(
+            label="Enable Full Window Mode",
+            value=False
+        )
+
+        prevent_focus_loss = ft.Checkbox(
+            label="Prevent Focus Loss",
+            value=False
+        )
+
+        enable_logging = ft.Checkbox(
+            label="Enable Activity Logging",
+            value=False
+        )
+
+        enable_pattern_analysis = ft.Checkbox(
+            label="Enable Answer Pattern Analysis",
+            value=False
+        )
+
+        # Date picker
+        self.assignment_deadline = None
+        self.assignment_deadline_picker = ft.DatePicker(
+            first_date=date.today(),
+            last_date=date(2030, 12, 31)
+        )
+
+        deadline_field = ft.TextField(
+            label="Deadline (optional)",
+            value="",
+            read_only=True,
+            content_padding=5,
+            hint_text="Click to select deadline",
+            width=250,
+            on_click=lambda e: self.page.open(self.assignment_deadline_picker),
+            suffix=ft.IconButton(
+                icon=ft.icons.CALENDAR_TODAY,
+                on_click=lambda e: self.page.open(self.assignment_deadline_picker)
+            )
+        )
+
+        def deadline_changed(e):
+            self.assignment_deadline = e.control.value
+            deadline_field.value = self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else ""
+            deadline_field.update()
+
+        self.assignment_deadline_picker.on_change = deadline_changed
+
+        # User selection
+        self.selected_assignment_users = []
+        self.selected_assignment_departments = []
+
+        users = self.db.execute_query("""
+            SELECT id, full_name, username
+            FROM users
+            WHERE role = 'examinee' AND is_active = 1
+            ORDER BY full_name
+        """)
+
+        departments = self.db.execute_query("""
+            SELECT DISTINCT department
+            FROM users
+            WHERE department IS NOT NULL AND department != '' AND role = 'examinee'
+            ORDER BY department
+        """)
+
+        user_dropdown = ft.Dropdown(
+            label="Select Users",
+            hint_text="Choose users to assign",
+            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
+            width=250,
+            content_padding=5
+        )
+
+        department_dropdown = ft.Dropdown(
+            label="Select Departments",
+            hint_text="Choose departments to assign",
+            options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
+            width=250,
+            content_padding=5
+        )
+
+        selected_items_container = ft.Column([
+            ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
+        ], spacing=5)
+
+        def on_user_selection(e):
+            if not e.control.value:
+                return
+
+            user_id = int(e.control.value)
+            if user_id not in self.selected_assignment_users:
+                self.selected_assignment_users.append(user_id)
+
+                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
+
+                chip = ft.Chip(
+                    label=ft.Text(user_name),
+                    on_delete=lambda e, uid=user_id: remove_user(uid),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_items_container.controls.append(chip)
+
+            e.control.value = None
+            if self.page:
+                self.page.update()
+
+        def on_department_selection(e):
+            if not e.control.value:
+                return
+
+            dept = e.control.value
+            if dept not in self.selected_assignment_departments:
+                self.selected_assignment_departments.append(dept)
+
+                chip = ft.Chip(
+                    label=ft.Text(f"Department: {dept}"),
+                    on_delete=lambda e, d=dept: remove_department(d),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_items_container.controls.append(chip)
+
+            e.control.value = None
+            if self.page:
+                self.page.update()
+
+        def remove_user(user_id):
+            if user_id in self.selected_assignment_users:
+                self.selected_assignment_users.remove(user_id)
+                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
+                        user_name = control.label.value
+                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
+                            selected_items_container.controls.pop(i)
+                            break
+                if self.page:
+                    self.page.update()
+
+        def remove_department(dept):
+            if dept in self.selected_assignment_departments:
+                self.selected_assignment_departments.remove(dept)
+                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
+                        selected_items_container.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
+        user_dropdown.on_change = on_user_selection
+        department_dropdown.on_change = on_department_selection
+
+        error_text = ft.Text("", color=COLORS['error'], visible=False)
+
+        def save_assignment(e):
+            # Validate
+            if not assignment_name_field.value.strip():
+                error_text.value = "Assignment name is required"
+                error_text.visible = True
+                assignment_dialog.update()
+                return
+
+            if not self.selected_assignment_users and not self.selected_assignment_departments:
+                error_text.value = "Please select at least one user or department"
+                error_text.visible = True
+                assignment_dialog.update()
+                return
+
+            try:
+                duration = int(duration_field.value)
+                passing_score = float(passing_score_field.value)
+                max_attempts = int(max_attempts_field.value)
+
+                if duration <= 0 or passing_score <= 0 or passing_score > 100 or max_attempts <= 0:
+                    error_text.value = "Invalid values for duration, passing score, or max attempts"
+                    error_text.visible = True
+                    assignment_dialog.update()
+                    return
+
+                # Use first exam as primary reference (for system compatibility)
+                primary_exam_id = preset_config[0]['exam_id']
+
+                # Create assignment with preset flag
+                query = """
+                    INSERT INTO exam_assignments (
+                        exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
+                        randomize_questions, show_results, enable_fullscreen, prevent_focus_loss,
+                        enable_logging, enable_pattern_analysis, use_question_pool, questions_to_select,
+                        easy_questions_count, medium_questions_count, hard_questions_count,
+                        deadline, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                params = (
+                    primary_exam_id,
+                    assignment_name_field.value.strip(),
+                    duration,
+                    passing_score,
+                    max_attempts,
+                    1 if randomize_questions.value else 0,
+                    1 if show_results.value else 0,
+                    1 if enable_fullscreen.value else 0,
+                    1 if prevent_focus_loss.value else 0,
+                    1 if enable_logging.value else 0,
+                    1 if enable_pattern_analysis.value else 0,
+                    1,  # Use question pool mode for preset-based assignments
+                    total_questions,  # Total questions
+                    sum(c['easy_count'] for c in preset_config),
+                    sum(c['medium_count'] for c in preset_config),
+                    sum(c['hard_count'] for c in preset_config),
+                    self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                    self.user_data['id']
+                )
+                assignment_id = self.db.execute_insert(query, params)
+
+                # Store all exam templates from preset in junction table
+                for order_idx, config in enumerate(preset_config):
+                    self.db.execute_insert("""
+                        INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
+                        VALUES (?, ?, ?)
+                    """, (assignment_id, config['exam_id'], order_idx))
+
+                # Assign users
+                for user_id in self.selected_assignment_users:
+                    self.db.execute_insert("""
+                        INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                        VALUES (?, ?, ?)
+                    """, (assignment_id, user_id, self.user_data['id']))
+
+                # Assign departments
+                for dept in self.selected_assignment_departments:
+                    dept_users = self.db.execute_query("""
+                        SELECT id FROM users
+                        WHERE department = ? AND role = 'examinee' AND is_active = 1
+                    """, (dept,))
+
+                    for user in dept_users:
+                        existing = self.db.execute_single("""
+                            SELECT id FROM assignment_users
+                            WHERE assignment_id = ? AND user_id = ?
+                        """, (assignment_id, user['id']))
+
+                        if not existing:
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                                VALUES (?, ?, ?)
+                            """, (assignment_id, user['id'], self.user_data['id']))
+
+                # Close dialog
+                assignment_dialog.open = False
+                if self.page:
+                    self.page.update()
+
+                # Reload exams and update UI
+                self.load_exams()
+                if self.page:
+                    self.update()
+
+                # Show success message
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Preset-based assignment '{assignment_name_field.value.strip()}' created successfully!"),
+                    bgcolor=COLORS['success']
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+
+            except Exception as ex:
+                error_text.value = f"Error creating assignment: {str(ex)}"
+                error_text.visible = True
+                assignment_dialog.update()
+                import traceback
+                traceback.print_exc()
+
+        def close_dialog(e):
+            assignment_dialog.open = False
+            self.page.update()
+
+        # Add date picker to page overlay
+        if self.page:
+            self.page.overlay.append(self.assignment_deadline_picker)
+
+        # Build dialog content
+        dialog_content_controls = [
+            assignment_name_field,
+            ft.Container(height=10),
+
+            # Preset display
+            preset_display,
+            ft.Container(height=10),
+
+            ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
+            ft.Container(height=8),
+
+            # Security Settings
+            ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
+            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=15, wrap=True),
+            ft.Row([enable_logging, enable_pattern_analysis], spacing=15, wrap=True),
+            ft.Container(height=8),
+
+            # User Selection
+            ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            ft.Row([user_dropdown, department_dropdown], spacing=20),
+            selected_items_container,
+            ft.Container(height=10),
+        ]
+
+        dialog_content_controls.append(error_text)
+
+        assignment_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Create Assignment from Preset: {preset_name}"),
+            content=ft.Container(
+                content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
+                width=900,
+                height=650
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.ElevatedButton(
+                    "Create Assignment",
                     on_click=save_assignment,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
@@ -2416,11 +2998,11 @@ class QuizManagement(ft.UserControl):
             self.load_exams()
             if self.page:
                 self.update()
-        
+
         def cancel_delete(e):
             confirm_dialog.open = False
             self.page.update()
-        
+
         confirm_dialog = ft.AlertDialog(
             title=ft.Text('Confirm Delete'),
             content=ft.Text(f"Are you sure you want to delete assignment '{assignment['assignment_name']}'?"),
@@ -2433,8 +3015,598 @@ class QuizManagement(ft.UserControl):
                 )
             ]
         )
-        
+
         self.page.dialog = confirm_dialog
         confirm_dialog.open = True
         self.page.update()
+
+    def show_create_preset_dialog(self, e, preset=None):
+        """Show dialog to create or edit a preset template"""
+        is_edit = preset is not None
+
+        # Load all available exam templates (topics)
+        exam_templates = self.db.execute_query("""
+            SELECT e.id, e.title,
+                   COUNT(CASE WHEN q.difficulty_level = 'easy' THEN 1 END) as easy_count,
+                   COUNT(CASE WHEN q.difficulty_level = 'medium' THEN 1 END) as medium_count,
+                   COUNT(CASE WHEN q.difficulty_level = 'hard' THEN 1 END) as hard_count
+            FROM exams e
+            LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
+            GROUP BY e.id
+            ORDER BY e.title
+        """)
+
+        if not exam_templates:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("No topics available. Please create topics first."),
+                bgcolor=COLORS['error']
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        # Preset name field
+        preset_name_field = ft.TextField(
+            label="Preset Template Name *",
+            value=preset['name'] if is_edit else "",
+            hint_text="e.g., SOC Interview Template",
+            width=600
+        )
+
+        preset_description_field = ft.TextField(
+            label="Description (optional)",
+            value=preset['description'] if is_edit else "",
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            hint_text="Brief description of this preset",
+            width=600
+        )
+
+        # Container for selected topics
+        selected_topics_container = ft.Column([
+            ft.Text("Selected Topics:", size=14, weight=ft.FontWeight.BOLD),
+        ], spacing=10)
+
+        # Total questions counter
+        total_questions_text = ft.Text(
+            "Total Questions: 0",
+            size=16,
+            weight=ft.FontWeight.BOLD,
+            color=COLORS['primary']
+        )
+
+        # Track selected topics and their configurations
+        self.preset_selected_topics = {}
+
+        # Load existing preset configuration if editing
+        if is_edit:
+            preset_config = self.db.execute_query("""
+                SELECT exam_id, easy_count, medium_count, hard_count
+                FROM preset_template_exams
+                WHERE template_id = ?
+            """, (preset['id'],))
+
+            for config in preset_config:
+                self.preset_selected_topics[config['exam_id']] = {
+                    'easy': config['easy_count'],
+                    'medium': config['medium_count'],
+                    'hard': config['hard_count']
+                }
+
+        def update_total_questions():
+            """Calculate and display total questions"""
+            total = 0
+            for topic_id, counts in self.preset_selected_topics.items():
+                total += counts.get('easy', 0) + counts.get('medium', 0) + counts.get('hard', 0)
+            total_questions_text.value = f"Total Questions: {total}"
+            total_questions_text.update()
+
+        def add_topic_to_preset(exam_id):
+            """Add a topic to the preset configuration"""
+            if exam_id in self.preset_selected_topics:
+                return  # Already added
+
+            # Find exam details
+            exam = next((e for e in exam_templates if e['id'] == exam_id), None)
+            if not exam:
+                return
+
+            # Initialize counts
+            self.preset_selected_topics[exam_id] = {'easy': 0, 'medium': 0, 'hard': 0}
+
+            # Create UI for this topic
+            easy_dropdown = ft.Dropdown(
+                label=f"Easy (max: {exam['easy_count']})",
+                options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['easy_count'] + 1)],
+                value="0",
+                width=120,
+                content_padding=5
+            )
+
+            medium_dropdown = ft.Dropdown(
+                label=f"Medium (max: {exam['medium_count']})",
+                options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['medium_count'] + 1)],
+                value="0",
+                width=120,
+                content_padding=5
+            )
+
+            hard_dropdown = ft.Dropdown(
+                label=f"Hard (max: {exam['hard_count']})",
+                options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['hard_count'] + 1)],
+                value="0",
+                width=120,
+                content_padding=5
+            )
+
+            subtotal_text = ft.Text("Subtotal: 0", size=13, weight=ft.FontWeight.BOLD)
+
+            def update_counts(e):
+                self.preset_selected_topics[exam_id]['easy'] = int(easy_dropdown.value or 0)
+                self.preset_selected_topics[exam_id]['medium'] = int(medium_dropdown.value or 0)
+                self.preset_selected_topics[exam_id]['hard'] = int(hard_dropdown.value or 0)
+
+                subtotal = sum(self.preset_selected_topics[exam_id].values())
+                subtotal_text.value = f"Subtotal: {subtotal}"
+                subtotal_text.update()
+                update_total_questions()
+
+            easy_dropdown.on_change = update_counts
+            medium_dropdown.on_change = update_counts
+            hard_dropdown.on_change = update_counts
+
+            def remove_topic(e):
+                del self.preset_selected_topics[exam_id]
+                topic_container.controls.remove(topic_card)
+                topic_container.update()
+                update_total_questions()
+                # Re-enable in dropdown
+                topic_dropdown.options = [
+                    ft.dropdown.Option(
+                        key=str(ex['id']),
+                        text=f"{ex['title']} (E:{ex['easy_count']}, M:{ex['medium_count']}, H:{ex['hard_count']})"
+                    )
+                    for ex in exam_templates if ex['id'] not in self.preset_selected_topics
+                ]
+                topic_dropdown.update()
+
+            topic_card = ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text(exam['title'], size=14, weight=ft.FontWeight.BOLD),
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.icons.CLOSE,
+                            icon_size=16,
+                            on_click=remove_topic,
+                            icon_color=COLORS['error']
+                        )
+                    ]),
+                    ft.Row([easy_dropdown, medium_dropdown, hard_dropdown, subtotal_text], spacing=10),
+                ], spacing=5),
+                padding=10,
+                border=ft.border.all(1, COLORS['secondary']),
+                border_radius=8,
+                bgcolor=ft.colors.with_opacity(0.05, COLORS['primary'])
+            )
+
+            topic_container.controls.append(topic_card)
+            topic_container.update()
+
+            # Remove from dropdown
+            topic_dropdown.options = [
+                ft.dropdown.Option(
+                    key=str(ex['id']),
+                    text=f"{ex['title']} (E:{ex['easy_count']}, M:{ex['medium_count']}, H:{ex['hard_count']})"
+                )
+                for ex in exam_templates if ex['id'] not in self.preset_selected_topics
+            ]
+            topic_dropdown.value = None
+            topic_dropdown.update()
+            update_total_questions()
+
+        # Topic selection dropdown
+        topic_dropdown = ft.Dropdown(
+            label="Add Topic",
+            hint_text="Select a topic to add",
+            options=[
+                ft.dropdown.Option(
+                    key=str(exam['id']),
+                    text=f"{exam['title']} (E:{exam['easy_count']}, M:{exam['medium_count']}, H:{exam['hard_count']})"
+                )
+                for exam in exam_templates if exam['id'] not in self.preset_selected_topics
+            ],
+            width=600,
+            on_change=lambda e: add_topic_to_preset(int(e.control.value)) if e.control.value else None
+        )
+
+        # Container for topic cards
+        topic_container = ft.Column([], spacing=10)
+
+        # Load existing topics if editing
+        if is_edit:
+            for exam_id, counts in list(self.preset_selected_topics.items()):
+                exam = next((e for e in exam_templates if e['id'] == exam_id), None)
+                if exam:
+                    # Initialize counts first
+                    self.preset_selected_topics[exam_id] = counts
+
+                    # Create topic card with saved values
+                    easy_dropdown = ft.Dropdown(
+                        label=f"Easy (max: {exam['easy_count']})",
+                        options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['easy_count'] + 1)],
+                        value=str(counts['easy']),
+                        width=120,
+                        content_padding=5
+                    )
+
+                    medium_dropdown = ft.Dropdown(
+                        label=f"Medium (max: {exam['medium_count']})",
+                        options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['medium_count'] + 1)],
+                        value=str(counts['medium']),
+                        width=120,
+                        content_padding=5
+                    )
+
+                    hard_dropdown = ft.Dropdown(
+                        label=f"Hard (max: {exam['hard_count']})",
+                        options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['hard_count'] + 1)],
+                        value=str(counts['hard']),
+                        width=120,
+                        content_padding=5
+                    )
+
+                    subtotal = counts['easy'] + counts['medium'] + counts['hard']
+                    subtotal_text = ft.Text(f"Subtotal: {subtotal}", size=13, weight=ft.FontWeight.BOLD)
+
+                    def make_update_counts(eid, e_drop, m_drop, h_drop, st_text):
+                        def update_counts(e):
+                            self.preset_selected_topics[eid]['easy'] = int(e_drop.value or 0)
+                            self.preset_selected_topics[eid]['medium'] = int(m_drop.value or 0)
+                            self.preset_selected_topics[eid]['hard'] = int(h_drop.value or 0)
+
+                            subtotal = sum(self.preset_selected_topics[eid].values())
+                            st_text.value = f"Subtotal: {subtotal}"
+                            st_text.update()
+                            update_total_questions()
+                        return update_counts
+
+                    update_fn = make_update_counts(exam_id, easy_dropdown, medium_dropdown, hard_dropdown, subtotal_text)
+                    easy_dropdown.on_change = update_fn
+                    medium_dropdown.on_change = update_fn
+                    hard_dropdown.on_change = update_fn
+
+                    def make_remove_topic(eid, t_card):
+                        def remove_topic(e):
+                            del self.preset_selected_topics[eid]
+                            topic_container.controls.remove(t_card)
+                            topic_container.update()
+                            update_total_questions()
+                            # Re-enable in dropdown
+                            topic_dropdown.options = [
+                                ft.dropdown.Option(
+                                    key=str(ex['id']),
+                                    text=f"{ex['title']} (E:{ex['easy_count']}, M:{ex['medium_count']}, H:{ex['hard_count']})"
+                                )
+                                for ex in exam_templates if ex['id'] not in self.preset_selected_topics
+                            ]
+                            topic_dropdown.update()
+                        return remove_topic
+
+                    topic_card = ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Text(exam['title'], size=14, weight=ft.FontWeight.BOLD),
+                                ft.Container(expand=True),
+                                ft.IconButton(
+                                    icon=ft.icons.CLOSE,
+                                    icon_size=16,
+                                    on_click=make_remove_topic(exam_id, None),
+                                    icon_color=COLORS['error']
+                                )
+                            ]),
+                            ft.Row([easy_dropdown, medium_dropdown, hard_dropdown, subtotal_text], spacing=10),
+                        ], spacing=5),
+                        padding=10,
+                        border=ft.border.all(1, COLORS['secondary']),
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary'])
+                    )
+
+                    # Update the remove function with correct card reference
+                    topic_card.content.controls[0].controls[2].on_click = make_remove_topic(exam_id, topic_card)
+
+                    topic_container.controls.append(topic_card)
+
+            # Update dropdown to exclude already selected topics
+            topic_dropdown.options = [
+                ft.dropdown.Option(
+                    key=str(exam['id']),
+                    text=f"{exam['title']} (E:{exam['easy_count']}, M:{exam['medium_count']}, H:{exam['hard_count']})"
+                )
+                for exam in exam_templates if exam['id'] not in self.preset_selected_topics
+            ]
+
+            update_total_questions()
+
+        error_text = ft.Text("", color=COLORS['error'], visible=False)
+
+        def save_preset(e):
+            # Validate
+            if not preset_name_field.value.strip():
+                error_text.value = "Preset name is required"
+                error_text.visible = True
+                preset_dialog.update()
+                return
+
+            if not self.preset_selected_topics:
+                error_text.value = "Please add at least one topic"
+                error_text.visible = True
+                preset_dialog.update()
+                return
+
+            try:
+                if is_edit:
+                    # Update preset
+                    self.db.execute_update("""
+                        UPDATE exam_preset_templates
+                        SET name = ?, description = ?
+                        WHERE id = ?
+                    """, (preset_name_field.value.strip(), preset_description_field.value.strip(), preset['id']))
+
+                    # Delete old configurations
+                    self.db.execute_update("""
+                        DELETE FROM preset_template_exams WHERE template_id = ?
+                    """, (preset['id'],))
+
+                    preset_id = preset['id']
+                else:
+                    # Create new preset
+                    preset_id = self.db.execute_insert("""
+                        INSERT INTO exam_preset_templates (name, description, created_by_user_id)
+                        VALUES (?, ?, ?)
+                    """, (preset_name_field.value.strip(), preset_description_field.value.strip(), self.user_data['id']))
+
+                # Save topic configurations
+                for exam_id, counts in self.preset_selected_topics.items():
+                    self.db.execute_insert("""
+                        INSERT INTO preset_template_exams (template_id, exam_id, easy_count, medium_count, hard_count)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (preset_id, exam_id, counts['easy'], counts['medium'], counts['hard']))
+
+                # Close dialog
+                preset_dialog.open = False
+                self.page.update()
+
+                # Show success message
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"Preset template '{preset_name_field.value.strip()}' {'updated' if is_edit else 'created'} successfully!"),
+                    bgcolor=COLORS['success']
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+
+            except Exception as ex:
+                error_text.value = f"Error saving preset: {str(ex)}"
+                error_text.visible = True
+                preset_dialog.update()
+                import traceback
+                traceback.print_exc()
+
+        def close_dialog(e):
+            preset_dialog.open = False
+            self.page.update()
+
+        preset_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"{'Edit' if is_edit else 'Create'} Preset Template"),
+            content=ft.Container(
+                content=ft.Column([
+                    preset_name_field,
+                    preset_description_field,
+                    ft.Container(height=10),
+                    topic_dropdown,
+                    ft.Container(height=5),
+                    ft.Container(
+                        content=ft.Column([
+                            topic_container,
+                        ], scroll=ft.ScrollMode.AUTO),
+                        height=250
+                    ),
+                    ft.Divider(),
+                    total_questions_text,
+                    ft.Container(height=5),
+                    error_text
+                ], spacing=10, tight=True),
+                width=700,
+                height=600
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.ElevatedButton(
+                    "Save Preset",
+                    on_click=save_preset,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = preset_dialog
+        preset_dialog.open = True
+        self.page.update()
+
+    def show_manage_presets_dialog(self, e):
+        """Show dialog to manage existing preset templates"""
+        # Load all presets
+        presets = self.db.execute_query("""
+            SELECT pt.id, pt.name, pt.description, pt.created_at,
+                   u.full_name as creator_name,
+                   COUNT(pte.id) as topic_count,
+                   SUM(pte.easy_count + pte.medium_count + pte.hard_count) as total_questions
+            FROM exam_preset_templates pt
+            LEFT JOIN users u ON pt.created_by_user_id = u.id
+            LEFT JOIN preset_template_exams pte ON pt.id = pte.template_id
+            GROUP BY pt.id
+            ORDER BY pt.created_at DESC
+        """)
+
+        if not presets:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("No preset templates found. Create one first!"),
+                bgcolor=COLORS['warning']
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        # Container for preset cards
+        presets_container = ft.Column([], spacing=10, scroll=ft.ScrollMode.AUTO)
+
+        def refresh_presets():
+            """Reload and display presets"""
+            updated_presets = self.db.execute_query("""
+                SELECT pt.id, pt.name, pt.description, pt.created_at,
+                       u.full_name as creator_name,
+                       COUNT(pte.id) as topic_count,
+                       SUM(pte.easy_count + pte.medium_count + pte.hard_count) as total_questions
+                FROM exam_preset_templates pt
+                LEFT JOIN users u ON pt.created_by_user_id = u.id
+                LEFT JOIN preset_template_exams pte ON pt.id = pte.template_id
+                GROUP BY pt.id
+                ORDER BY pt.created_at DESC
+            """)
+
+            presets_container.controls.clear()
+
+            if not updated_presets:
+                presets_container.controls.append(
+                    ft.Text("No preset templates available", italic=True, color=COLORS['text_secondary'])
+                )
+            else:
+                for preset in updated_presets:
+                    # Get topic names for this preset
+                    topics = self.db.execute_query("""
+                        SELECT e.title, pte.easy_count, pte.medium_count, pte.hard_count
+                        FROM preset_template_exams pte
+                        JOIN exams e ON pte.exam_id = e.id
+                        WHERE pte.template_id = ?
+                    """, (preset['id'],))
+
+                    topics_summary = ", ".join([
+                        f"{t['title']} ({t['easy_count']}E/{t['medium_count']}M/{t['hard_count']}H)"
+                        for t in topics
+                    ])
+
+                    def make_edit_preset(p):
+                        def edit_preset(e):
+                            manage_dialog.open = False
+                            self.page.update()
+                            self.show_create_preset_dialog(None, p)
+                        return edit_preset
+
+                    def make_delete_preset(p):
+                        def delete_preset(e):
+                            def confirm_delete(e):
+                                self.db.execute_update("DELETE FROM exam_preset_templates WHERE id = ?", (p['id'],))
+                                self.db.execute_update("DELETE FROM preset_template_exams WHERE template_id = ?", (p['id'],))
+                                confirm_dialog.open = False
+                                self.page.update()
+                                refresh_presets()
+                                presets_container.update()
+
+                            def cancel_delete(e):
+                                confirm_dialog.open = False
+                                self.page.update()
+
+                            confirm_dialog = ft.AlertDialog(
+                                title=ft.Text("Confirm Delete"),
+                                content=ft.Text(f"Are you sure you want to delete preset '{p['name']}'?"),
+                                actions=[
+                                    ft.TextButton("Cancel", on_click=cancel_delete),
+                                    ft.ElevatedButton(
+                                        "Delete",
+                                        on_click=confirm_delete,
+                                        style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
+                                    )
+                                ]
+                            )
+                            self.page.dialog = confirm_dialog
+                            confirm_dialog.open = True
+                            self.page.update()
+                        return delete_preset
+
+                    preset_card = ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.BOOKMARK, color=COLORS['primary'], size=20),
+                                ft.Text(preset['name'], size=16, weight=ft.FontWeight.BOLD),
+                                ft.Container(expand=True),
+                                ft.IconButton(
+                                    icon=ft.icons.EDIT,
+                                    tooltip="Edit",
+                                    on_click=make_edit_preset(preset),
+                                    icon_color=COLORS['primary']
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.DELETE,
+                                    tooltip="Delete",
+                                    on_click=make_delete_preset(preset),
+                                    icon_color=COLORS['error']
+                                )
+                            ]),
+                            ft.Text(
+                                preset['description'] or "No description",
+                                size=12,
+                                color=COLORS['text_secondary'],
+                                italic=not preset['description']
+                            ),
+                            ft.Divider(height=1),
+                            ft.Text(f"Topics: {topics_summary}", size=12),
+                            ft.Row([
+                                ft.Text(f"Total Questions: {preset['total_questions'] or 0}", size=12, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                                ft.Container(expand=True),
+                                ft.Text(f"Created by: {preset['creator_name'] or 'Unknown'}", size=11, color=COLORS['text_secondary'])
+                            ])
+                        ], spacing=5),
+                        padding=15,
+                        border=ft.border.all(1, COLORS['secondary']),
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.02, COLORS['primary'])
+                    )
+
+                    presets_container.controls.append(preset_card)
+
+            if self.page:
+                manage_dialog.update()
+
+        def close_dialog(e):
+            manage_dialog.open = False
+            self.page.update()
+
+        manage_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Manage Preset Templates"),
+            content=ft.Container(
+                content=presets_container,
+                width=700,
+                height=500
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "Close",
+                    on_click=close_dialog,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = manage_dialog
+        manage_dialog.open = True
+        self.page.update()
+
+        # Refresh presets after dialog is opened
+        refresh_presets()
 

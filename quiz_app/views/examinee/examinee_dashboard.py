@@ -644,9 +644,11 @@ class ExamineeDashboard(ft.UserControl):
     
     def get_recent_exam_sessions(self):
         return self.db.execute_query("""
-            SELECT es.*, e.title as exam_title
+            SELECT es.*,
+                   COALESCE(ea.assignment_name, e.title) as exam_title
             FROM exam_sessions es
             JOIN exams e ON es.exam_id = e.id
+            LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
             WHERE es.user_id = ?
             ORDER BY es.start_time DESC
             LIMIT 10
@@ -734,9 +736,13 @@ class ExamineeDashboard(ft.UserControl):
     
     def get_user_results(self):
         return self.db.execute_query("""
-            SELECT es.*, e.title as exam_title, e.passing_score, e.show_results
+            SELECT es.*,
+                   COALESCE(ea.assignment_name, e.title) as exam_title,
+                   COALESCE(ea.passing_score, e.passing_score) as passing_score,
+                   COALESCE(ea.show_results, e.show_results) as show_results
             FROM exam_sessions es
             JOIN exams e ON es.exam_id = e.id
+            LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
             WHERE es.user_id = ? AND es.is_completed = 1
             ORDER BY es.start_time DESC
         """, (self.user_data['id'],))
@@ -971,20 +977,21 @@ class ExamineeDashboard(ft.UserControl):
         """Get comprehensive exam session information"""
         try:
             session_data = self.db.execute_single("""
-                SELECT 
+                SELECT
                     es.*,
-                    e.title as exam_title,
-                    e.description as exam_description,
-                    e.passing_score,
-                    e.show_results,
-                    e.use_question_pool,
-                    e.questions_to_select,
-                    e.easy_questions_count,
-                    e.medium_questions_count,
-                    e.hard_questions_count,
+                    COALESCE(ea.assignment_name, e.title) as exam_title,
+                    COALESCE(e.description, ea.assignment_name) as exam_description,
+                    COALESCE(ea.passing_score, e.passing_score) as passing_score,
+                    COALESCE(ea.show_results, e.show_results) as show_results,
+                    COALESCE(ea.use_question_pool, e.use_question_pool) as use_question_pool,
+                    COALESCE(ea.questions_to_select, e.questions_to_select) as questions_to_select,
+                    COALESCE(ea.easy_questions_count, e.easy_questions_count) as easy_questions_count,
+                    COALESCE(ea.medium_questions_count, e.medium_questions_count) as medium_questions_count,
+                    COALESCE(ea.hard_questions_count, e.hard_questions_count) as hard_questions_count,
                     u.full_name as user_name
                 FROM exam_sessions es
                 JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
                 JOIN users u ON es.user_id = u.id
                 WHERE es.id = ?
             """, (session_id,))
