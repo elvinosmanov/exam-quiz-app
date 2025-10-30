@@ -24,23 +24,49 @@ class Reports(ft.UserControl):
         plt.rcParams['figure.facecolor'] = 'white'
         plt.rcParams['axes.facecolor'] = 'white'
 
-        # Load exams for filter
-        self.exams_data = self.db.execute_query("""
-            SELECT id, title FROM exams
-            WHERE is_active = 1
-            ORDER BY created_at DESC
+        # Load exams and assignments for filter
+        # Get assignments (these are what users actually take)
+        assignments_data = self.db.execute_query("""
+            SELECT DISTINCT
+                ea.id,
+                ea.assignment_name as title,
+                'assignment' as type
+            FROM exam_assignments ea
+            WHERE ea.id IN (SELECT DISTINCT assignment_id FROM exam_sessions WHERE assignment_id IS NOT NULL)
+            ORDER BY ea.created_at DESC
         """)
 
+        # Get standalone exams (old exams without assignments)
+        standalone_exams = self.db.execute_query("""
+            SELECT DISTINCT
+                e.id,
+                e.title,
+                'exam' as type
+            FROM exams e
+            WHERE e.is_active = 1
+            AND e.id IN (SELECT DISTINCT exam_id FROM exam_sessions WHERE assignment_id IS NULL)
+            ORDER BY e.created_at DESC
+        """)
+
+        # Combine both lists
+        self.exams_data = assignments_data + standalone_exams
+
         # Create exam filter dropdown
-        exam_options = [ft.dropdown.Option("all", "All Exams")]
-        exam_options.extend([ft.dropdown.Option(str(exam['id']), exam['title']) for exam in self.exams_data])
+        exam_options = [ft.dropdown.Option("all", "All Exams/Assignments")]
+        exam_options.extend([
+            ft.dropdown.Option(
+                str(item['id']),
+                f"{item['title']}" + (" (Legacy)" if item.get('type') == 'exam' else "")
+            )
+            for item in self.exams_data
+        ])
 
         self.exam_filter = ft.Dropdown(
-            label="Filter by Exam",
+            label="Filter by Exam/Assignment",
             options=exam_options,
             value="all",
             on_change=self.on_exam_filter_change,
-            width=300
+            width=350
         )
         
     def did_mount(self):
@@ -452,8 +478,8 @@ class Reports(ft.UserControl):
 
             params = []
             if self.selected_exam_id:
-                query += " AND exam_id = ?"
-                params.append(self.selected_exam_id)
+                query += " AND (assignment_id = ? OR (assignment_id IS NULL AND exam_id = ?))"
+                params.extend([self.selected_exam_id, self.selected_exam_id])
 
             query += """
                 GROUP BY DATE(end_time)
@@ -520,8 +546,8 @@ class Reports(ft.UserControl):
             params = []
 
             if self.selected_exam_id:
-                query += " AND exam_id = ?"
-                params.append(self.selected_exam_id)
+                query += " AND (assignment_id = ? OR (assignment_id IS NULL AND exam_id = ?))"
+                params.extend([self.selected_exam_id, self.selected_exam_id])
 
             # Execute query with or without parameters
             if params:
@@ -587,8 +613,8 @@ class Reports(ft.UserControl):
 
             params = []
             if self.selected_exam_id:
-                query += " AND exam_id = ?"
-                params.append(self.selected_exam_id)
+                query += " AND (assignment_id = ? OR (assignment_id IS NULL AND exam_id = ?))"
+                params.extend([self.selected_exam_id, self.selected_exam_id])
 
             query += """
                 GROUP BY DATE(end_time)
@@ -1116,20 +1142,21 @@ class Reports(ft.UserControl):
             from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
             from reportlab.lib import colors as rl_colors
 
-            # Get exam statistics
+            # Get exam/assignment statistics
             exam_stats = self.db.execute_single("""
                 SELECT
                     COUNT(es.id) as total_attempts,
                     AVG(es.score) as avg_score,
                     MAX(es.score) as max_score,
                     MIN(es.score) as min_score,
-                    SUM(CASE WHEN es.score >= e.passing_score THEN 1 ELSE 0 END) * 100.0 / COUNT(es.id) as pass_rate
+                    SUM(CASE WHEN es.score >= COALESCE(ea.passing_score, e.passing_score) THEN 1 ELSE 0 END) * 100.0 / COUNT(es.id) as pass_rate
                 FROM exam_sessions es
                 JOIN exams e ON es.exam_id = e.id
-                WHERE es.exam_id = ? AND es.is_completed = 1
-            """, (exam_id,))
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
+                WHERE (es.assignment_id = ? OR (es.assignment_id IS NULL AND es.exam_id = ?)) AND es.is_completed = 1
+            """, (exam_id, exam_id))
 
-            # Get all attempts for this exam with session IDs
+            # Get all attempts for this exam/assignment with session IDs
             attempts = self.db.execute_query("""
                 SELECT
                     u.id as user_id, u.full_name, u.username, u.department,
@@ -1137,9 +1164,9 @@ class Reports(ft.UserControl):
                     es.correct_answers, es.total_questions
                 FROM exam_sessions es
                 JOIN users u ON es.user_id = u.id
-                WHERE es.exam_id = ? AND es.is_completed = 1
+                WHERE (es.assignment_id = ? OR (es.assignment_id IS NULL AND es.exam_id = ?)) AND es.is_completed = 1
                 ORDER BY es.score DESC
-            """, (exam_id,))
+            """, (exam_id, exam_id))
 
             # Create PDF
             import os
@@ -1308,12 +1335,13 @@ class Reports(ft.UserControl):
             # Get all exam attempts with session IDs
             attempts = self.db.execute_query("""
                 SELECT
-                    e.title as exam_title,
+                    COALESCE(ea.assignment_name, e.title) as exam_title,
                     es.id as session_id, es.score, es.duration_seconds, es.start_time,
                     es.correct_answers, es.total_questions,
-                    CASE WHEN es.score >= e.passing_score THEN 'PASS' ELSE 'FAIL' END as status
+                    CASE WHEN es.score >= COALESCE(ea.passing_score, e.passing_score) THEN 'PASS' ELSE 'FAIL' END as status
                 FROM exam_sessions es
                 JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
                 WHERE es.user_id = ? AND es.is_completed = 1
                 ORDER BY es.start_time DESC
             """, (user_id,))
@@ -1758,11 +1786,11 @@ class Reports(ft.UserControl):
         try:
             # Get detailed data for Excel export
             sessions_data = self.db.execute_query("""
-                SELECT 
+                SELECT
                     u.username,
                     u.full_name,
                     u.department,
-                    e.title as exam_title,
+                    COALESCE(ea.assignment_name, e.title) as exam_title,
                     es.score,
                     es.duration_seconds,
                     es.start_time,
@@ -1770,6 +1798,7 @@ class Reports(ft.UserControl):
                 FROM exam_sessions es
                 JOIN users u ON es.user_id = u.id
                 JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
                 WHERE es.is_completed = 1
                 ORDER BY es.end_time DESC
             """)
@@ -2879,14 +2908,15 @@ class Reports(ft.UserControl):
             exam_list = self.db.execute_query("""
                 SELECT
                     es.id as session_id,
-                    e.title as exam_title,
+                    COALESCE(ea.assignment_name, e.title) as exam_title,
                     es.score,
                     es.duration_seconds,
                     es.end_time,
                     es.attempt_number,
-                    (CASE WHEN es.score >= 70 THEN 'Passed' ELSE 'Failed' END) as result
+                    (CASE WHEN es.score >= COALESCE(ea.passing_score, 70) THEN 'Passed' ELSE 'Failed' END) as result
                 FROM exam_sessions es
                 JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
                 WHERE es.user_id = ? AND es.is_completed = 1
                 ORDER BY es.end_time DESC
                 LIMIT 20
@@ -3192,14 +3222,15 @@ class Reports(ft.UserControl):
             
             # Get user's score progression over time
             progress_data = self.db.execute_query("""
-                SELECT 
+                SELECT
                     u.full_name,
-                    e.title as exam_title,
+                    COALESCE(ea.assignment_name, e.title) as exam_title,
                     es.score,
                     DATE(es.end_time) as exam_date
                 FROM exam_sessions es
                 JOIN users u ON es.user_id = u.id
                 JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
                 WHERE u.id = ? AND es.is_completed = 1 AND es.score IS NOT NULL
                 ORDER BY es.end_time
                 LIMIT 50
