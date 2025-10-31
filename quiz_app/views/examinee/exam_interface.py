@@ -559,6 +559,17 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             
             def on_radio_change(e):
                 save_answer(current_question['id'], {'selected_option_id': e.control.value})
+                # Update UI immediately to reflect answer selection
+                print("[UI] Answer selected, updating UI...")
+                try:
+                    if exam_state['main_container'] and exam_state['main_container'].page:
+                        exam_state['main_container'].content = create_main_content()
+                        exam_state['main_container'].page.update()
+                        print("[UI] UI updated successfully")
+                    else:
+                        print("[UI] WARNING: No page reference available")
+                except Exception as ex:
+                    print(f"[UI] ERROR updating UI: {ex}")
             
             radio_options = []
             for option in options:
@@ -580,6 +591,9 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             
             def on_tf_change(e):
                 save_answer(current_question['id'], {'answer_text': e.control.value})
+                # Update UI immediately to reflect answer selection
+                exam_state['main_container'].content = create_main_content()
+                exam_state['main_container'].page.update()
             
             answer_section = ft.RadioGroup(
                 value=selected_answer,
@@ -650,8 +664,18 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 
                 # Save the updated selection
                 save_answer(current_question['id'], {'selected_option_ids': current_selected})
-                
-                # Note: Removed page.update() here to prevent unfocus issues
+
+                # Update UI immediately to reflect answer selection
+                print("[UI] Checkbox answer selected, updating UI...")
+                try:
+                    if exam_state['main_container'] and exam_state['main_container'].page:
+                        exam_state['main_container'].content = create_main_content()
+                        exam_state['main_container'].page.update()
+                        print("[UI] UI updated successfully")
+                    else:
+                        print("[UI] WARNING: No page reference available")
+                except Exception as ex:
+                    print(f"[UI] ERROR updating UI: {ex}")
             
             checkbox_options = []
             for option in options:
@@ -679,10 +703,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 exam_state['marked_for_review'].add(question_id)
             else:
                 exam_state['marked_for_review'].discard(question_id)
-            
-            # Update UI if page is available
-            if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page') and exam_state['main_container'].page:
-                exam_state['main_container'].page.update()
+
+            # Update UI immediately to reflect mark change
+            exam_state['main_container'].content = create_main_content()
+            exam_state['main_container'].page.update()
         
         mark_review_checkbox = ft.Checkbox(
             label="Mark for review",
