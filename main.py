@@ -8,7 +8,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from quiz_app.database.database import init_database
 from quiz_app.views.auth.login_view import LoginView
 from quiz_app.utils.session import SessionManager
-from quiz_app.utils.logging_config import get_audit_logger
 
 class QuizApp:
     def __init__(self):
@@ -66,17 +65,6 @@ class QuizApp:
         """Logout and return to login screen with proper cleanup"""
         try:
             print("[LOGOUT] Starting logout process...")
-
-            # Get current user data before clearing session
-            current_user = self.session_manager.get_current_user()
-
-            # Log logout action
-            if current_user:
-                audit_logger = get_audit_logger()
-                audit_logger.log_logout(
-                    user_id=current_user['id'],
-                    username=current_user['username']
-                )
 
             # Clear session
             self.session_manager.clear_session()

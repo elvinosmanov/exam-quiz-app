@@ -807,20 +807,6 @@ class QuizManagement(ft.UserControl):
             value=bool(assignment['enable_fullscreen']) if is_edit else False
         )
 
-        prevent_focus_loss = ft.Checkbox(
-            label="Prevent Focus Loss",
-            value=bool(assignment['prevent_focus_loss']) if is_edit else False
-        )
-
-        enable_logging = ft.Checkbox(
-            label="Enable Activity Logging",
-            value=bool(assignment['enable_logging']) if is_edit else False
-        )
-
-        enable_pattern_analysis = ft.Checkbox(
-            label="Enable Answer Pattern Analysis",
-            value=bool(assignment['enable_pattern_analysis']) if is_edit else False
-        )
 
         # Date picker - Initialize with assignment deadline if editing
         self.assignment_deadline = None
@@ -1001,11 +987,11 @@ class QuizManagement(ft.UserControl):
                 query = """
                     INSERT INTO exam_assignments (
                         exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
-                        randomize_questions, show_results, enable_fullscreen, prevent_focus_loss,
-                        enable_logging, enable_pattern_analysis, use_question_pool, questions_to_select,
+                        randomize_questions, show_results, enable_fullscreen,
+                        use_question_pool, questions_to_select,
                         easy_questions_count, medium_questions_count, hard_questions_count,
-                        deadline, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        deadline, created_at, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     primary_exam_id,
@@ -1016,12 +1002,10 @@ class QuizManagement(ft.UserControl):
                     1 if randomize_questions.value else 0,
                     1 if show_results.value else 0,
                     1 if enable_fullscreen.value else 0,
-                    1 if prevent_focus_loss.value else 0,
-                    1 if enable_logging.value else 0,
-                    1 if enable_pattern_analysis.value else 0,
                     0,  # Not using question pool for multi-template
                     0, 0, 0, 0,  # Question counts (not used)
                     self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                    datetime.now().isoformat(),
                     self.user_data['id']
                 )
                 assignment_id = self.db.execute_insert(query, params)
@@ -1110,8 +1094,7 @@ class QuizManagement(ft.UserControl):
             ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
-            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=15, wrap=True),
-            ft.Row([enable_logging, enable_pattern_analysis], spacing=15, wrap=True),
+            ft.Row([enable_fullscreen], spacing=15, wrap=True),
             ft.Container(height=8),
 
             # User Selection
@@ -1248,20 +1231,6 @@ class QuizManagement(ft.UserControl):
             value=False
         )
 
-        prevent_focus_loss = ft.Checkbox(
-            label="Prevent Focus Loss",
-            value=False
-        )
-
-        enable_logging = ft.Checkbox(
-            label="Enable Activity Logging",
-            value=False
-        )
-
-        enable_pattern_analysis = ft.Checkbox(
-            label="Enable Answer Pattern Analysis",
-            value=False
-        )
 
         # Date picker
         self.assignment_deadline = None
@@ -1428,11 +1397,11 @@ class QuizManagement(ft.UserControl):
                 query = """
                     INSERT INTO exam_assignments (
                         exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
-                        randomize_questions, show_results, enable_fullscreen, prevent_focus_loss,
-                        enable_logging, enable_pattern_analysis, use_question_pool, questions_to_select,
+                        randomize_questions, show_results, enable_fullscreen,
+                        use_question_pool, questions_to_select,
                         easy_questions_count, medium_questions_count, hard_questions_count,
-                        deadline, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        deadline, created_at, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     primary_exam_id,
@@ -1443,15 +1412,13 @@ class QuizManagement(ft.UserControl):
                     1 if randomize_questions.value else 0,
                     1 if show_results.value else 0,
                     1 if enable_fullscreen.value else 0,
-                    1 if prevent_focus_loss.value else 0,
-                    1 if enable_logging.value else 0,
-                    1 if enable_pattern_analysis.value else 0,
                     1,  # Use question pool mode for preset-based assignments
                     total_questions,  # Total questions
                     sum(c['easy_count'] for c in preset_config),
                     sum(c['medium_count'] for c in preset_config),
                     sum(c['hard_count'] for c in preset_config),
                     self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                    datetime.now().isoformat(),
                     self.user_data['id']
                 )
                 assignment_id = self.db.execute_insert(query, params)
@@ -1538,8 +1505,7 @@ class QuizManagement(ft.UserControl):
             ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
-            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=15, wrap=True),
-            ft.Row([enable_logging, enable_pattern_analysis], spacing=15, wrap=True),
+            ft.Row([enable_fullscreen], spacing=15, wrap=True),
             ft.Container(height=8),
 
             # User Selection
@@ -1634,20 +1600,6 @@ class QuizManagement(ft.UserControl):
             value=bool(assignment['enable_fullscreen']) if is_edit else False
         )
 
-        prevent_focus_loss = ft.Checkbox(
-            label="Prevent Focus Loss",
-            value=bool(assignment['prevent_focus_loss']) if is_edit else False
-        )
-
-        enable_logging = ft.Checkbox(
-            label="Enable Activity Logging",
-            value=bool(assignment['enable_logging']) if is_edit else False
-        )
-
-        enable_pattern_analysis = ft.Checkbox(
-            label="Enable Answer Pattern Analysis",
-            value=bool(assignment['enable_pattern_analysis']) if is_edit else False
-        )
 
         # Get question counts for this exam
         question_count = self.db.execute_single(
@@ -1960,9 +1912,6 @@ class QuizManagement(ft.UserControl):
                             randomize_questions = ?,
                             show_results = ?,
                             enable_fullscreen = ?,
-                            prevent_focus_loss = ?,
-                            enable_logging = ?,
-                            enable_pattern_analysis = ?,
                             use_question_pool = ?,
                             questions_to_select = ?,
                             easy_questions_count = ?,
@@ -1979,9 +1928,6 @@ class QuizManagement(ft.UserControl):
                         1 if randomize_questions.value else 0,
                         1 if show_results.value else 0,
                         1 if enable_fullscreen.value else 0,
-                        1 if prevent_focus_loss.value else 0,
-                        1 if enable_logging.value else 0,
-                        1 if enable_pattern_analysis.value else 0,
                         1 if use_pool else 0,
                         to_select,
                         easy_count,
@@ -2030,11 +1976,11 @@ class QuizManagement(ft.UserControl):
                     query = """
                         INSERT INTO exam_assignments (
                             exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
-                            randomize_questions, show_results, enable_fullscreen, prevent_focus_loss,
-                            enable_logging, enable_pattern_analysis, use_question_pool, questions_to_select,
+                            randomize_questions, show_results, enable_fullscreen,
+                            use_question_pool, questions_to_select,
                             easy_questions_count, medium_questions_count, hard_questions_count,
                             deadline, created_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam['id'],
@@ -2045,15 +1991,13 @@ class QuizManagement(ft.UserControl):
                         1 if randomize_questions.value else 0,
                         1 if show_results.value else 0,
                         1 if enable_fullscreen.value else 0,
-                        1 if prevent_focus_loss.value else 0,
-                        1 if enable_logging.value else 0,
-                        1 if enable_pattern_analysis.value else 0,
                         1 if use_pool else 0,
                         to_select,
                         easy_count,
                         medium_count,
                         hard_count,
                         self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                        datetime.now().isoformat(),
                         self.user_data['id']
                     )
                     assignment_id = self.db.execute_insert(query, params)
@@ -2127,8 +2071,7 @@ class QuizManagement(ft.UserControl):
             ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
-            ft.Row([enable_fullscreen, prevent_focus_loss], spacing=15, wrap=True),
-            ft.Row([enable_logging, enable_pattern_analysis], spacing=15, wrap=True),
+            ft.Row([enable_fullscreen], spacing=15, wrap=True),
             ft.Container(height=8),
 
             # Random Question Selection

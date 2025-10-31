@@ -165,11 +165,63 @@ class AdminDashboard(BaseAdminLayout):
         }
     
     def get_recent_activity(self):
-        # Mock data for now - replace with actual audit log queries
-        return [
-            {'description': 'New user registered: john.doe', 'timestamp': '2 minutes ago'},
-            {'description': 'Exam "Python Basics" completed by user123', 'timestamp': '5 minutes ago'},
-            {'description': 'Admin updated exam settings', 'timestamp': '10 minutes ago'},
-            {'description': 'New question added to question bank', 'timestamp': '15 minutes ago'},
-            {'description': 'User profile updated', 'timestamp': '20 minutes ago'}
-        ]
+        """Get recent exam activity - latest completions and pending grading"""
+        from datetime import datetime, timedelta
+
+        activity_list = []
+
+        # Get latest exam completions (last 20)
+        recent_completions = self.db.execute_query("""
+            SELECT
+                u.full_name,
+                COALESCE(ea.assignment_name, e.title) as exam_title,
+                es.score,
+                es.end_time,
+                CASE WHEN es.score >= COALESCE(ea.passing_score, e.passing_score) THEN 'PASS' ELSE 'FAIL' END as status
+            FROM exam_sessions es
+            JOIN users u ON es.user_id = u.id
+            JOIN exams e ON es.exam_id = e.id
+            LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
+            WHERE es.is_completed = 1 AND es.end_time IS NOT NULL
+            ORDER BY es.end_time DESC
+            LIMIT 20
+        """)
+
+        for completion in recent_completions:
+            status_emoji = "✅" if completion['status'] == 'PASS' else "❌"
+            activity_list.append({
+                'description': f"{status_emoji} {completion['full_name']} completed '{completion['exam_title']}' - Score: {completion['score']:.1f}%",
+                'timestamp': completion['end_time'][:16] if completion['end_time'] else 'N/A'
+            })
+
+        # Get exams needing manual grading (essay/short answer questions)
+        pending_grading = self.db.execute_query("""
+            SELECT DISTINCT
+                u.full_name,
+                COALESCE(ea.assignment_name, e.title) as exam_title,
+                es.end_time,
+                COUNT(ua.id) as pending_count
+            FROM exam_sessions es
+            JOIN users u ON es.user_id = u.id
+            JOIN exams e ON es.exam_id = e.id
+            LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
+            JOIN user_answers ua ON es.id = ua.session_id
+            JOIN questions q ON ua.question_id = q.id
+            WHERE es.is_completed = 1
+              AND q.question_type IN ('short_answer', 'essay')
+              AND (ua.is_correct IS NULL OR ua.is_correct = 0)
+            GROUP BY es.id
+            ORDER BY es.end_time DESC
+            LIMIT 10
+        """)
+
+        for grading in pending_grading:
+            activity_list.append({
+                'description': f"📝 {grading['full_name']} - '{grading['exam_title']}' has {grading['pending_count']} answer(s) pending manual grading",
+                'timestamp': grading['end_time'][:16] if grading['end_time'] else 'N/A'
+            })
+
+        # Sort all activity by timestamp (newest first)
+        activity_list.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        return activity_list[:15]  # Return top 15 most recent activities

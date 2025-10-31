@@ -1,7 +1,6 @@
 import flet as ft
 from quiz_app.utils.auth import AuthManager
 from quiz_app.config import COLORS
-from quiz_app.utils.logging_config import get_audit_logger
 
 class LoginView(ft.UserControl):
     def __init__(self, session_manager, on_login_success):
@@ -149,18 +148,7 @@ class LoginView(ft.UserControl):
         # Authenticate user
         user_data = self.auth_manager.authenticate_user(username, password)
 
-        # Get audit logger
-        audit_logger = get_audit_logger()
-
         if user_data:
-            # Log successful login
-            audit_logger.log_login(
-                username=username,
-                user_id=user_data['id'],
-                success=True,
-                ip_address=None  # Could be enhanced to capture real IP
-            )
-
             # Create session
             if self.session_manager.create_session(user_data):
                 self.on_login_success(self.page, user_data)
@@ -168,15 +156,6 @@ class LoginView(ft.UserControl):
                 self.show_error("Failed to create session")
                 self.show_loading(False)
         else:
-            # Log failed login attempt
-            audit_logger.log_login(
-                username=username,
-                user_id=None,
-                success=False,
-                ip_address=None,
-                reason="Invalid credentials"
-            )
-
             self.show_error("Invalid username or password")
             self.show_loading(False)
     

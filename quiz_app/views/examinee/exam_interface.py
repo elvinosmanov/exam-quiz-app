@@ -5,7 +5,6 @@ import threading
 import time
 from datetime import datetime, timedelta
 from quiz_app.database.database import Database
-from quiz_app.utils.logging_config import get_audit_logger
 
 
 class ExamInterfaceWrapper(ft.UserControl):
@@ -83,7 +82,9 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         'question_time_spent': {},  # Track cumulative time spent on each question
         'enable_fullscreen_lock': exam_data.get('enable_fullscreen', False),  # Fullscreen lock feature
         'fullscreen_lock_active': False,  # Is fullscreen currently locked?
-        'page_ref': None  # Reference to page for fullscreen lock
+        'page_ref': None,  # Reference to page for fullscreen lock
+        'randomize_questions': exam_data.get('randomize_questions', False),  # Randomize answer options
+        'shuffled_options_cache': {}  # Cache shuffled options for consistency during exam
     }
     
     # Colors
@@ -105,12 +106,31 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
     }
     
     def get_question_options(question_id):
-        """Get options for a question"""
-        return db.execute_query("""
+        """Get options for a question, with optional shuffling"""
+        # Check if we've already shuffled this question's options
+        if question_id in exam_state['shuffled_options_cache']:
+            return exam_state['shuffled_options_cache'][question_id]
+
+        # Get options from database
+        options = db.execute_query("""
             SELECT * FROM question_options
             WHERE question_id = ?
             ORDER BY order_index, id
         """, (question_id,))
+
+        # Shuffle options if randomization is enabled
+        if exam_state['randomize_questions'] and options:
+            # Check question type - don't shuffle true/false questions
+            current_question = next((q for q in questions if q['id'] == question_id), None)
+            if current_question and current_question['question_type'] != 'true_false':
+                # Shuffle the options list
+                import random
+                options = list(options)  # Convert to list if needed
+                random.shuffle(options)
+
+        # Cache the shuffled (or original) options for consistency
+        exam_state['shuffled_options_cache'][question_id] = options
+        return options
 
     def track_question_time(question_id):
         """Track time spent on current question before leaving it - DISABLED"""
@@ -953,32 +973,6 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 print(f"Exam session created with consistent ID: {session_id}")
                 print(f"Total answers saved: {len(exam_state['user_answers'])}")
 
-                # Log exam submission
-                try:
-                    audit_logger = get_audit_logger()
-                    audit_logger.log_exam_submit(
-                        user_id=user_data['id'],
-                        exam_id=exam_data['id'],
-                        session_id=session_id,
-                        score=score_percentage,
-                        duration_seconds=duration_seconds
-                    )
-                except Exception as log_ex:
-                    print(f"[AUDIT ERROR] Failed to log exam submission: {log_ex}")
-
-                # Run pattern analysis if enabled
-                if exam_data.get('enable_pattern_analysis', False):
-                    try:
-                        from quiz_app.utils.pattern_analyzer import get_pattern_analyzer
-                        analyzer = get_pattern_analyzer()
-                        analysis_result = analyzer.analyze_session(session_id)
-
-                        if analysis_result['suspicion_score'] > 0:
-                            print(f"[PATTERN] ⚠️  Suspicious activity detected! Score: {analysis_result['suspicion_score']}")
-                            print(f"[PATTERN] Issues: {', '.join(analysis_result['issues_detected'])}")
-                    except Exception as pattern_ex:
-                        print(f"[PATTERN ERROR] Failed to analyze exam session: {pattern_ex}")
-
                 # No need to update user_answers - they already have the correct session_id
 
                 # Show results with calculated scores
@@ -1708,18 +1702,6 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         first_question = questions[0]
         start_question_timer(first_question['id'])
         print(f"[TIME] Exam started - timer started for first question {first_question['id']}")
-
-    # Log exam start
-    try:
-        audit_logger = get_audit_logger()
-        audit_logger.log_exam_start(
-            user_id=user_data['id'],
-            exam_id=exam_data['id'],
-            session_id=session_id,
-            exam_title=exam_data['title']
-        )
-    except Exception as e:
-        print(f"[AUDIT ERROR] Failed to log exam start: {e}")
 
     # Return the main container directly (no wrapper to avoid page reference issues)
     # Note: Fullscreen lock disabled for now due to technical limitations
