@@ -376,15 +376,36 @@ class QuizManagement(ft.UserControl):
     
     def delete_exam(self, exam):
         def confirm_delete(e):
+            # Delete all associated image files from questions in this exam
+            import os
+            questions_with_images = self.db.execute_query(
+                "SELECT image_path FROM questions WHERE exam_id = ? AND image_path IS NOT NULL",
+                (exam['id'],)
+            )
+
+            for question in questions_with_images:
+                if question.get('image_path'):
+                    try:
+                        full_path = os.path.join(
+                            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                            question['image_path']
+                        )
+                        if os.path.exists(full_path):
+                            os.remove(full_path)
+                            print(f"Deleted image file: {full_path}")
+                    except Exception as ex:
+                        print(f"Warning: Could not delete image file {full_path}: {ex}")
+
+            # Delete database records
             self.db.execute_update("DELETE FROM exams WHERE id = ?", (exam['id'],))
             self.db.execute_update("DELETE FROM questions WHERE exam_id = ?", (exam['id'],))
             confirm_dialog.open = False
             if self.page:
                 self.page.update()
-            
+
             # Reload exams and update UI
             self.load_exams()
-            
+
             # Force update of the component
             if self.page:
                 self.update()

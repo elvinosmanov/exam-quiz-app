@@ -18,7 +18,8 @@ class LoginView(ft.UserControl):
             border_radius=8,
             filled=True,
             width=300,
-            text_align=ft.TextAlign.LEFT
+            text_align=ft.TextAlign.LEFT,
+            on_submit=self.login_clicked
         )
 
         self.password_field = ft.TextField(
@@ -29,7 +30,8 @@ class LoginView(ft.UserControl):
             border_radius=8,
             filled=True,
             width=300,
-            text_align=ft.TextAlign.LEFT
+            text_align=ft.TextAlign.LEFT,
+            on_submit=self.login_clicked
         )
 
         self.login_button = ft.ElevatedButton(

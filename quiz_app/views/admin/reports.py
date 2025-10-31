@@ -1207,22 +1207,31 @@ class Reports(ft.UserControl):
             filepath = os.path.join(os.getcwd(), filename)
 
             # Register Unicode font for Azerbaijani characters
+            unicode_font_registered = False
             try:
                 # Try Arial Unicode MS first (supports Azerbaijani)
+                from reportlab.pdfbase.ttfonts import TTFont
                 pdfmetrics.registerFont(TTFont('ArialUnicode', '/System/Library/Fonts/Supplemental/Arial Unicode.ttf'))
                 unicode_font = 'ArialUnicode'
                 unicode_font_bold = 'ArialUnicode'
-            except:
+                unicode_font_registered = True
+                print("[INFO] Registered Arial Unicode MS for Azerbaijani text")
+            except Exception as e:
+                print(f"[WARN] Could not register Arial Unicode: {e}")
                 try:
                     # Fallback to regular Arial
                     pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
                     pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
                     unicode_font = 'Arial'
                     unicode_font_bold = 'Arial-Bold'
-                except:
+                    unicode_font_registered = True
+                    print("[INFO] Registered Arial for text")
+                except Exception as e2:
+                    print(f"[WARN] Could not register Arial: {e2}")
                     # Last resort: Helvetica (won't display special characters properly)
                     unicode_font = 'Helvetica'
                     unicode_font_bold = 'Helvetica-Bold'
+                    print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1254,8 +1263,8 @@ class Reports(ft.UserControl):
 
                 # Footer - Confidential Warning
                 footer_text = [
-                    "XÜSUSİ XƏBƏRDARLIQ",
-                    'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
+                    "SPECIAL WARNING",
+                    "This document contains confidential information belonging to the Space Agency of the Republic of Azerbaijan (Azercosmos)."
                 ]
 
                 canvas_obj.setFont(unicode_font_bold, 8)
@@ -1318,18 +1327,20 @@ class Reports(ft.UserControl):
             story.append(Spacer(1, 0.2*inch))
 
             if attempts:
-                attempts_data = [['Student', 'Department', 'Score', 'Correct/Total', 'Duration (min)']]
+                attempts_data = [['Student', 'Department', 'Exam Date', 'Score', 'Correct/Total', 'Duration (min)']]
                 for attempt in attempts:
                     duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
+                    exam_date = attempt['start_time'][:10] if attempt['start_time'] else 'N/A'
                     attempts_data.append([
                         attempt['full_name'],
                         attempt['department'] or 'N/A',
+                        exam_date,
                         f"{attempt['score']:.1f}%",
                         f"{attempt['correct_answers']}/{attempt['total_questions']}",
                         str(duration_min)
                     ])
 
-                attempts_table = Table(attempts_data, colWidths=[2*inch, 1.5*inch, 1*inch, 1*inch, 1*inch])
+                attempts_table = Table(attempts_data, colWidths=[1.5*inch, 1.2*inch, 0.9*inch, 0.8*inch, 1*inch, 0.8*inch])
                 attempts_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
@@ -1455,22 +1466,31 @@ class Reports(ft.UserControl):
             filepath = os.path.join(os.getcwd(), filename)
 
             # Register Unicode font for Azerbaijani characters
+            unicode_font_registered = False
             try:
                 # Try Arial Unicode MS first (supports Azerbaijani)
+                from reportlab.pdfbase.ttfonts import TTFont
                 pdfmetrics.registerFont(TTFont('ArialUnicode', '/System/Library/Fonts/Supplemental/Arial Unicode.ttf'))
                 unicode_font = 'ArialUnicode'
                 unicode_font_bold = 'ArialUnicode'
-            except:
+                unicode_font_registered = True
+                print("[INFO] Registered Arial Unicode MS for Azerbaijani text")
+            except Exception as e:
+                print(f"[WARN] Could not register Arial Unicode: {e}")
                 try:
                     # Fallback to regular Arial
                     pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
                     pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
                     unicode_font = 'Arial'
                     unicode_font_bold = 'Arial-Bold'
-                except:
+                    unicode_font_registered = True
+                    print("[INFO] Registered Arial for text")
+                except Exception as e2:
+                    print(f"[WARN] Could not register Arial: {e2}")
                     # Last resort: Helvetica (won't display special characters properly)
                     unicode_font = 'Helvetica'
                     unicode_font_bold = 'Helvetica-Bold'
+                    print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1502,8 +1522,8 @@ class Reports(ft.UserControl):
 
                 # Footer - Confidential Warning
                 footer_text = [
-                    "XÜSUSİ XƏBƏRDARLIQ",
-                    'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
+                    "SPECIAL WARNING",
+                    "This document contains confidential information belonging to the Space Agency of the Republic of Azerbaijan (Azercosmos)."
                 ]
 
                 canvas_obj.setFont(unicode_font_bold, 8)
@@ -1765,24 +1785,30 @@ class Reports(ft.UserControl):
                 """Add header with logo and footer with confidential warning"""
                 canvas_obj.saveState()
 
-                # Header - Azercosmos Logo
-                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos_logo.png')
+                # Header - Azercosmos Logo (Centered)
+                logo_path = os.path.join(os.path.dirname(__file__), '../../assets/images/azercosmos-logo.png')
+                logo_path = os.path.abspath(logo_path)  # Resolve to absolute path
+                page_width = A4[0]
+                logo_width = 150
+                logo_height = 40
+                logo_x = (page_width - logo_width) / 2  # Center horizontally
+
                 if os.path.exists(logo_path):
                     try:
-                        canvas_obj.drawImage(logo_path, 50, A4[1] - 60, width=150, height=40, preserveAspectRatio=True, mask='auto')
+                        canvas_obj.drawImage(logo_path, logo_x, A4[1] - 60, width=logo_width, height=logo_height, preserveAspectRatio=True, mask='auto')
                     except:
                         # If logo fails to load, just show text
                         canvas_obj.setFont('Helvetica-Bold', 10)
-                        canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                        canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
                 else:
                     # Fallback if logo doesn't exist
                     canvas_obj.setFont('Helvetica-Bold', 10)
-                    canvas_obj.drawString(50, A4[1] - 40, "AZERCOSMOS")
+                    canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
 
                 # Footer - Confidential Warning
                 footer_text = [
-                    "XÜSUSİ XƏBƏRDARLIQ",
-                    'Bu sənəddə Azərbaycan Respublikasının Kosmik Agentliyinə (Azərkosmos) məxsus konfidensial məlumat əks olunmuşdur.'
+                    "SPECIAL WARNING",
+                    'This document contains confidential information belonging to the Space Agency of the Republic of Azerbaijan (Azercosmos).'
                 ]
 
                 canvas_obj.setFont('Helvetica-Bold', 8)
@@ -1823,8 +1849,12 @@ class Reports(ft.UserControl):
             status = 'PASS' if session['score'] >= session['passing_score'] else 'FAIL'
             status_color = rl_colors.green if status == 'PASS' else rl_colors.red
 
+            # Extract exam date from start_time
+            exam_date = session['start_time'][:10] if session['start_time'] else 'N/A'
+
             summary_data = [
                 ['Metric', 'Value'],
+                ['Exam Date', exam_date],
                 ['Final Score', f"{session['score']:.2f}%"],
                 ['Correct Answers', f"{session['correct_answers']} / {session['total_questions']}"],
                 ['Passing Score', f"{session['passing_score']}%"],

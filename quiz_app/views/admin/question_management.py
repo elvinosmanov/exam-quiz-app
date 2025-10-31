@@ -1215,15 +1215,29 @@ class QuestionManagement(ft.UserControl):
     
     def delete_question(self, question):
         def confirm_delete(e):
+            # Delete associated image file if it exists
+            if question.get('image_path'):
+                try:
+                    full_path = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                        question['image_path']
+                    )
+                    if os.path.exists(full_path):
+                        os.remove(full_path)
+                        print(f"Deleted image file: {full_path}")
+                except Exception as ex:
+                    print(f"Warning: Could not delete image file {full_path}: {ex}")
+
+            # Delete database records
             self.db.execute_update("DELETE FROM questions WHERE id = ?", (question['id'],))
             self.db.execute_update("DELETE FROM question_options WHERE question_id = ?", (question['id'],))
             confirm_dialog.open = False
             if self.page:
                 self.page.update()
-            
+
             # Reload questions and update UI
             self.load_questions()
-            
+
             # Force update of the entire question management component
             if self.page:
                 self.update()
