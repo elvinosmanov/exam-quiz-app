@@ -1444,9 +1444,17 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             if question['id'] in exam_state['user_answers']:
                 topic_progress[exam_title]['answered'] += 1
 
-        # Build progress display
+        # Build progress display with timer in top right
         progress_items = [
-            ft.Text("Progress Overview", size=14, weight=ft.FontWeight.BOLD),
+            # Header row with Progress Overview title and Timer
+            ft.Row([
+                ft.Text("Progress Overview", size=14, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ft.Row([
+                    ft.Icon(ft.icons.TIMER, size=18, color=EXAM_COLORS['primary']),
+                    timer_display
+                ], spacing=6)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Container(height=8),
             ft.Text(f"{answered_count} of {total_q} answered", size=16, weight=ft.FontWeight.W_500),
             ft.Container(height=8),
@@ -1603,68 +1611,60 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             border_radius=8
         )
         
-        # Color Legend and Keyboard Shortcuts
-        color_legend = ft.Container(
-            content=ft.Column([
-                # Color Legend
-                ft.Text("Color Legend", size=14, weight=ft.FontWeight.BOLD),
-                ft.Container(height=8),
-                ft.Column([
-                    ft.Row([
-                        ft.Container(
-                            width=16, height=16,
-                            bgcolor=EXAM_COLORS['current'],
-                            border_radius=2
-                        ),
-                        ft.Text("Current Question", size=12)
-                    ], spacing=8),
-                    ft.Row([
-                        ft.Container(
-                            width=16, height=16,
-                            bgcolor=EXAM_COLORS['answered'],
-                            border_radius=2
-                        ),
-                        ft.Text("Answered", size=12)
-                    ], spacing=8),
-                    ft.Row([
-                        ft.Container(
-                            width=16, height=16,
-                            bgcolor=EXAM_COLORS['marked'],
-                            border_radius=2
-                        ),
-                        ft.Text("Marked for Review", size=12)
-                    ], spacing=8),
-                    ft.Row([
-                        ft.Container(
-                            width=16, height=16,
-                            bgcolor=EXAM_COLORS['unanswered'],
-                            border_radius=2
-                        ),
-                        ft.Text("Not Answered", size=12)
-                    ], spacing=8)
-                ], spacing=6),
-
-                # Keyboard Shortcuts
-                ft.Container(height=16),
-                ft.Divider(height=1, color=EXAM_COLORS['border']),
-                ft.Container(height=8),
-                ft.Text("Keyboard Shortcuts", size=14, weight=ft.FontWeight.BOLD),
-                ft.Container(height=8),
-                ft.Column([
-                    ft.Row([
-                        ft.Icon(ft.icons.KEYBOARD_ARROW_LEFT, size=16, color=EXAM_COLORS['text_secondary']),
-                        ft.Text("← Previous", size=12)
-                    ], spacing=8),
-                    ft.Row([
-                        ft.Icon(ft.icons.KEYBOARD_ARROW_RIGHT, size=16, color=EXAM_COLORS['text_secondary']),
-                        ft.Text("→ Next", size=12)
-                    ], spacing=8),
-                    ft.Row([
-                        ft.Icon(ft.icons.FLAG, size=16, color=EXAM_COLORS['text_secondary']),
-                        ft.Text("M Mark for Review", size=12)
-                    ], spacing=8)
-                ], spacing=6)
-            ]),
+        # Color Legend and Keyboard Shortcuts in 2 columns
+        color_legend_and_shortcuts = ft.Container(
+            content=ft.Row([
+                # Color Legend Column
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Color Legend", size=13, weight=ft.FontWeight.BOLD),
+                        ft.Container(height=8),
+                        ft.Column([
+                            ft.Row([
+                                ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['current'], border_radius=2),
+                                ft.Text("Current", size=11)
+                            ], spacing=6),
+                            ft.Row([
+                                ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['answered'], border_radius=2),
+                                ft.Text("Answered", size=11)
+                            ], spacing=6),
+                            ft.Row([
+                                ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['marked'], border_radius=2),
+                                ft.Text("Marked", size=11)
+                            ], spacing=6),
+                            ft.Row([
+                                ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['unanswered'], border_radius=2),
+                                ft.Text("Unanswered", size=11)
+                            ], spacing=6)
+                        ], spacing=5)
+                    ]),
+                    expand=1
+                ),
+                # Vertical divider
+                ft.Container(width=1, bgcolor=EXAM_COLORS['border']),
+                # Keyboard Shortcuts Column
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Shortcuts", size=13, weight=ft.FontWeight.BOLD),
+                        ft.Container(height=8),
+                        ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.KEYBOARD_ARROW_LEFT, size=14, color=EXAM_COLORS['text_secondary']),
+                                ft.Text("← Prev", size=11)
+                            ], spacing=6),
+                            ft.Row([
+                                ft.Icon(ft.icons.KEYBOARD_ARROW_RIGHT, size=14, color=EXAM_COLORS['text_secondary']),
+                                ft.Text("→ Next", size=11)
+                            ], spacing=6),
+                            ft.Row([
+                                ft.Icon(ft.icons.FLAG, size=14, color=EXAM_COLORS['text_secondary']),
+                                ft.Text("M Mark", size=11)
+                            ], spacing=6)
+                        ], spacing=5)
+                    ]),
+                    expand=1
+                )
+            ], spacing=12),
             padding=ft.padding.all(16),
             bgcolor=EXAM_COLORS['surface'],
             border_radius=8
@@ -1695,13 +1695,11 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 # Scrollable content area
                 ft.Container(
                     content=ft.Column([
-                        timer_section,
-                        ft.Container(height=20),
                         progress_overview,
                         ft.Container(height=20),
                         question_navigator,
                         ft.Container(height=20),
-                        color_legend,
+                        color_legend_and_shortcuts,
                     ], spacing=0, scroll=ft.ScrollMode.AUTO),
                     expand=True
                 ),
