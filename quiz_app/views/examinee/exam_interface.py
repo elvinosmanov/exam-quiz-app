@@ -1532,16 +1532,15 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     )
                 )
 
-            # Create rows of 5 buttons each for this topic
-            topic_rows = []
-            for i in range(0, len(topic_buttons), 5):
-                row_buttons = topic_buttons[i:i+5]
-                topic_rows.append(ft.Row(row_buttons, spacing=4))
-
-            # Add topic button grid
+            # Add topic button grid with responsive wrap
             navigator_sections.append(
                 ft.Container(
-                    content=ft.Column(topic_rows, spacing=6),
+                    content=ft.Row(
+                        topic_buttons,
+                        wrap=True,
+                        spacing=4,
+                        run_spacing=6
+                    ),
                     padding=ft.padding.only(bottom=8)
                 )
             )
@@ -1624,15 +1623,23 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             alignment=ft.alignment.center
         )
         
+        # Sidebar with scrollable content area and fixed submit button
         sidebar = ft.Container(
             content=ft.Column([
-                timer_section,
-                ft.Container(height=20),
-                progress_overview,
-                ft.Container(height=20),
-                question_navigator,
-                ft.Container(height=20),
-                color_legend,
+                # Scrollable content area
+                ft.Container(
+                    content=ft.Column([
+                        timer_section,
+                        ft.Container(height=20),
+                        progress_overview,
+                        ft.Container(height=20),
+                        question_navigator,
+                        ft.Container(height=20),
+                        color_legend,
+                    ], spacing=0, scroll=ft.ScrollMode.AUTO),
+                    expand=True
+                ),
+                # Fixed submit button at bottom
                 ft.Container(height=20),
                 submit_exam_button
             ], spacing=0),
