@@ -1,0 +1,286 @@
+2025-10-30 09:55:51,031 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 09:55:51,034 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/wLCkDKPJIe
+2025-10-30 09:55:51,034 - flet - INFO - Flet app has started...
+2025-10-30 09:55:51,041 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/wLCkDKPJIe
+2025-10-30 09:55:51,041 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 09:55:51,042 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 09:55:51,995 - flet - INFO - App session started
+2025-10-30 09:55:59,879 - quiz_app - INFO - [AUDIT] User:None Action:LOGIN_FAILED
+2025-10-30 09:56:05,978 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 09:56:34,759 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 09:56:39,757 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 09:56:47,979 - quiz_app - INFO - [AUDIT] User:5 Action:LOGOUT
+2025-10-30 09:56:54,321 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 09:59:57,429 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 10:00:30,837 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 10:04:14,273 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 10:04:19,982 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 13:59:32,909 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 13:59:32,911 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/Px8NrZWXhD
+2025-10-30 13:59:32,911 - flet - INFO - Flet app has started...
+2025-10-30 13:59:32,915 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/Px8NrZWXhD
+2025-10-30 13:59:32,915 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 13:59:32,915 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 13:59:33,809 - flet - INFO - App session started
+2025-10-30 13:59:46,130 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 13:59:57,008 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761818396
+2025-10-30 14:03:04,316 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:03:04,318 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/teqRYhNnMK
+2025-10-30 14:03:04,319 - flet - INFO - Flet app has started...
+2025-10-30 14:03:04,323 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/teqRYhNnMK
+2025-10-30 14:03:04,323 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:03:04,324 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:03:04,992 - flet - INFO - App session started
+2025-10-30 14:03:16,715 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 14:03:20,704 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761818600
+2025-10-30 14:16:41,369 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:16:41,371 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/TqwiuIyPgf
+2025-10-30 14:16:41,371 - flet - INFO - Flet app has started...
+2025-10-30 14:16:41,375 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/TqwiuIyPgf
+2025-10-30 14:16:41,375 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:16:41,375 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:16:42,333 - flet - INFO - App session started
+2025-10-30 14:16:49,604 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 14:16:52,930 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761819412
+2025-10-30 14:22:52,364 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:22:52,367 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/bOSUHs1LWt
+2025-10-30 14:22:52,367 - flet - INFO - Flet app has started...
+2025-10-30 14:22:52,370 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/bOSUHs1LWt
+2025-10-30 14:22:52,370 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:22:52,370 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:22:53,106 - flet - INFO - App session started
+2025-10-30 14:22:58,817 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 14:23:02,554 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761819782
+2025-10-30 14:25:28,428 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:25:28,431 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/vGxtFE7wNV
+2025-10-30 14:25:28,431 - flet - INFO - Flet app has started...
+2025-10-30 14:25:28,435 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/vGxtFE7wNV
+2025-10-30 14:25:28,435 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:25:28,435 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:25:29,219 - flet - INFO - App session started
+2025-10-30 14:25:39,718 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 14:25:45,186 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761819945
+2025-10-30 14:28:10,447 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:28:10,449 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/f6NqlBi527
+2025-10-30 14:28:10,449 - flet - INFO - Flet app has started...
+2025-10-30 14:28:10,453 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/f6NqlBi527
+2025-10-30 14:28:10,453 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:28:10,453 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:28:11,125 - flet - INFO - App session started
+2025-10-30 14:28:17,601 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 14:28:20,740 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761820100
+2025-10-30 14:29:19,036 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761820100
+2025-10-30 14:30:04,427 - quiz_app - INFO - [AUDIT] User:5 Action:LOGOUT
+2025-10-30 14:30:10,273 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 14:47:44,333 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:47:44,335 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/Brx06Rh6OB
+2025-10-30 14:47:44,335 - flet - INFO - Flet app has started...
+2025-10-30 14:47:44,339 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/Brx06Rh6OB
+2025-10-30 14:47:44,339 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:47:44,339 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:47:45,184 - flet - INFO - App session started
+2025-10-30 14:47:49,809 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 14:55:08,295 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 14:55:08,297 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/T3z6JByWBv
+2025-10-30 14:55:08,298 - flet - INFO - Flet app has started...
+2025-10-30 14:55:08,301 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/T3z6JByWBv
+2025-10-30 14:55:08,301 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 14:55:08,301 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 14:55:09,012 - flet - INFO - App session started
+2025-10-30 14:55:13,503 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 14:55:59,240 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 14:56:21,504 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 14:56:25,405 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761821785
+2025-10-30 14:56:50,210 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761821785
+2025-10-30 15:22:55,647 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 15:22:55,650 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/4k2Z9YL1rC
+2025-10-30 15:22:55,650 - flet - INFO - Flet app has started...
+2025-10-30 15:22:55,654 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/4k2Z9YL1rC
+2025-10-30 15:22:55,654 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 15:22:55,654 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 15:22:56,602 - flet - INFO - App session started
+2025-10-30 15:23:01,851 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 15:31:08,031 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 15:31:08,033 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/uh1q4DoCJL
+2025-10-30 15:31:08,034 - flet - INFO - Flet app has started...
+2025-10-30 15:31:08,037 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/uh1q4DoCJL
+2025-10-30 15:31:08,037 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 15:31:08,037 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 15:31:08,975 - flet - INFO - App session started
+2025-10-30 15:31:14,133 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 15:32:53,570 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 15:32:58,548 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 15:33:03,438 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761823983
+2025-10-30 15:34:02,801 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761823983
+2025-10-30 16:18:21,581 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 16:18:21,583 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/ryFumIbotJ
+2025-10-30 16:18:21,583 - flet - INFO - Flet app has started...
+2025-10-30 16:18:21,587 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/ryFumIbotJ
+2025-10-30 16:18:21,587 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 16:18:21,587 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 16:18:22,514 - flet - INFO - App session started
+2025-10-30 16:18:29,101 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 16:18:33,641 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761826713
+2025-10-30 16:19:27,685 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761826713
+2025-10-30 19:18:02,486 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 19:18:02,488 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/WZhIxZdAxc
+2025-10-30 19:18:02,488 - flet - INFO - Flet app has started...
+2025-10-30 19:18:02,492 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/WZhIxZdAxc
+2025-10-30 19:18:02,492 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 19:18:02,492 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 19:18:03,213 - flet - INFO - App session started
+2025-10-30 19:18:07,580 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 19:19:12,704 - asyncio - ERROR - Future exception was never retrieved
+future: <Future finished exception=AssertionError('Column Control must be added to the page first')>
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/page.py", line 948, in wrapper
+    handler(*args)
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3583, in show_manage_presets_dialog
+    refresh_presets()
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3581, in refresh_presets
+    presets_container.update()
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/control.py", line 321, in update
+    assert (
+AssertionError: Column Control must be added to the page first
+2025-10-30 19:19:14,807 - asyncio - ERROR - Future exception was never retrieved
+future: <Future finished exception=AssertionError('Column Control must be added to the page first')>
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/page.py", line 948, in wrapper
+    handler(*args)
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3583, in show_manage_presets_dialog
+    refresh_presets()
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3581, in refresh_presets
+    presets_container.update()
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/control.py", line 321, in update
+    assert (
+AssertionError: Column Control must be added to the page first
+2025-10-30 19:19:15,571 - asyncio - ERROR - Future exception was never retrieved
+future: <Future finished exception=AssertionError('Column Control must be added to the page first')>
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/page.py", line 948, in wrapper
+    handler(*args)
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3583, in show_manage_presets_dialog
+    refresh_presets()
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3581, in refresh_presets
+    presets_container.update()
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/control.py", line 321, in update
+    assert (
+AssertionError: Column Control must be added to the page first
+2025-10-30 19:19:17,136 - asyncio - ERROR - Future exception was never retrieved
+future: <Future finished exception=AssertionError('Column Control must be added to the page first')>
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/page.py", line 948, in wrapper
+    handler(*args)
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3583, in show_manage_presets_dialog
+    refresh_presets()
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3581, in refresh_presets
+    presets_container.update()
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/control.py", line 321, in update
+    assert (
+AssertionError: Column Control must be added to the page first
+2025-10-30 19:20:08,720 - asyncio - ERROR - Future exception was never retrieved
+future: <Future finished exception=AssertionError('Column Control must be added to the page first')>
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/page.py", line 948, in wrapper
+    handler(*args)
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3583, in show_manage_presets_dialog
+    refresh_presets()
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3581, in refresh_presets
+    presets_container.update()
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/control.py", line 321, in update
+    assert (
+AssertionError: Column Control must be added to the page first
+2025-10-30 19:20:17,290 - asyncio - ERROR - Future exception was never retrieved
+future: <Future finished exception=AssertionError('Column Control must be added to the page first')>
+Traceback (most recent call last):
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/page.py", line 948, in wrapper
+    handler(*args)
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3583, in show_manage_presets_dialog
+    refresh_presets()
+  File "/Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/views/admin/quiz_management.py", line 3581, in refresh_presets
+    presets_container.update()
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/flet/core/control.py", line 321, in update
+    assert (
+AssertionError: Column Control must be added to the page first
+2025-10-30 19:20:25,406 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 19:20:29,976 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 19:20:34,764 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761837634
+2025-10-30 19:22:10,191 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761837634
+2025-10-30 19:22:18,182 - quiz_app - INFO - [AUDIT] User:5 Action:LOGOUT
+2025-10-30 19:22:22,760 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 19:23:15,149 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 19:23:20,341 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 19:29:24,713 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 19:29:24,719 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/gNHpuLhf6D
+2025-10-30 19:29:24,721 - flet - INFO - Flet app has started...
+2025-10-30 19:29:24,724 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/gNHpuLhf6D
+2025-10-30 19:29:24,727 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 19:29:24,727 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 19:29:25,013 - flet - INFO - App session started
+2025-10-30 19:29:29,789 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 19:30:14,946 - quiz_app - INFO - [AUDIT] User:1 Action:LOGOUT
+2025-10-30 19:30:21,051 - quiz_app - INFO - [AUDIT] User:5 Action:LOGIN_SUCCESS
+2025-10-30 19:30:24,513 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761838224
+2025-10-30 19:30:58,035 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761838224
+2025-10-30 19:31:17,146 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_START Table:exam_sessions RecordID:1761838277
+2025-10-30 19:31:32,312 - quiz_app - INFO - [AUDIT] User:5 Action:EXAM_SUBMIT Table:exam_sessions RecordID:1761838277
+2025-10-30 19:31:35,059 - quiz_app - INFO - [AUDIT] User:5 Action:LOGOUT
+2025-10-30 19:31:40,451 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 19:44:57,380 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 19:44:57,383 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/JPMEBUn3bg
+2025-10-30 19:44:57,383 - flet - INFO - Flet app has started...
+2025-10-30 19:44:57,387 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/JPMEBUn3bg
+2025-10-30 19:44:57,387 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 19:44:57,387 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 19:44:58,229 - flet - INFO - App session started
+2025-10-30 19:45:01,983 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 19:50:21,569 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 19:50:21,570 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/zv7N37h9Vb
+2025-10-30 19:50:21,571 - flet - INFO - Flet app has started...
+2025-10-30 19:50:21,574 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/zv7N37h9Vb
+2025-10-30 19:50:21,574 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 19:50:21,574 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 19:50:22,360 - flet - INFO - App session started
+2025-10-30 19:50:30,758 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 19:57:29,487 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 19:57:29,489 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/IbzejvwJRl
+2025-10-30 19:57:29,489 - flet - INFO - Flet app has started...
+2025-10-30 19:57:29,493 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/IbzejvwJRl
+2025-10-30 19:57:29,493 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 19:57:29,493 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 19:57:30,242 - flet - INFO - App session started
+2025-10-30 19:57:39,450 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 20:37:04,141 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 20:37:04,145 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/Ejm6AITDrR
+2025-10-30 20:37:04,145 - flet - INFO - Flet app has started...
+2025-10-30 20:37:04,150 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/Ejm6AITDrR
+2025-10-30 20:37:04,150 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 20:37:04,150 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 20:37:04,987 - flet - INFO - App session started
+2025-10-30 20:37:20,944 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS
+2025-10-30 20:43:07,973 - flet - INFO - Assets path configured: /Users/elvin/Documents/Coding_Programming/Cursor/Claude/exam-quiz-app/exam-quiz-app/quiz_app/assets
+2025-10-30 20:43:07,975 - flet - INFO - Starting up UDS server on /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/FQFf0XuTBn
+2025-10-30 20:43:07,975 - flet - INFO - Flet app has started...
+2025-10-30 20:43:07,980 - flet - INFO - App URL: /var/folders/52/jvtrf_51663c0bdjxvb_03b00000gn/T/FQFf0XuTBn
+2025-10-30 20:43:07,980 - flet_desktop - INFO - Starting Flet View app...
+2025-10-30 20:43:07,980 - flet_desktop - INFO - Flet View found in: /Users/elvin/.flet/bin/flet-0.25.1
+2025-10-30 20:43:08,578 - flet - INFO - App session started
+2025-10-30 20:43:12,604 - quiz_app - INFO - [AUDIT] User:1 Action:LOGIN_SUCCESS

@@ -63,7 +63,7 @@ class LoginView(ft.UserControl):
         return ft.Stack([
             # Background
             ft.Container(
-                image_src="images/background.jpg",
+                image_src="images/background.png",
                 image_fit=ft.ImageFit.COVER,
                 image_opacity=0.9,
                 bgcolor=COLORS['background'],

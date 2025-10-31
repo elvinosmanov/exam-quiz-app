@@ -869,7 +869,8 @@ class ExamineeDashboard(ft.UserControl):
                 user_data=self.user_data,
                 return_callback=return_callback,
                 exam_id=assignment_data['exam_id'],  # The actual exam template ID
-                assignment_id=assignment_id  # The assignment instance ID
+                assignment_id=assignment_id,  # The assignment instance ID
+                page=page_ref  # Pass page reference for keyboard shortcuts
             )
             
             # Replace current content with exam interface

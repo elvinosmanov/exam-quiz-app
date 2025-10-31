@@ -91,3 +91,6 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.app(target=main, assets_dir="quiz_app/assets")
+
+
+ 

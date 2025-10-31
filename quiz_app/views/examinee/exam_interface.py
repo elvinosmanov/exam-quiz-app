@@ -42,7 +42,7 @@ class ExamInterfaceWrapper(ft.UserControl):
                     # Fullscreen lock is optional, continue without it
 
 
-def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, assignment_id=None):
+def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, assignment_id=None, page=None):
     """Create complete exam interface as pure function - no UserControl issues"""
 
     # Initialize data
@@ -104,7 +104,51 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         'text_primary': '#1a202c',
         'text_secondary': '#718096'
     }
-    
+
+    # Keyboard shortcut handler
+    def handle_keyboard_event(e):
+        """Handle keyboard shortcuts: Arrow Left (previous), Arrow Right (next), M (mark for review)"""
+        print(f"[KEYBOARD] Key pressed: {e.key}")
+
+        if e.key == "Arrow Right" or e.key == "ArrowRight":
+            # Next question
+            if exam_state['current_question_index'] < len(questions) - 1:
+                save_current_answer()
+                exam_state['current_question_index'] += 1
+                exam_state['main_container'].content = create_main_content()
+                if exam_state['main_container'].page:
+                    exam_state['main_container'].page.update()
+                print(f"[KEYBOARD] Navigated to question {exam_state['current_question_index'] + 1}")
+
+        elif e.key == "Arrow Left" or e.key == "ArrowLeft":
+            # Previous question
+            if exam_state['current_question_index'] > 0:
+                save_current_answer()
+                exam_state['current_question_index'] -= 1
+                exam_state['main_container'].content = create_main_content()
+                if exam_state['main_container'].page:
+                    exam_state['main_container'].page.update()
+                print(f"[KEYBOARD] Navigated to question {exam_state['current_question_index'] + 1}")
+
+        elif e.key == "m" or e.key == "M":
+            # Toggle mark for review
+            current_question = questions[exam_state['current_question_index']]
+            question_id = current_question['id']
+            if question_id in exam_state['marked_for_review']:
+                exam_state['marked_for_review'].discard(question_id)
+                print(f"[KEYBOARD] Unmarked question {question_id}")
+            else:
+                exam_state['marked_for_review'].add(question_id)
+                print(f"[KEYBOARD] Marked question {question_id}")
+            exam_state['main_container'].content = create_main_content()
+            if exam_state['main_container'].page:
+                exam_state['main_container'].page.update()
+
+    # Attach keyboard handler if page is provided
+    if page:
+        page.on_keyboard_event = handle_keyboard_event
+        print("[KEYBOARD] Keyboard shortcuts enabled: ← (previous), → (next), M (mark for review)")
+
     def get_question_options(question_id):
         """Get options for a question, with optional shuffling"""
         # Check if we've already shuffled this question's options
@@ -1559,43 +1603,65 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             border_radius=8
         )
         
-        # Color Legend
+        # Color Legend and Keyboard Shortcuts
         color_legend = ft.Container(
             content=ft.Column([
+                # Color Legend
                 ft.Text("Color Legend", size=14, weight=ft.FontWeight.BOLD),
                 ft.Container(height=8),
                 ft.Column([
                     ft.Row([
                         ft.Container(
-                            width=16, height=16, 
-                            bgcolor=EXAM_COLORS['current'], 
+                            width=16, height=16,
+                            bgcolor=EXAM_COLORS['current'],
                             border_radius=2
                         ),
                         ft.Text("Current Question", size=12)
                     ], spacing=8),
                     ft.Row([
                         ft.Container(
-                            width=16, height=16, 
-                            bgcolor=EXAM_COLORS['answered'], 
+                            width=16, height=16,
+                            bgcolor=EXAM_COLORS['answered'],
                             border_radius=2
                         ),
                         ft.Text("Answered", size=12)
                     ], spacing=8),
                     ft.Row([
                         ft.Container(
-                            width=16, height=16, 
-                            bgcolor=EXAM_COLORS['marked'], 
+                            width=16, height=16,
+                            bgcolor=EXAM_COLORS['marked'],
                             border_radius=2
                         ),
                         ft.Text("Marked for Review", size=12)
                     ], spacing=8),
                     ft.Row([
                         ft.Container(
-                            width=16, height=16, 
-                            bgcolor=EXAM_COLORS['unanswered'], 
+                            width=16, height=16,
+                            bgcolor=EXAM_COLORS['unanswered'],
                             border_radius=2
                         ),
                         ft.Text("Not Answered", size=12)
+                    ], spacing=8)
+                ], spacing=6),
+
+                # Keyboard Shortcuts
+                ft.Container(height=16),
+                ft.Divider(height=1, color=EXAM_COLORS['border']),
+                ft.Container(height=8),
+                ft.Text("Keyboard Shortcuts", size=14, weight=ft.FontWeight.BOLD),
+                ft.Container(height=8),
+                ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.icons.KEYBOARD_ARROW_LEFT, size=16, color=EXAM_COLORS['text_secondary']),
+                        ft.Text("← Previous", size=12)
+                    ], spacing=8),
+                    ft.Row([
+                        ft.Icon(ft.icons.KEYBOARD_ARROW_RIGHT, size=16, color=EXAM_COLORS['text_secondary']),
+                        ft.Text("→ Next", size=12)
+                    ], spacing=8),
+                    ft.Row([
+                        ft.Icon(ft.icons.FLAG, size=16, color=EXAM_COLORS['text_secondary']),
+                        ft.Text("M Mark for Review", size=12)
                     ], spacing=8)
                 ], spacing=6)
             ]),
