@@ -822,8 +822,8 @@ class QuizManagement(ft.UserControl):
                     exam_dropdown,
                     selected_exams_container
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=700,
-                height=500
+                width=900,
+                height=600
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
