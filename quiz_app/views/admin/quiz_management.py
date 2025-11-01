@@ -521,11 +521,14 @@ class QuizManagement(ft.UserControl):
             ft.Text("Preset Template Details:", size=13, weight=ft.FontWeight.BOLD),
         ], spacing=5, visible=self.assignment_mode.value == "preset")
 
-        # Container for selected exam chips (manual mode)
+        # Container for selected exam cards (manual mode) with question pool configuration
         selected_exams_container = ft.Column([
             ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
-            ft.Text("(Exams will be combined into one continuous test)", size=12, color=COLORS['text_secondary'], italic=True)
+            ft.Text("(Configure questions per exam by difficulty)", size=12, color=COLORS['text_secondary'], italic=True)
         ], spacing=5, visible=self.assignment_mode.value == "manual")
+
+        # Store question pool configurations for each exam {exam_id: {easy, medium, hard, dropdowns}}
+        self.exam_pool_configs = {}
 
         def on_preset_selected(e):
             """Handle preset template selection"""
@@ -590,13 +593,95 @@ class QuizManagement(ft.UserControl):
             if exam:
                 self.selected_exam_templates.append(exam)
 
-                # Create chip for selected exam
-                chip = ft.Chip(
-                    label=ft.Text(f"{exam['title']} - {exam['question_count']}Q"),
-                    on_delete=lambda e, ex_id=exam_id: remove_exam(ex_id),
-                    delete_icon_color=COLORS['error']
+                # Get available questions by difficulty
+                easy_available = self.db.execute_single(
+                    "SELECT COUNT(*) as count FROM questions WHERE exam_id = ? AND difficulty_level = 'easy' AND is_active = 1",
+                    (exam_id,)
+                )['count']
+                medium_available = self.db.execute_single(
+                    "SELECT COUNT(*) as count FROM questions WHERE exam_id = ? AND difficulty_level = 'medium' AND is_active = 1",
+                    (exam_id,)
+                )['count']
+                hard_available = self.db.execute_single(
+                    "SELECT COUNT(*) as count FROM questions WHERE exam_id = ? AND difficulty_level = 'hard' AND is_active = 1",
+                    (exam_id,)
+                )['count']
+
+                # Create dropdown options for Easy
+                easy_options = [ft.dropdown.Option(key=str(i), text=str(i)) for i in range(0, easy_available + 1)]
+                medium_options = [ft.dropdown.Option(key=str(i), text=str(i)) for i in range(0, medium_available + 1)]
+                hard_options = [ft.dropdown.Option(key=str(i), text=str(i)) for i in range(0, hard_available + 1)]
+
+                # Subtotal text
+                subtotal_text = ft.Text("Subtotal: 0", size=14, weight=ft.FontWeight.BOLD)
+
+                # Create dropdowns
+                easy_dropdown = ft.Dropdown(
+                    label=f"Easy (max: {easy_available})",
+                    options=easy_options,
+                    value="0",
+                    width=180,
+                    content_padding=5
                 )
-                selected_exams_container.controls.append(chip)
+                medium_dropdown = ft.Dropdown(
+                    label=f"Medium (max: {medium_available})",
+                    options=medium_options,
+                    value="0",
+                    width=180,
+                    content_padding=5
+                )
+                hard_dropdown = ft.Dropdown(
+                    label=f"Hard (max: {hard_available})",
+                    options=hard_options,
+                    value="0",
+                    width=180,
+                    content_padding=5
+                )
+
+                def update_subtotal(e):
+                    easy_val = int(easy_dropdown.value or 0)
+                    medium_val = int(medium_dropdown.value or 0)
+                    hard_val = int(hard_dropdown.value or 0)
+                    subtotal = easy_val + medium_val + hard_val
+                    subtotal_text.value = f"Subtotal: {subtotal}"
+                    select_dialog.update()
+
+                easy_dropdown.on_change = update_subtotal
+                medium_dropdown.on_change = update_subtotal
+                hard_dropdown.on_change = update_subtotal
+
+                # Store config
+                self.exam_pool_configs[exam_id] = {
+                    'easy': easy_dropdown,
+                    'medium': medium_dropdown,
+                    'hard': hard_dropdown,
+                    'easy_max': easy_available,
+                    'medium_max': medium_available,
+                    'hard_max': hard_available
+                }
+
+                # Create card for selected exam
+                exam_card = ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(exam['title'], size=13, weight=ft.FontWeight.BOLD),
+                            ft.Container(expand=True),
+                            subtotal_text,
+                            ft.IconButton(
+                                icon=ft.icons.CLOSE,
+                                icon_size=16,
+                                on_click=lambda e, ex_id=exam_id: remove_exam(ex_id),
+                                icon_color=COLORS['error']
+                            )
+                        ]),
+                        ft.Row([easy_dropdown, medium_dropdown, hard_dropdown], spacing=10)
+                    ], spacing=5),
+                    padding=ft.padding.all(12),
+                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                    border_radius=8,
+                    border=ft.border.all(1, COLORS['border'])
+                )
+                selected_exams_container.controls.append(exam_card)
 
             # Clear dropdown
             e.control.value = None
@@ -606,25 +691,52 @@ class QuizManagement(ft.UserControl):
             # Remove from selected list
             self.selected_exam_templates = [ex for ex in self.selected_exam_templates if ex['id'] != exam_id]
 
-            # Remove chip from UI
-            for i, control in enumerate(selected_exams_container.controls[2:], 2):
-                if isinstance(control, ft.Chip):
-                    # Extract exam_id from chip (stored in lambda)
-                    selected_exams_container.controls.clear()
-                    selected_exams_container.controls.extend([
-                        ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
-                        ft.Text("(Exams will be combined into one continuous test)", size=12, color=COLORS['text_secondary'], italic=True)
-                    ])
+            # Remove from configs
+            if exam_id in self.exam_pool_configs:
+                del self.exam_pool_configs[exam_id]
 
-                    # Re-add remaining chips
-                    for exam in self.selected_exam_templates:
-                        chip = ft.Chip(
-                            label=ft.Text(f"{exam['title']} - {exam['question_count']}Q"),
-                            on_delete=lambda e, ex_id=exam['id']: remove_exam(ex_id),
-                            delete_icon_color=COLORS['error']
-                        )
-                        selected_exams_container.controls.append(chip)
-                    break
+            # Rebuild UI
+            selected_exams_container.controls.clear()
+            selected_exams_container.controls.extend([
+                ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
+                ft.Text("(Configure questions per exam by difficulty)", size=12, color=COLORS['text_secondary'], italic=True)
+            ])
+
+            # Re-add remaining cards by re-triggering the add logic
+            for exam in self.selected_exam_templates:
+                # Need to recreate the card since we cleared everything
+                # This is a bit inefficient but ensures consistency
+                pass  # Cards will be recreated on next selection or we keep reference
+
+            # Actually, let's just rebuild from scratch using stored configs
+            for ex_id in list(self.exam_pool_configs.keys()):
+                exam = next((e for e in self.selected_exam_templates if e['id'] == ex_id), None)
+                if exam:
+                    config = self.exam_pool_configs[ex_id]
+                    subtotal_val = int(config['easy'].value or 0) + int(config['medium'].value or 0) + int(config['hard'].value or 0)
+                    subtotal_text_rebuild = ft.Text(f"Subtotal: {subtotal_val}", size=14, weight=ft.FontWeight.BOLD)
+
+                    exam_card = ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Text(exam['title'], size=13, weight=ft.FontWeight.BOLD),
+                                ft.Container(expand=True),
+                                subtotal_text_rebuild,
+                                ft.IconButton(
+                                    icon=ft.icons.CLOSE,
+                                    icon_size=16,
+                                    on_click=lambda e, eid=ex_id: remove_exam(eid),
+                                    icon_color=COLORS['error']
+                                )
+                            ]),
+                            ft.Row([config['easy'], config['medium'], config['hard']], spacing=10)
+                        ], spacing=5),
+                        padding=ft.padding.all(12),
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                        border_radius=8,
+                        border=ft.border.all(1, COLORS['border'])
+                    )
+                    selected_exams_container.controls.append(exam_card)
 
             select_dialog.update()
 
@@ -671,10 +783,27 @@ class QuizManagement(ft.UserControl):
                     self.page.update()
                     return
 
+                # Validate that at least one exam has questions configured
+                total_questions = 0
+                for exam_id, config in self.exam_pool_configs.items():
+                    easy_count = int(config['easy'].value or 0)
+                    medium_count = int(config['medium'].value or 0)
+                    hard_count = int(config['hard'].value or 0)
+                    total_questions += easy_count + medium_count + hard_count
+
+                if total_questions == 0:
+                    self.page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Please configure at least one question for selected exams"),
+                        bgcolor=COLORS['error']
+                    )
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                    return
+
                 select_dialog.open = False
                 self.page.update()
-                # Open manual multi-template assignment dialog
-                self.show_assignment_creation_dialog_multi(self.selected_exam_templates)
+                # Open manual multi-template assignment dialog with pool configs
+                self.show_assignment_creation_dialog_multi(self.selected_exam_templates, self.exam_pool_configs)
 
         def close_dialog(e):
             select_dialog.open = False
@@ -711,14 +840,27 @@ class QuizManagement(ft.UserControl):
         select_dialog.open = True
         self.page.update()
 
-    def show_assignment_creation_dialog_multi(self, exams, assignment=None):
-        """Show dialog for creating assignment from multiple exam templates"""
+    def show_assignment_creation_dialog_multi(self, exams, pool_configs=None, assignment=None):
+        """Show dialog for creating assignment from multiple exam templates
+
+        Args:
+            exams: List of selected exam templates
+            pool_configs: Dict of {exam_id: {easy, medium, hard dropdowns}} if using question pool
+            assignment: Existing assignment if editing
+        """
         from datetime import datetime, date
 
         is_edit = assignment is not None
 
-        # Calculate total question count across all selected exams
-        total_questions = sum(exam['question_count'] for exam in exams)
+        # Calculate total question count from pool configs if provided, otherwise use all questions
+        if pool_configs:
+            total_questions = sum(
+                int(config['easy'].value or 0) + int(config['medium'].value or 0) + int(config['hard'].value or 0)
+                for config in pool_configs.values()
+            )
+        else:
+            total_questions = sum(exam['question_count'] for exam in exams)
+
         exam_titles = ", ".join([exam['title'] for exam in exams])
 
         # Assignment name
@@ -737,13 +879,24 @@ class QuizManagement(ft.UserControl):
         ])
 
         for exam in exams:
+            # Build question count text based on whether pool is used
+            if pool_configs and exam['id'] in pool_configs:
+                config = pool_configs[exam['id']]
+                easy = int(config['easy'].value or 0)
+                medium = int(config['medium'].value or 0)
+                hard = int(config['hard'].value or 0)
+                exam_total = easy + medium + hard
+                question_text = f"E:{easy} M:{medium} H:{hard} (Total: {exam_total})"
+            else:
+                question_text = f"{exam['question_count']} questions"
+
             selected_exams_display.controls.append(
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
                         ft.Text(f"{exam['title']}", size=13),
                         ft.Container(expand=True),
-                        ft.Text(f"{exam['question_count']} questions", size=12, color=COLORS['text_secondary'])
+                        ft.Text(question_text, size=12, color=COLORS['text_secondary'])
                     ], spacing=8),
                     padding=ft.padding.symmetric(vertical=4, horizontal=8),
                     bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
@@ -981,6 +1134,37 @@ class QuizManagement(ft.UserControl):
                     assignment_dialog.update()
                     return
 
+                # Validate and collect question pool settings if enabled
+                using_pool = bool(pool_configs)
+                pool_settings = []
+
+                if using_pool:
+                    # Extract pool configuration from passed pool_configs
+                    for exam_id, config in pool_configs.items():
+                        try:
+                            easy_count = int(config['easy'].value or 0)
+                            medium_count = int(config['medium'].value or 0)
+                            hard_count = int(config['hard'].value or 0)
+
+                            if easy_count > 0 or medium_count > 0 or hard_count > 0:
+                                pool_settings.append({
+                                    'exam_id': exam_id,
+                                    'easy': easy_count,
+                                    'medium': medium_count,
+                                    'hard': hard_count
+                                })
+                        except (ValueError, AttributeError) as ve:
+                            error_text.value = f"Invalid question pool configuration: {str(ve)}"
+                            error_text.visible = True
+                            assignment_dialog.update()
+                            return
+
+                    if not pool_settings:
+                        error_text.value = "Please configure at least one exam's question pool"
+                        error_text.visible = True
+                        assignment_dialog.update()
+                        return
+
                 # Create assignment (use first exam as primary, others stored in junction table)
                 primary_exam_id = exams[0]['id']
 
@@ -993,6 +1177,7 @@ class QuizManagement(ft.UserControl):
                         deadline, created_at, created_by
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
+                # Note: For multi-template with pool, we store config per template in junction table
                 params = (
                     primary_exam_id,
                     assignment_name_field.value.strip(),
@@ -1002,20 +1187,34 @@ class QuizManagement(ft.UserControl):
                     1 if randomize_questions.value else 0,
                     1 if show_results.value else 0,
                     1 if enable_fullscreen.value else 0,
-                    0,  # Not using question pool for multi-template
-                    0, 0, 0, 0,  # Question counts (not used)
+                    1 if using_pool else 0,
+                    0, 0, 0, 0,  # Legacy question counts (not used for multi-template)
                     self.assignment_deadline.isoformat() if self.assignment_deadline else None,
                     datetime.now().isoformat(),
                     self.user_data['id']
                 )
                 assignment_id = self.db.execute_insert(query, params)
 
-                # Store ALL selected exam templates in junction table (including primary)
+                # Store ALL selected exam templates in junction table with pool config
                 for order_idx, exam in enumerate(exams):
-                    self.db.execute_insert("""
-                        INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
-                        VALUES (?, ?, ?)
-                    """, (assignment_id, exam['id'], order_idx))
+                    # Find pool config for this exam if exists
+                    exam_pool = next((p for p in pool_settings if p['exam_id'] == exam['id']), None)
+
+                    if using_pool and exam_pool:
+                        # Store with pool configuration
+                        self.db.execute_insert("""
+                            INSERT INTO assignment_exam_templates (
+                                assignment_id, exam_id, order_index,
+                                easy_count, medium_count, hard_count
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                        """, (assignment_id, exam['id'], order_idx,
+                              exam_pool['easy'], exam_pool['medium'], exam_pool['hard']))
+                    else:
+                        # Store without pool configuration (use all questions)
+                        self.db.execute_insert("""
+                            INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
+                            VALUES (?, ?, ?)
+                        """, (assignment_id, exam['id'], order_idx))
 
                 # Assign users (only for create mode)
                 for user_id in self.selected_assignment_users:
@@ -1085,6 +1284,11 @@ class QuizManagement(ft.UserControl):
 
             # Selected exams display
             selected_exams_display,
+            ft.Container(height=10),
+
+            # Question Pool Selection
+            use_question_pool,
+            question_pool_config,
             ft.Container(height=10),
 
             ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
