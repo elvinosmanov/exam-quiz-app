@@ -679,7 +679,7 @@ class QuizManagement(ft.UserControl):
                     padding=ft.padding.all(12),
                     bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
                     border_radius=8,
-                    border=ft.border.all(1, COLORS['border'])
+                    border=ft.border.all(1, COLORS['secondary'])
                 )
                 selected_exams_container.controls.append(exam_card)
 
