@@ -8,6 +8,7 @@ class Grading(ft.UserControl):
         self.db = db
         self.ungraded_answers = []
         self.current_answer = None
+        self.parent_dashboard = None  # Reference to parent dashboard for badge updates
         
         # Load ungraded essay/short answer submissions
         self.load_ungraded_answers()
@@ -327,7 +328,11 @@ class Grading(ft.UserControl):
                 self.load_ungraded_answers()
                 self.update_answers_table()
                 self.update()
-                
+
+                # Update grading badge in parent dashboard
+                if self.parent_dashboard:
+                    self.parent_dashboard.update_grading_badge()
+
                 # Show success message
                 if self.page:
                     self.page.show_snack_bar(

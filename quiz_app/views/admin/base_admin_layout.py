@@ -8,7 +8,8 @@ class BaseAdminLayout(ft.UserControl):
         self.user_data = user_data
         self.logout_callback = logout_callback
         self.selected_nav_index = 0
-        
+        self.db = None  # Will be set by subclass
+
         # Dynamic height properties
         self.dynamic_height = 700  # Default fallback height
         self.TOP_BAR_HEIGHT = 65   # Top bar height (padding + font size + border)
@@ -25,7 +26,18 @@ class BaseAdminLayout(ft.UserControl):
             {"title": "Reports", "icon": ft.icons.ANALYTICS, "route": "reports"},
             {"title": "Settings", "icon": ft.icons.SETTINGS, "route": "settings"}
         ]
-        
+
+        # Grading badge indicator (blue circle)
+        self.grading_badge = ft.Container(
+            content=ft.Container(
+                width=8,
+                height=8,
+                border_radius=4,
+                bgcolor=ft.colors.BLUE,
+            ),
+            visible=False,  # Hidden by default
+        )
+
         # Create navigation rail WITHOUT expand - let parent container handle constraints
         self.nav_rail = ft.NavigationRail(
             selected_index=0,
@@ -34,7 +46,14 @@ class BaseAdminLayout(ft.UserControl):
             min_extended_width=200,
             destinations=[
                 ft.NavigationRailDestination(
-                    icon=item["icon"],
+                    icon=ft.Stack([
+                        ft.Icon(item["icon"]),
+                        ft.Container(
+                            content=self.grading_badge if item["route"] == "grading" else None,
+                            alignment=ft.alignment.top_right,
+                            offset=ft.Offset(0.3, -0.3),
+                        ) if item["route"] == "grading" else ft.Icon(item["icon"])
+                    ]) if item["route"] == "grading" else item["icon"],
                     label=item["title"]
                 ) for item in self.nav_items
             ],
@@ -146,3 +165,38 @@ class BaseAdminLayout(ft.UserControl):
     
     def logout_clicked(self, e):
         self.logout_callback(self.page)
+
+    def check_ungraded_items(self):
+        """Check if there are any ungraded essay/short answer questions"""
+        if not self.db:
+            return 0
+
+        try:
+            ungraded = self.db.execute_query("""
+                SELECT COUNT(DISTINCT es.id) as count
+                FROM exam_sessions es
+                JOIN user_answers ua ON ua.session_id = es.id
+                JOIN questions q ON ua.question_id = q.id
+                WHERE q.question_type IN ('essay', 'short_answer')
+                AND ua.points_earned IS NULL
+                AND ua.answer_text IS NOT NULL
+                AND ua.answer_text != ''
+                AND es.is_completed = 1
+            """)
+
+            count = ungraded[0]['count'] if ungraded else 0
+            return count
+        except Exception as e:
+            print(f"Error checking ungraded items: {e}")
+            return 0
+
+    def update_grading_badge(self):
+        """Update the grading badge visibility based on ungraded items"""
+        try:
+            ungraded_count = self.check_ungraded_items()
+            self.grading_badge.visible = ungraded_count > 0
+
+            if self.page:
+                self.update()
+        except Exception as e:
+            print(f"Error updating grading badge: {e}")

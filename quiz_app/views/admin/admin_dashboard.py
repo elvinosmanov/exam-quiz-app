@@ -12,17 +12,19 @@ class AdminDashboard(BaseAdminLayout):
     def __init__(self, session_manager, user_data, logout_callback):
         super().__init__(session_manager, user_data, logout_callback)
         self.db = Database()
-        
+
         # Don't initialize dashboard view here - wait until added to page
     
     def did_mount(self):
         """Called after the control is added to the page"""
         super().did_mount()
+        self.update_grading_badge()  # Update badge on initial load
         self.show_dashboard()
     
     def on_route_changed(self, route):
         print(f"[DEBUG] on_route_changed called with route: {route}")
         if route == "dashboard":
+            self.update_grading_badge()  # Update badge when returning to dashboard
             self.show_dashboard()
         elif route == "users":
             self.show_user_management()
@@ -138,6 +140,7 @@ class AdminDashboard(BaseAdminLayout):
     
     def show_grading(self):
         grading = Grading(self.db)
+        grading.parent_dashboard = self  # Pass reference to update badge after grading
         self.set_content(grading)
     
     def show_reports(self):
