@@ -329,8 +329,8 @@ class QuizManagement(ft.UserControl):
                     ft.Container(height=10),
                     error_text
                 ], spacing=15, tight=True),
-                width=600,
-                height=300
+                width=self.page.width - 400 if self.page.width > 400 else 600,
+                height=self.page.height - 500 if self.page.height > 500 else 300
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -822,8 +822,8 @@ class QuizManagement(ft.UserControl):
                     exam_dropdown,
                     selected_exams_container
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=900,
-                height=600
+                width=self.page.width - 200 if self.page.width > 200 else 600,
+                height=self.page.height - 200 if self.page.height > 200 else 500
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -1319,8 +1319,8 @@ class QuizManagement(ft.UserControl):
             title=ft.Text(dialog_title),
             content=ft.Container(
                 content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=900,
-                height=650
+                width=self.page.width - 200 if self.page.width > 200 else 900,
+                height=self.page.height - 150 if self.page.height > 150 else 650
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -1727,8 +1727,8 @@ class QuizManagement(ft.UserControl):
             title=ft.Text(f"Create Assignment from Preset: {preset_name}"),
             content=ft.Container(
                 content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=900,
-                height=650
+                width=self.page.width - 200 if self.page.width > 200 else 900,
+                height=self.page.height - 150 if self.page.height > 150 else 650
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -2333,8 +2333,8 @@ class QuizManagement(ft.UserControl):
             title=ft.Text(dialog_title),
             content=ft.Container(
                 content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=1000,
-                height=650
+                width=self.page.width - 200 if self.page.width > 200 else 1000,
+                height=self.page.height - 150 if self.page.height > 150 else 650
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -2488,8 +2488,8 @@ class QuizManagement(ft.UserControl):
                     ft.Container(height=10),
                     error_text
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=600,
-                height=500
+                width=self.page.width - 300 if self.page.width > 300 else 600,
+                height=self.page.height - 200 if self.page.height > 200 else 500
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_assignment_dialog),
@@ -3129,8 +3129,8 @@ class QuizManagement(ft.UserControl):
                     ft.Container(height=20),
                     current_users_container
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=600,
-                height=400
+                width=self.page.width - 300 if self.page.width > 300 else 600,
+                height=self.page.height - 300 if self.page.height > 300 else 400
             ),
             actions=[
                 ft.ElevatedButton(
@@ -3587,8 +3587,8 @@ class QuizManagement(ft.UserControl):
                     ft.Container(height=5),
                     error_text
                 ], spacing=10, tight=True),
-                width=700,
-                height=600
+                width=self.page.width - 300 if self.page.width > 300 else 700,
+                height=self.page.height - 200 if self.page.height > 200 else 600
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
@@ -3758,8 +3758,8 @@ class QuizManagement(ft.UserControl):
             title=ft.Text("Manage Preset Templates"),
             content=ft.Container(
                 content=presets_container,
-                width=700,
-                height=500
+                width=self.page.width - 300 if self.page.width > 300 else 700,
+                height=self.page.height - 200 if self.page.height > 200 else 500
             ),
             actions=[
                 ft.ElevatedButton(
