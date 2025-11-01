@@ -3566,6 +3566,10 @@ class QuizManagement(ft.UserControl):
             preset_dialog.open = False
             self.page.update()
 
+        # Calculate responsive heights
+        dialog_height = self.page.height - 200 if self.page.height > 200 else 600
+        scroll_container_height = dialog_height - 300  # Leave space for fields and total
+
         preset_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(f"{'Edit' if is_edit else 'Create'} Preset Template"),
@@ -3580,15 +3584,15 @@ class QuizManagement(ft.UserControl):
                         content=ft.Column([
                             topic_container,
                         ], scroll=ft.ScrollMode.AUTO),
-                        height=250
+                        height=scroll_container_height,
+                        expand=True
                     ),
                     ft.Divider(),
                     total_questions_text,
-                    ft.Container(height=5),
                     error_text
-                ], spacing=10, tight=True),
+                ], spacing=10),
                 width=self.page.width - 300 if self.page.width > 300 else 700,
-                height=self.page.height - 200 if self.page.height > 200 else 600
+                height=dialog_height
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=close_dialog),
