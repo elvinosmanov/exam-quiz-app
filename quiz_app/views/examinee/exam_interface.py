@@ -105,10 +105,18 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         'text_secondary': '#718096'
     }
 
+    # Track if a text field is currently focused
+    exam_state['text_field_focused'] = False
+
     # Keyboard shortcut handler
     def handle_keyboard_event(e):
         """Handle keyboard shortcuts: Arrow Left (previous), Arrow Right (next), M (mark for review)"""
-        print(f"[KEYBOARD] Key pressed: {e.key}")
+        print(f"[KEYBOARD] Key pressed: {e.key}, text_field_focused: {exam_state.get('text_field_focused', False)}")
+
+        # Skip shortcuts if user is typing in a text field
+        if exam_state.get('text_field_focused', False):
+            print(f"[KEYBOARD] Ignoring shortcut - user is typing in TextField")
+            return
 
         if e.key == "Arrow Right" or e.key == "ArrowRight":
             # Next question
@@ -606,30 +614,50 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             
         elif current_question['question_type'] == 'short_answer':
             selected_answer = exam_state['user_answers'].get(current_question['id'], {}).get('answer_text', '')
-            
+
             def on_text_change(e):
                 # Store in exam_state only, don't save to database on keystroke
                 exam_state['user_answers'][current_question['id']] = {'answer_text': e.control.value}
-            
+
+            def on_text_focus(e):
+                exam_state['text_field_focused'] = True
+                print("[KEYBOARD] TextField focused - shortcuts disabled")
+
+            def on_text_blur(e):
+                exam_state['text_field_focused'] = False
+                print("[KEYBOARD] TextField blurred - shortcuts enabled")
+
             answer_section = ft.TextField(
                 label="Your answer",
                 value=selected_answer,
                 on_change=on_text_change,
+                on_focus=on_text_focus,
+                on_blur=on_text_blur,
                 multiline=False,
                 max_lines=3
             )
             
         elif current_question['question_type'] == 'essay':
             selected_answer = exam_state['user_answers'].get(current_question['id'], {}).get('answer_text', '')
-            
+
             def on_essay_change(e):
                 # Store in exam_state only, don't save to database on keystroke
                 exam_state['user_answers'][current_question['id']] = {'answer_text': e.control.value}
-            
+
+            def on_essay_focus(e):
+                exam_state['text_field_focused'] = True
+                print("[KEYBOARD] TextField focused - shortcuts disabled")
+
+            def on_essay_blur(e):
+                exam_state['text_field_focused'] = False
+                print("[KEYBOARD] TextField blurred - shortcuts enabled")
+
             answer_section = ft.TextField(
                 label="Your essay response",
                 value=selected_answer,
                 on_change=on_essay_change,
+                on_focus=on_essay_focus,
+                on_blur=on_essay_blur,
                 multiline=True,
                 min_lines=6,
                 max_lines=12
@@ -874,7 +902,44 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             except Exception as ex:
                 print(f"Error confirming exam submission: {ex}")
                 submit_exam_final()
-        
+
+        def check_and_archive_assignment(assignment_id):
+            """Check if all users completed the assignment and archive if so"""
+            try:
+                # Get total assigned users count
+                total_stats = db.execute_single("""
+                    SELECT COUNT(DISTINCT user_id) as total_assigned
+                    FROM assignment_users
+                    WHERE assignment_id = ? AND is_active = 1
+                """, (assignment_id,))
+
+                # Get completed users count
+                completed_stats = db.execute_single("""
+                    SELECT COUNT(DISTINCT user_id) as completed_count
+                    FROM exam_sessions
+                    WHERE assignment_id = ? AND is_completed = 1
+                """, (assignment_id,))
+
+                if total_stats and completed_stats:
+                    total_assigned = total_stats['total_assigned']
+                    completed_count = completed_stats['completed_count']
+
+                    print(f"📋 Assignment {assignment_id}: {completed_count}/{total_assigned} users completed")
+
+                    # If all users completed, archive the assignment
+                    if total_assigned > 0 and completed_count == total_assigned:
+                        db.execute_update("""
+                            UPDATE exam_assignments
+                            SET is_archived = 1
+                            WHERE id = ?
+                        """, (assignment_id,))
+                        print(f"✅ Assignment {assignment_id} auto-archived - all users completed!")
+
+            except Exception as e:
+                print(f"Error checking assignment completion for auto-archive: {e}")
+                import traceback
+                traceback.print_exc()
+
         def submit_exam_final():
             """Final exam submission with proper processing"""
             try:
@@ -1042,6 +1107,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 print(f"Total answers saved: {len(exam_state['user_answers'])}")
 
                 # No need to update user_answers - they already have the correct session_id
+
+                # Check if assignment should be auto-archived
+                if assignment_id:
+                    check_and_archive_assignment(assignment_id)
 
                 # Show results with calculated scores
                 show_exam_results(

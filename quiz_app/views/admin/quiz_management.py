@@ -11,6 +11,10 @@ class QuizManagement(ft.UserControl):
         self.all_exams_data = []  # Keep original data for filtering
         self.selected_exam = None
 
+        # Load default settings
+        self.default_passing_score = self.get_setting('passing_score', '70')
+        self.default_exam_duration = self.get_setting('default_exam_duration', '60')
+
         # Search control
         self.search_field = ft.TextField(
             label="Search exams...",
@@ -32,7 +36,7 @@ class QuizManagement(ft.UserControl):
             on_change=self.apply_filters,
             width=200
         )
-        
+
         # Assignments table
         self.exams_table = ft.DataTable(
             columns=[
@@ -41,7 +45,7 @@ class QuizManagement(ft.UserControl):
                 ft.DataColumn(ft.Text("Duration")),
                 ft.DataColumn(ft.Text("Passing Score")),
                 ft.DataColumn(ft.Text("Questions")),
-                ft.DataColumn(ft.Text("Assigned To")),
+                ft.DataColumn(ft.Text("Completion")),
                 ft.DataColumn(ft.Text("Deadline")),
                 ft.DataColumn(ft.Text("Actions"))
             ],
@@ -49,7 +53,7 @@ class QuizManagement(ft.UserControl):
             width=float("inf"),
             column_spacing=20
         )
-        
+
         # Action buttons
         self.add_exam_btn = ft.ElevatedButton(
             text="Create Topic",
@@ -57,9 +61,22 @@ class QuizManagement(ft.UserControl):
             on_click=self.show_add_exam_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
         )
-        
+
         # Dialog for adding/editing exams
         self.exam_dialog = None
+
+    def get_setting(self, key, default_value):
+        """Get a setting value from system_settings table"""
+        try:
+            result = self.db.execute_query(
+                "SELECT setting_value FROM system_settings WHERE setting_key = ?",
+                (key,)
+            )
+            if result:
+                return result[0]['setting_value']
+        except Exception as e:
+            print(f"[DEBUG] Failed to load setting {key}: {e}")
+        return default_value
     
     def did_mount(self):
         """Called after the control is added to the page"""
@@ -90,11 +107,20 @@ class QuizManagement(ft.UserControl):
             on_click=self.show_manage_presets_dialog,
         )
 
+        # View Archived button
+        self.view_archived_btn = ft.OutlinedButton(
+            "View Archived",
+            icon=ft.icons.ARCHIVE,
+            on_click=self.show_archived_assignments_dialog,
+        )
+
         return ft.Column([
             # Header
             ft.Row([
                 ft.Text("Assignment Management", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
+                self.view_archived_btn,
+                ft.Container(width=10),
                 self.manage_presets_btn,
                 ft.Container(width=10),
                 self.add_preset_btn,
@@ -102,7 +128,7 @@ class QuizManagement(ft.UserControl):
                 self.add_assignment_btn
             ]),
             ft.Divider(),
-            
+
             # Filters
             ft.Row([
                 self.search_field,
@@ -138,12 +164,15 @@ class QuizManagement(ft.UserControl):
                    e.description as exam_description,
                    COUNT(DISTINCT q.id) as question_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
+                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
                    u.full_name as creator_name
             FROM exam_assignments ea
             JOIN exams e ON ea.exam_id = e.id
             LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
+            LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
             LEFT JOIN users u ON ea.created_by = u.id
+            WHERE ea.is_archived = 0
             GROUP BY ea.id
             ORDER BY ea.created_at DESC
         """)
@@ -157,8 +186,13 @@ class QuizManagement(ft.UserControl):
             # Create enhanced status badges
             status_badges = self.calculate_exam_status_badges(assignment)
 
-            # Display assignment name and exam template name
-            assignment_title = f"{assignment['assignment_name']} ({assignment['exam_title']})"
+            # Display assignment name only
+            assignment_title = assignment['assignment_name']
+
+            # Format completion as "completed/total"
+            completed_count = assignment['completed_users_count'] or 0
+            total_count = assignment['assigned_users_count'] or 0
+            completion_text = f"{completed_count}/{total_count}"
 
             self.exams_table.rows.append(
                 ft.DataRow(
@@ -168,7 +202,7 @@ class QuizManagement(ft.UserControl):
                         ft.DataCell(ft.Text(f"{assignment['duration_minutes']} min")),
                         ft.DataCell(ft.Text(f"{assignment['passing_score']}%")),
                         ft.DataCell(ft.Text(str(assignment['question_count'] or 0))),
-                        ft.DataCell(ft.Text(str(assignment['assigned_users_count'] or 0) + " users")),
+                        ft.DataCell(ft.Text(completion_text)),
                         ft.DataCell(ft.Text(assignment.get('deadline')[:10] if assignment.get('deadline') else "No deadline")),
                         ft.DataCell(
                             ft.Row([
@@ -919,7 +953,7 @@ class QuizManagement(ft.UserControl):
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
             label="Duration (minutes)",
-            value=str(assignment['duration_minutes']) if is_edit else "60",
+            value=str(assignment['duration_minutes']) if is_edit else self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
             hint_text="e.g., 90",
@@ -928,7 +962,7 @@ class QuizManagement(ft.UserControl):
 
         passing_score_field = ft.TextField(
             label="Passing Score (%)",
-            value=str(assignment['passing_score']) if is_edit else "70",
+            value=str(assignment['passing_score']) if is_edit else self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
             hint_text="e.g., 80",
@@ -1018,23 +1052,27 @@ class QuizManagement(ft.UserControl):
         """)
 
         user_dropdown = ft.Dropdown(
-            label="Select Users",
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
-            width=250,
-            content_padding=5
+            width=480,
+            text_size=14,
+            content_padding=12,
+            border=ft.InputBorder.OUTLINE
         )
 
         department_dropdown = ft.Dropdown(
-            label="Select Departments",
-            hint_text="Choose departments to assign",
+            hint_text="Choose departments",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
-            width=250,
-            content_padding=5
+            width=480,
+            text_size=14,
+            content_padding=12,
+            border=ft.InputBorder.OUTLINE
         )
 
+        selected_chips_row = ft.Row(spacing=8, wrap=True)
         selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
+            selected_chips_row,
         ], spacing=5)
 
         def on_user_selection(e):
@@ -1053,7 +1091,7 @@ class QuizManagement(ft.UserControl):
                     on_delete=lambda e, uid=user_id: remove_user(uid),
                     delete_icon_color=COLORS['error']
                 )
-                selected_items_container.controls.append(chip)
+                selected_chips_row.controls.append(chip)
 
             e.control.value = None
             if self.page:
@@ -1072,7 +1110,7 @@ class QuizManagement(ft.UserControl):
                     on_delete=lambda e, d=dept: remove_department(d),
                     delete_icon_color=COLORS['error']
                 )
-                selected_items_container.controls.append(chip)
+                selected_chips_row.controls.append(chip)
 
             e.control.value = None
             if self.page:
@@ -1082,12 +1120,12 @@ class QuizManagement(ft.UserControl):
             if user_id in self.selected_assignment_users:
                 self.selected_assignment_users.remove(user_id)
                 # Remove chip from UI
-                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
                         user_name = control.label.value
                         # Check if this is the user to remove
                         if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
-                            selected_items_container.controls.pop(i)
+                            selected_chips_row.controls.pop(i)
                             break
                 if self.page:
                     self.page.update()
@@ -1096,9 +1134,9 @@ class QuizManagement(ft.UserControl):
             if dept in self.selected_assignment_departments:
                 self.selected_assignment_departments.remove(dept)
                 # Remove chip from UI
-                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
-                        selected_items_container.controls.pop(i)
+                        selected_chips_row.controls.pop(i)
                         break
                 if self.page:
                     self.page.update()
@@ -1286,11 +1324,6 @@ class QuizManagement(ft.UserControl):
             selected_exams_display,
             ft.Container(height=10),
 
-            # Question Pool Selection
-            use_question_pool,
-            question_pool_config,
-            ft.Container(height=10),
-
             ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
             ft.Container(height=8),
 
@@ -1394,7 +1427,7 @@ class QuizManagement(ft.UserControl):
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
             label="Duration (minutes)",
-            value="60",
+            value=self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
             hint_text="e.g., 90",
@@ -1403,7 +1436,7 @@ class QuizManagement(ft.UserControl):
 
         passing_score_field = ft.TextField(
             label="Passing Score (%)",
-            value="70",
+            value=self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
             hint_text="e.g., 80",
@@ -1487,6 +1520,7 @@ class QuizManagement(ft.UserControl):
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
             width=250,
+            height=56,
             content_padding=5
         )
 
@@ -1495,11 +1529,14 @@ class QuizManagement(ft.UserControl):
             hint_text="Choose departments to assign",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
             width=250,
+            height=56,
             content_padding=5
         )
 
+        selected_chips_row = ft.Row(spacing=8, wrap=True)
         selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
+            selected_chips_row,
         ], spacing=5)
 
         def on_user_selection(e):
@@ -1517,7 +1554,7 @@ class QuizManagement(ft.UserControl):
                     on_delete=lambda e, uid=user_id: remove_user(uid),
                     delete_icon_color=COLORS['error']
                 )
-                selected_items_container.controls.append(chip)
+                selected_chips_row.controls.append(chip)
 
             e.control.value = None
             if self.page:
@@ -1536,7 +1573,7 @@ class QuizManagement(ft.UserControl):
                     on_delete=lambda e, d=dept: remove_department(d),
                     delete_icon_color=COLORS['error']
                 )
-                selected_items_container.controls.append(chip)
+                selected_chips_row.controls.append(chip)
 
             e.control.value = None
             if self.page:
@@ -1545,11 +1582,11 @@ class QuizManagement(ft.UserControl):
         def remove_user(user_id):
             if user_id in self.selected_assignment_users:
                 self.selected_assignment_users.remove(user_id)
-                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
                         user_name = control.label.value
                         if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
-                            selected_items_container.controls.pop(i)
+                            selected_chips_row.controls.pop(i)
                             break
                 if self.page:
                     self.page.update()
@@ -1557,9 +1594,9 @@ class QuizManagement(ft.UserControl):
         def remove_department(dept):
             if dept in self.selected_assignment_departments:
                 self.selected_assignment_departments.remove(dept)
-                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
-                        selected_items_container.controls.pop(i)
+                        selected_chips_row.controls.pop(i)
                         break
                 if self.page:
                     self.page.update()
@@ -1763,7 +1800,7 @@ class QuizManagement(ft.UserControl):
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
             label="Duration (minutes)",
-            value=str(assignment['duration_minutes']) if is_edit else "60",
+            value=str(assignment['duration_minutes']) if is_edit else self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
             hint_text="e.g., 90",
@@ -1772,7 +1809,7 @@ class QuizManagement(ft.UserControl):
 
         passing_score_field = ft.TextField(
             label="Passing Score (%)",
-            value=str(assignment['passing_score']) if is_edit else "70",
+            value=str(assignment['passing_score']) if is_edit else self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
             hint_text="e.g., 80",
@@ -1985,6 +2022,7 @@ class QuizManagement(ft.UserControl):
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
             width=250,
+            height=56,
             content_padding=5
         )
 
@@ -1993,11 +2031,14 @@ class QuizManagement(ft.UserControl):
             hint_text="Choose departments to assign",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
             width=250,
+            height=56,
             content_padding=5
         )
 
+        selected_chips_row = ft.Row(spacing=8, wrap=True)
         selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
+            selected_chips_row,
         ], spacing=5)
 
         def on_user_selection(e):
@@ -2016,7 +2057,7 @@ class QuizManagement(ft.UserControl):
                     on_delete=lambda e, uid=user_id: remove_user(uid),
                     delete_icon_color=COLORS['error']
                 )
-                selected_items_container.controls.append(chip)
+                selected_chips_row.controls.append(chip)
 
             e.control.value = None
             if self.page:
@@ -2035,7 +2076,7 @@ class QuizManagement(ft.UserControl):
                     on_delete=lambda e, d=dept: remove_department(d),
                     delete_icon_color=COLORS['error']
                 )
-                selected_items_container.controls.append(chip)
+                selected_chips_row.controls.append(chip)
 
             e.control.value = None
             if self.page:
@@ -2045,12 +2086,12 @@ class QuizManagement(ft.UserControl):
             if user_id in self.selected_assignment_users:
                 self.selected_assignment_users.remove(user_id)
                 # Remove chip from UI
-                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
                         user_name = control.label.value
                         # Check if this is the user to remove
                         if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
-                            selected_items_container.controls.pop(i)
+                            selected_chips_row.controls.pop(i)
                             break
                 if self.page:
                     self.page.update()
@@ -2059,9 +2100,9 @@ class QuizManagement(ft.UserControl):
             if dept in self.selected_assignment_departments:
                 self.selected_assignment_departments.remove(dept)
                 # Remove chip from UI
-                for i, control in enumerate(selected_items_container.controls[1:], 1):
+                for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
-                        selected_items_container.controls.pop(i)
+                        selected_chips_row.controls.pop(i)
                         break
                 if self.page:
                     self.page.update()
@@ -2428,8 +2469,10 @@ class QuizManagement(ft.UserControl):
             self.selected_users = [user['id'] for user in self.all_available_users if user['role'] != 'admin']
         
         # Container for selected items (chips)
+        self.selected_items_row = ft.Row(spacing=8, wrap=True)
         self.selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
+            self.selected_items_row,
         ], spacing=5)
 
         # Container for currently assigned items
@@ -2630,7 +2673,7 @@ class QuizManagement(ft.UserControl):
             return
         
         # Check if already selected
-        for control in self.selected_items_container.controls[1:]:  # Skip the title
+        for control in self.selected_items_row.controls:
             if hasattr(control, 'data') and control.data == selection_key:
                 return  # Already selected
         
@@ -2642,7 +2685,7 @@ class QuizManagement(ft.UserControl):
             data=selection_key
         )
         
-        self.selected_items_container.controls.append(chip)
+        self.selected_items_row.controls.append(chip)
         
         # Clear dropdown selection
         e.control.value = None
@@ -2668,7 +2711,7 @@ class QuizManagement(ft.UserControl):
             return
         
         # Check if already selected
-        for control in self.selected_items_container.controls[1:]:  # Skip the title
+        for control in self.selected_items_row.controls:
             if hasattr(control, 'data') and control.data == selection_key:
                 return  # Already selected
         
@@ -2680,7 +2723,7 @@ class QuizManagement(ft.UserControl):
             data=selection_key
         )
         
-        self.selected_items_container.controls.append(chip)
+        self.selected_items_row.controls.append(chip)
         
         # Clear dropdown selection
         e.control.value = None
@@ -2690,9 +2733,9 @@ class QuizManagement(ft.UserControl):
     
     def remove_selected_item(self, selection_key):
         """Remove item from selected items"""
-        for i, control in enumerate(self.selected_items_container.controls[1:], 1):  # Skip title
+        for i, control in enumerate(self.selected_items_row.controls):
             if hasattr(control, 'data') and control.data == selection_key:
-                self.selected_items_container.controls.pop(i)
+                self.selected_items_row.controls.pop(i)
                 break
         
         if self.page:
@@ -2743,15 +2786,13 @@ class QuizManagement(ft.UserControl):
     
     def update_selected_items_display(self):
         """Update the selected items display based on current selection state"""
-        # Clear current selection display (keep only the title)
-        self.selected_items_container.controls = [
-            ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD)
-        ]
+        # Clear chips in the row (keep the title above)
+        self.selected_items_row.controls = []
         
         if self.all_users_selected:
             # Show summary when all users selected
             user_count = len([u for u in self.all_available_users if u['role'] != 'admin'])
-            self.selected_items_container.controls.append(
+            self.selected_items_row.controls.append(
                 ft.Container(
                     content=ft.Text(
                         f"All Users Selected ({user_count} users)",
@@ -2776,7 +2817,7 @@ class QuizManagement(ft.UserControl):
                         delete_icon_color=COLORS['error'],
                         data=f"user_{user_id}"
                     )
-                    self.selected_items_container.controls.append(chip)
+                    self.selected_items_row.controls.append(chip)
     
     def remove_selected_user(self, user_id):
         """Remove a user from selected users list"""
@@ -2823,7 +2864,7 @@ class QuizManagement(ft.UserControl):
                 """, (user_id, exam_id, self.user_data['id']))
 
         # Process department selections (existing logic)
-        for control in self.selected_items_container.controls[1:]:  # Skip title
+        for control in self.selected_items_row.controls:
             if hasattr(control, 'data'):
                 selection_key = control.data
 
@@ -3069,6 +3110,7 @@ class QuizManagement(ft.UserControl):
 
             user_dropdown.value = None
             populate_current_users()
+            check_and_archive()
             if self.page:
                 self.page.update()
 
@@ -3098,6 +3140,7 @@ class QuizManagement(ft.UserControl):
 
             department_dropdown.value = None
             populate_current_users()
+            check_and_archive()
             if self.page:
                 self.page.update()
 
@@ -3108,8 +3151,56 @@ class QuizManagement(ft.UserControl):
             """, (assignment['id'], user_id))
 
             populate_current_users()
+            check_and_archive()
             if self.page:
                 self.page.update()
+
+        def check_and_archive():
+            """Check if all users completed and auto-archive if so"""
+            try:
+                # Get total assigned users count
+                total_stats = self.db.execute_single("""
+                    SELECT COUNT(DISTINCT user_id) as total_assigned
+                    FROM assignment_users
+                    WHERE assignment_id = ? AND is_active = 1
+                """, (assignment['id'],))
+
+                # Get completed users count
+                completed_stats = self.db.execute_single("""
+                    SELECT COUNT(DISTINCT user_id) as completed_count
+                    FROM exam_sessions
+                    WHERE assignment_id = ? AND is_completed = 1
+                """, (assignment['id'],))
+
+                if total_stats and completed_stats:
+                    total_assigned = total_stats['total_assigned']
+                    completed_count = completed_stats['completed_count']
+
+                    print(f"📋 Assignment {assignment['id']}: {completed_count}/{total_assigned} users completed")
+
+                    # If all users completed, archive the assignment
+                    if total_assigned > 0 and completed_count == total_assigned:
+                        self.db.execute_update("""
+                            UPDATE exam_assignments
+                            SET is_archived = 1
+                            WHERE id = ?
+                        """, (assignment['id'],))
+                        print(f"✅ Assignment {assignment['id']} auto-archived - all users completed!")
+
+                        # Show notification
+                        if self.page:
+                            self.page.snack_bar = ft.SnackBar(
+                                content=ft.Text(f"Assignment auto-archived - all users completed!"),
+                                bgcolor=COLORS['success']
+                            )
+                            self.page.snack_bar.open = True
+
+                        # Close dialog since assignment is archived
+                        users_dialog.open = False
+                        self.load_exams()
+
+            except Exception as e:
+                print(f"Error checking assignment completion for auto-archive: {e}")
 
         user_dropdown.on_change = add_user
         department_dropdown.on_change = add_department
@@ -3356,7 +3447,8 @@ class QuizManagement(ft.UserControl):
                 padding=10,
                 border=ft.border.all(1, COLORS['secondary']),
                 border_radius=8,
-                bgcolor=ft.colors.with_opacity(0.05, COLORS['primary'])
+                bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                col={"xs": 12, "sm": 12, "md": 6, "lg": 6, "xl": 6}
             )
 
             topic_container.controls.append(topic_card)
@@ -3389,8 +3481,8 @@ class QuizManagement(ft.UserControl):
             on_change=lambda e: add_topic_to_preset(int(e.control.value)) if e.control.value else None
         )
 
-        # Container for topic cards
-        topic_container = ft.Column([], spacing=10)
+        # Container for topic cards (two-column layout)
+        topic_container = ft.ResponsiveRow([], spacing=10, run_spacing=10)
 
         # Load existing topics if editing
         if is_edit:
@@ -3479,7 +3571,8 @@ class QuizManagement(ft.UserControl):
                         padding=10,
                         border=ft.border.all(1, COLORS['secondary']),
                         border_radius=8,
-                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary'])
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                        col={"xs": 12, "sm": 12, "md": 6, "lg": 6, "xl": 6}
                     )
 
                     # Update the remove function with correct card reference
@@ -3781,4 +3874,165 @@ class QuizManagement(ft.UserControl):
 
         # Refresh presets after dialog is opened
         refresh_presets()
+
+    def show_archived_assignments_dialog(self, e):
+        """Show dialog to view archived assignments"""
+        # Load archived assignments
+        archived_assignments = self.db.execute_query("""
+            SELECT ea.*,
+                   e.title as exam_title,
+                   e.description as exam_description,
+                   COUNT(DISTINCT q.id) as question_count,
+                   COUNT(DISTINCT au.user_id) as assigned_users_count,
+                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
+                   u.full_name as creator_name
+            FROM exam_assignments ea
+            JOIN exams e ON ea.exam_id = e.id
+            LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
+            LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
+            LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
+            LEFT JOIN users u ON ea.created_by = u.id
+            WHERE ea.is_archived = 1
+            GROUP BY ea.id
+            ORDER BY ea.created_at DESC
+        """)
+
+        # Create archived assignments table
+        archived_table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("#")),
+                ft.DataColumn(ft.Text("Assignment (Exam)")),
+                ft.DataColumn(ft.Text("Created By")),
+                ft.DataColumn(ft.Text("Completion")),
+                ft.DataColumn(ft.Text("Deadline")),
+                ft.DataColumn(ft.Text("Actions"))
+            ],
+            rows=[],
+            width=float("inf")
+        )
+
+        def unarchive_assignment(assignment_id):
+            """Unarchive an assignment"""
+            self.db.execute_update("""
+                UPDATE exam_assignments
+                SET is_archived = 0
+                WHERE id = ?
+            """, (assignment_id,))
+
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("Assignment unarchived successfully!"),
+                bgcolor=COLORS['success']
+            )
+            self.page.snack_bar.open = True
+
+            # Refresh the dialog
+            refresh_archived_list()
+
+            # Refresh main table
+            self.load_exams()
+
+        def refresh_archived_list():
+            """Refresh archived assignments list"""
+            updated_archived = self.db.execute_query("""
+                SELECT ea.*,
+                       e.title as exam_title,
+                       e.description as exam_description,
+                       COUNT(DISTINCT q.id) as question_count,
+                       COUNT(DISTINCT au.user_id) as assigned_users_count,
+                       COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
+                       u.full_name as creator_name
+                FROM exam_assignments ea
+                JOIN exams e ON ea.exam_id = e.id
+                LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
+                LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
+                LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
+                LEFT JOIN users u ON ea.created_by = u.id
+                WHERE ea.is_archived = 1
+                GROUP BY ea.id
+                ORDER BY ea.created_at DESC
+            """)
+
+            archived_table.rows.clear()
+
+            if not updated_archived:
+                archived_table.rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text("No archived assignments", italic=True, color=COLORS['text_secondary'])),
+                            ft.DataCell(ft.Text("")),
+                            ft.DataCell(ft.Text("")),
+                            ft.DataCell(ft.Text("")),
+                            ft.DataCell(ft.Text("")),
+                            ft.DataCell(ft.Text(""))
+                        ]
+                    )
+                )
+            else:
+                for idx, assignment in enumerate(updated_archived, 1):
+                    assignment_title = f"{assignment['assignment_name']} ({assignment['exam_title']})"
+
+                    # Format completion as "completed/total"
+                    completed_count = assignment['completed_users_count'] or 0
+                    total_count = assignment['assigned_users_count'] or 0
+                    completion_text = f"{completed_count}/{total_count}"
+
+                    archived_table.rows.append(
+                        ft.DataRow(
+                            cells=[
+                                ft.DataCell(ft.Text(str(idx))),
+                                ft.DataCell(ft.Text(assignment_title)),
+                                ft.DataCell(ft.Text(assignment['creator_name'] or "Unknown")),
+                                ft.DataCell(ft.Text(completion_text)),
+                                ft.DataCell(ft.Text(assignment.get('deadline')[:10] if assignment.get('deadline') else "No deadline")),
+                                ft.DataCell(
+                                    ft.IconButton(
+                                        icon=ft.icons.UNARCHIVE,
+                                        tooltip="Unarchive Assignment",
+                                        on_click=lambda e, aid=assignment['id']: unarchive_assignment(aid),
+                                        icon_color=COLORS['primary']
+                                    )
+                                )
+                            ]
+                        )
+                    )
+
+            self.page.update()
+
+        # Build initial table
+        refresh_archived_list()
+
+        # Create dialog
+        archived_dialog = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.ARCHIVE, color=COLORS['primary']),
+                ft.Text("Archived Assignments", weight=ft.FontWeight.BOLD)
+            ], spacing=10),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("These assignments have been automatically archived because all users completed them.",
+                            size=12, color=COLORS['text_secondary']),
+                    ft.Divider(),
+                    ft.Container(
+                        content=archived_table,
+                        height=400,
+                        width=900
+                    )
+                ], spacing=10, scroll=ft.ScrollMode.AUTO),
+                width=900,
+                height=500
+            ),
+            actions=[
+                ft.TextButton("Close", on_click=lambda e: self.close_dialog())
+            ]
+        )
+
+        self.page.dialog = archived_dialog
+        archived_dialog.open = True
+        self.page.update()
+
+    def close_dialog(self):
+        """Close the current dialog"""
+        if self.page.dialog:
+            self.page.dialog.open = False
+            self.page.update()
 
