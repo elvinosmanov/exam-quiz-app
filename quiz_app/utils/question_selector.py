@@ -337,35 +337,54 @@ class QuestionSelector:
 
         # Get randomize setting from exam_data (assignment settings)
         randomize = exam_data.get('randomize_questions', False)
+        use_pool = exam_data.get('use_question_pool', False)
 
         # Fetch questions from each exam template
         for template in exam_templates:
             template_id = template['id']
             template_title = template['title']
+            template_counts = {
+                'easy': template.get('easy_count', 0) or 0,
+                'medium': template.get('medium_count', 0) or 0,
+                'hard': template.get('hard_count', 0) or 0
+            }
+            template_total_requested = sum(template_counts.values())
 
-            # Get all questions for this template
-            template_questions = self.db.execute_query("""
-                SELECT * FROM questions
-                WHERE exam_id = ? AND is_active = 1
-                ORDER BY order_index, id
-            """, (template_id,))
+            print(f"  - {template_title}: requested {template_counts['easy']}/{template_counts['medium']}/{template_counts['hard']} (total {template_total_requested})")
 
-            print(f"  - {template_title}: {len(template_questions)} questions")
+            template_questions = []
 
-            # Randomize within this template if enabled
-            if randomize and template_questions:
-                print(f"    Randomizing {len(template_questions)} questions for {template_title}")
-                random.shuffle(template_questions)
+            if use_pool and template_total_requested > 0:
+                # Select questions per difficulty for this template
+                for difficulty, count in [('easy', template_counts['easy']),
+                                          ('medium', template_counts['medium']),
+                                          ('hard', template_counts['hard'])]:
+                    if count > 0:
+                        selected = self._select_questions_by_difficulty(
+                            template_id, difficulty, count, session_id, order_index
+                        )
+                        template_questions.extend(selected)
+                        order_index += len(selected)
+            else:
+                # Use all questions from this template
+                template_questions = self.db.execute_query("""
+                    SELECT * FROM questions
+                    WHERE exam_id = ? AND is_active = 1
+                    ORDER BY order_index, id
+                """, (template_id,))
 
-            # Store questions in session_questions table with proper order
-            for question in template_questions:
-                self.db.execute_insert("""
-                    INSERT INTO session_questions (session_id, question_id, difficulty_level, order_index)
-                    VALUES (?, ?, ?, ?)
-                """, (session_id, question['id'], question.get('difficulty_level', 'medium'), order_index))
-                order_index += 1
+                if template_questions:
+                    for question in template_questions:
+                        self.db.execute_insert("""
+                            INSERT INTO session_questions (session_id, question_id, difficulty_level, order_index)
+                            VALUES (?, ?, ?, ?)
+                        """, (session_id, question['id'], question.get('difficulty_level', 'medium'), order_index))
+                        order_index += 1
 
             all_questions.extend(template_questions)
+
+        if randomize and all_questions:
+            all_questions = self._randomize_by_topic_groups(all_questions, session_id)
 
         print(f"Total questions selected: {len(all_questions)} from {len(exam_templates)} templates")
         return all_questions
@@ -389,7 +408,11 @@ def select_questions_for_exam_session(exam_data: Dict, session_id: int, assignme
     # Check if this is a multi-template assignment
     if assignment_id:
         exam_templates = db.execute_query("""
-            SELECT e.*, aet.order_index
+            SELECT e.*,
+                   aet.order_index,
+                   COALESCE(aet.easy_count, 0) AS easy_count,
+                   COALESCE(aet.medium_count, 0) AS medium_count,
+                   COALESCE(aet.hard_count, 0) AS hard_count
             FROM assignment_exam_templates aet
             JOIN exams e ON aet.exam_id = e.id
             WHERE aet.assignment_id = ?
@@ -397,11 +420,26 @@ def select_questions_for_exam_session(exam_data: Dict, session_id: int, assignme
         """, (assignment_id,))
 
         if len(exam_templates) > 1:
-            # Multi-template assignment - combine questions from all templates
-            print(f"Multi-template assignment detected: {len(exam_templates)} templates")
+            # Multiple templates - always use multi-template logic
+            print(f"Multi-template assignment with {len(exam_templates)} templates detected")
             return selector.select_questions_for_multi_template_session(
                 exam_data, exam_templates, session_id
             )
+        elif len(exam_templates) == 1:
+            # Single template - check if template-level counts are defined
+            template = exam_templates[0]
+            template_counts = template.get('easy_count', 0) + template.get('medium_count', 0) + template.get('hard_count', 0)
 
-    # Single template - use normal selection
+            if template_counts > 0:
+                # Template-level counts are defined - use multi-template logic
+                print(f"Single-template assignment with template-level counts detected ({template_counts} total)")
+                return selector.select_questions_for_multi_template_session(
+                    exam_data, exam_templates, session_id
+                )
+            else:
+                # Template-level counts are zero - use assignment-level counts with standard logic
+                print(f"Single-template assignment with assignment-level counts detected")
+                # Fall through to use standard selection method below
+
+    # Single template with assignment-level counts - use normal selection
     return selector.select_questions_for_session(exam_data, session_id)

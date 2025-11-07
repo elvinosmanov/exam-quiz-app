@@ -17,57 +17,11 @@ class Reports(ft.UserControl):
         self.db = db
         self.chart_images = {}  # Store chart images
         self.current_dialog = None  # Track current dialog
-        self.selected_exam_id = None  # Filter by exam
 
         # Set matplotlib style for better looking charts
         plt.style.use('default')
         plt.rcParams['figure.facecolor'] = 'white'
         plt.rcParams['axes.facecolor'] = 'white'
-
-        # Load exams and assignments for filter
-        # Get assignments (these are what users actually take)
-        assignments_data = self.db.execute_query("""
-            SELECT DISTINCT
-                ea.id,
-                ea.assignment_name as title,
-                'assignment' as type
-            FROM exam_assignments ea
-            WHERE ea.id IN (SELECT DISTINCT assignment_id FROM exam_sessions WHERE assignment_id IS NOT NULL)
-            ORDER BY ea.created_at DESC
-        """)
-
-        # Get standalone exams (old exams without assignments)
-        standalone_exams = self.db.execute_query("""
-            SELECT DISTINCT
-                e.id,
-                e.title,
-                'exam' as type
-            FROM exams e
-            WHERE e.is_active = 1
-            AND e.id IN (SELECT DISTINCT exam_id FROM exam_sessions WHERE assignment_id IS NULL)
-            ORDER BY e.created_at DESC
-        """)
-
-        # Combine both lists
-        self.exams_data = assignments_data + standalone_exams
-
-        # Create exam filter dropdown
-        exam_options = [ft.dropdown.Option("all", "All Exams/Assignments")]
-        exam_options.extend([
-            ft.dropdown.Option(
-                str(item['id']),
-                f"{item['title']}" + (" (Legacy)" if item.get('type') == 'exam' else "")
-            )
-            for item in self.exams_data
-        ])
-
-        self.exam_filter = ft.Dropdown(
-            label="Filter by Exam/Assignment",
-            options=exam_options,
-            value="all",
-            on_change=self.on_exam_filter_change,
-            width=350
-        )
         
     def did_mount(self):
         super().did_mount()
@@ -137,45 +91,16 @@ class Reports(ft.UserControl):
         self.page.update()
         return True
     
-    def on_exam_filter_change(self, e):
-        """Handle exam filter change"""
-        if e.control.value == "all":
-            self.selected_exam_id = None
-        else:
-            self.selected_exam_id = int(e.control.value)
-
-        # Reload data and regenerate charts
-        self.load_analytics_data()
-        self.generate_charts()
-
-        # Rebuild UI
-        if self.page:
-            self.controls.clear()
-            new_content = self.build()
-            self.controls.append(new_content)
-            self.update()
 
     def build(self):
         return ft.Column([
-            # Header section with filter
+            # Header section
             ft.Container(
                 content=ft.Column([
                     ft.Row([
                         ft.Text("Reports & Analytics", size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                         ft.Container(expand=True),
                         ft.Row([
-                            ft.ElevatedButton(
-                                text="Activity Logs",
-                                icon=ft.icons.HISTORY,
-                                on_click=self.show_activity_logs,
-                                style=ft.ButtonStyle(bgcolor=ft.colors.PURPLE, color=ft.colors.WHITE)
-                            ),
-                            ft.ElevatedButton(
-                                text="Suspicious Activity",
-                                icon=ft.icons.WARNING_AMBER,
-                                on_click=self.show_suspicious_activity,
-                                style=ft.ButtonStyle(bgcolor=ft.colors.ORANGE, color=ft.colors.WHITE)
-                            ),
                             ft.ElevatedButton(
                                 text="Export PDF",
                                 icon=ft.icons.PICTURE_AS_PDF,
@@ -189,16 +114,12 @@ class Reports(ft.UserControl):
                                 style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
                             ),
                             ft.ElevatedButton(
-                            text="Refresh",
-                            icon=ft.icons.REFRESH,
-                            on_click=self.refresh_data,
-                            style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
-                        )
-                    ], spacing=10)
-                    ]),
-                    ft.Container(height=15),
-                    ft.Row([
-                        self.exam_filter
+                                text="Refresh",
+                                icon=ft.icons.REFRESH,
+                                on_click=self.refresh_data,
+                                style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                            )
+                        ], spacing=10)
                     ])
                 ]),
                 padding=ft.padding.only(bottom=20)
@@ -476,22 +397,14 @@ class Reports(ft.UserControl):
                 WHERE is_completed = 1 AND score IS NOT NULL AND end_time IS NOT NULL
             """
 
-            params = []
-            if self.selected_exam_id:
-                query += " AND (assignment_id = ? OR (assignment_id IS NULL AND exam_id = ?))"
-                params.extend([self.selected_exam_id, self.selected_exam_id])
-
             query += """
                 GROUP BY DATE(end_time)
                 ORDER BY exam_date DESC
                 LIMIT 30
             """
 
-            # Execute query with or without parameters
-            if params:
-                sessions_data = self.db.execute_query(query, tuple(params))
-            else:
-                sessions_data = self.db.execute_query(query)
+            # Execute query
+            sessions_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Performance trend data: {len(sessions_data) if sessions_data else 0} rows")
 
@@ -541,19 +454,10 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating score distribution chart...")
             # Get all scores
-            # Build query with optional exam filter
             query = "SELECT score FROM exam_sessions WHERE is_completed = 1 AND score IS NOT NULL"
-            params = []
 
-            if self.selected_exam_id:
-                query += " AND (assignment_id = ? OR (assignment_id IS NULL AND exam_id = ?))"
-                params.extend([self.selected_exam_id, self.selected_exam_id])
-
-            # Execute query with or without parameters
-            if params:
-                scores_data = self.db.execute_query(query, tuple(params))
-            else:
-                scores_data = self.db.execute_query(query)
+            # Execute query
+            scores_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Score distribution data: {len(scores_data) if scores_data else 0} scores")
 
@@ -611,22 +515,14 @@ class Reports(ft.UserControl):
                 WHERE is_completed = 1 AND score IS NOT NULL AND end_time IS NOT NULL
             """
 
-            params = []
-            if self.selected_exam_id:
-                query += " AND (assignment_id = ? OR (assignment_id IS NULL AND exam_id = ?))"
-                params.extend([self.selected_exam_id, self.selected_exam_id])
-
             query += """
                 GROUP BY DATE(end_time)
                 ORDER BY exam_date DESC
                 LIMIT 30
             """
 
-            # Execute query with or without parameters
-            if params:
-                trend_data = self.db.execute_query(query, tuple(params))
-            else:
-                trend_data = self.db.execute_query(query)
+            # Execute query
+            trend_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Pass/fail trend data: {len(trend_data) if trend_data else 0} rows")
 
@@ -685,7 +581,7 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating question difficulty chart...")
 
-            # Build query with optional exam filter
+            # Build query
             query = """
                 SELECT q.difficulty_level,
                        AVG(CASE WHEN ua.is_correct = 1 THEN 100.0 ELSE 0.0 END) as success_rate,
@@ -693,23 +589,12 @@ class Reports(ft.UserControl):
                 FROM user_answers ua
                 JOIN questions q ON ua.question_id = q.id
                 WHERE ua.is_correct IS NOT NULL AND q.difficulty_level IS NOT NULL AND q.difficulty_level != ''
-            """
-
-            params = []
-            if self.selected_exam_id:
-                query += " AND q.exam_id = ?"
-                params.append(self.selected_exam_id)
-
-            query += """
                 GROUP BY q.difficulty_level
                 HAVING answer_count >= 5
             """
 
-            # Execute query with or without parameters
-            if params:
-                question_data = self.db.execute_query(query, tuple(params))
-            else:
-                question_data = self.db.execute_query(query)
+            # Execute query
+            question_data = self.db.execute_query(query)
 
             print(f"[DEBUG] Question difficulty data: {len(question_data) if question_data else 0} difficulty levels")
 
@@ -2104,11 +1989,74 @@ class Reports(ft.UserControl):
             except:
                 pass
     
+    def get_exam_filter_options(self):
+        """Get exam/assignment options for filter dropdowns (used by User Progress)"""
+        # Get assignments (these are what users actually take)
+        assignments_data = self.db.execute_query("""
+            SELECT DISTINCT
+                ea.id,
+                ea.assignment_name as title,
+                'assignment' as type
+            FROM exam_assignments ea
+            WHERE ea.id IN (SELECT DISTINCT assignment_id FROM exam_sessions WHERE assignment_id IS NOT NULL)
+            ORDER BY ea.created_at DESC
+        """)
+
+        # Get standalone exams (old exams without assignments)
+        standalone_exams = self.db.execute_query("""
+            SELECT DISTINCT
+                e.id,
+                e.title,
+                'exam' as type
+            FROM exams e
+            WHERE e.is_active = 1
+            AND e.id IN (SELECT DISTINCT exam_id FROM exam_sessions WHERE assignment_id IS NULL)
+            ORDER BY e.created_at DESC
+        """)
+
+        # Combine both lists
+        exams_data = assignments_data + standalone_exams
+
+        # Create dropdown options
+        options = [ft.dropdown.Option("all", "All Exams/Assignments")]
+        options.extend([
+            ft.dropdown.Option(
+                str(item['id']),
+                f"{item['title']}" + (" (Legacy)" if item.get('type') == 'exam' else "")
+            )
+            for item in exams_data
+        ])
+
+        return options, exams_data
+
+    def get_topic_filter_options(self):
+        """Get topic/category options for filter dropdowns (used by Exam Performance & Question Analysis)"""
+        # Get all distinct exam titles (which serve as topics) from active exams
+        topics_data = self.db.execute_query("""
+            SELECT DISTINCT e.title
+            FROM exams e
+            WHERE e.title IS NOT NULL
+            AND e.title != ''
+            AND e.is_active = 1
+            ORDER BY e.title
+        """)
+
+        # Create dropdown options
+        options = [ft.dropdown.Option("all", "All Topics")]
+        if topics_data:
+            options.extend([
+                ft.dropdown.Option(topic['title'], topic['title'])
+                for topic in topics_data
+            ])
+
+        print(f"[DEBUG] Topic filter options: {len(options)} total ({len(options)-1} topics)")
+        return options
+
     def show_detailed_report(self, report_type):
         """Show detailed report in a dialog"""
         try:
             print(f"[DEBUG] show_detailed_report called for: {report_type}")
-            
+
             if report_type == "Exam Performance":
                 content = self.create_exam_performance_details()
             elif report_type == "User Progress":
@@ -2117,7 +2065,7 @@ class Reports(ft.UserControl):
                 content = self.create_question_analysis_details()
             else:
                 content = ft.Text("Report details coming soon...")
-            
+
             # Use safe dialog creation with MUCH bigger size
             success = self.safe_show_dialog(
                 title=f"{report_type} - Detailed Report",
@@ -2125,312 +2073,346 @@ class Reports(ft.UserControl):
                 width=1400,
                 height=900
             )
-            
+
             if not success:
                 print(f"[ERROR] Failed to show detailed report dialog")
-                
+
         except Exception as ex:
             print(f"[ERROR] Failed to show detailed report: {ex}")
             # Don't show nested error dialogs - just log
             import traceback
             traceback.print_exc()
     
-    def create_exam_performance_details(self):
-        """Create detailed exam performance report"""
+    def create_exam_performance_details(self, selected_topic=None):
+        """Create detailed exam performance report with topic filter"""
         try:
-            # Build query with optional exam filter
-            query = """
-                SELECT
-                    e.title,
-                    COUNT(es.id) as sessions_count,
-                    AVG(es.score) as avg_score,
-                    MIN(es.score) as min_score,
-                    MAX(es.score) as max_score,
-                    AVG(es.duration_seconds)/60 as avg_duration_minutes
-                FROM exams e
-                LEFT JOIN exam_sessions es ON e.id = es.exam_id AND es.is_completed = 1
-                WHERE e.is_active = 1
-            """
+            # Container ref for rebuilding
+            container_ref = ft.Ref[ft.Container]()
+            table_container_ref = ft.Ref[ft.Container]()
 
-            params = []
-            if self.selected_exam_id:
-                query += " AND e.id = ?"
-                params.append(self.selected_exam_id)
+            # Get filter options
+            filter_options = self.get_topic_filter_options()
 
-            query += """
-                GROUP BY e.id, e.title
-                ORDER BY sessions_count DESC
-            """
-
-            exam_details = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
-            
-            if not exam_details:
-                return ft.Text("No exam data available.")
-            
-            # Create table
-            table = ft.DataTable(
-                columns=[
-                    ft.DataColumn(ft.Text("Exam Title")),
-                    ft.DataColumn(ft.Text("Sessions")),
-                    ft.DataColumn(ft.Text("Avg Score")),
-                    ft.DataColumn(ft.Text("Min Score")),
-                    ft.DataColumn(ft.Text("Max Score")),
-                    ft.DataColumn(ft.Text("Avg Duration (min)"))
-                ],
-                rows=[],
-                width=float("inf"),
-                column_spacing=20
+            # Create filter dropdown
+            topic_filter = ft.Dropdown(
+                label="Filter by Topic",
+                options=filter_options,
+                value=selected_topic if selected_topic else "all",
+                width=350,
+                on_change=None  # Will set below
             )
-            
-            for exam in exam_details:
-                table.rows.append(
-                    ft.DataRow([
-                        ft.DataCell(ft.Text(exam['title'][:30] + "..." if len(exam['title']) > 30 else exam['title'])),
-                        ft.DataCell(ft.Text(str(exam['sessions_count'] or 0))),
-                        ft.DataCell(ft.Text(f"{exam['avg_score']:.1f}%" if exam['avg_score'] else "N/A")),
-                        ft.DataCell(ft.Text(f"{exam['min_score']:.1f}%" if exam['min_score'] else "N/A")),
-                        ft.DataCell(ft.Text(f"{exam['max_score']:.1f}%" if exam['max_score'] else "N/A")),
-                        ft.DataCell(ft.Text(f"{exam['avg_duration_minutes']:.1f}" if exam['avg_duration_minutes'] else "N/A"))
-                    ])
+
+            def load_data(filter_value):
+                """Load exam performance data based on topic filter"""
+                # Build query with optional topic filter (filtering by exam title)
+                query = """
+                    SELECT
+                        e.title,
+                        e.category,
+                        COUNT(es.id) as sessions_count,
+                        AVG(es.score) as avg_score,
+                        MIN(es.score) as min_score,
+                        MAX(es.score) as max_score,
+                        AVG(es.duration_seconds)/60 as avg_duration_minutes
+                    FROM exams e
+                    LEFT JOIN exam_sessions es ON e.id = es.exam_id AND es.is_completed = 1
+                    WHERE e.is_active = 1
+                """
+
+                params = []
+                if filter_value != "all":
+                    query += " AND e.title = ?"
+                    params.append(filter_value)
+
+                query += """
+                    GROUP BY e.id, e.title, e.category
+                    ORDER BY sessions_count DESC
+                """
+
+                exam_details = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
+
+                if not exam_details:
+                    return ft.Container(
+                        content=ft.Column([
+                            ft.Icon(ft.icons.ASSESSMENT_OUTLINED, size=60, color=COLORS['text_secondary']),
+                            ft.Text("No exam data available", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary'])
+                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.padding.all(40),
+                        alignment=ft.alignment.center,
+                        expand=True
+                    )
+
+                # Create table
+                table = ft.DataTable(
+                    columns=[
+                        ft.DataColumn(ft.Text("Exam Title", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Sessions", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Avg Score", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Min Score", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Max Score", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Avg Duration (min)", weight=ft.FontWeight.BOLD))
+                    ],
+                    rows=[],
+                    width=float("inf"),
+                    column_spacing=20,
+                    border=ft.border.all(1, ft.colors.BLACK12),
+                    border_radius=8
                 )
 
-            # Get current filter name
-            filter_text = "All Exams"
-            if self.selected_exam_id:
-                for exam in self.exams_data:
-                    if exam['id'] == self.selected_exam_id:
-                        filter_text = exam['title']
-                        break
+                for exam in exam_details:
+                    table.rows.append(
+                        ft.DataRow([
+                            ft.DataCell(ft.Text(exam['title'][:40] + "..." if len(exam['title']) > 40 else exam['title'], size=13)),
+                            ft.DataCell(ft.Text(str(exam['sessions_count'] or 0), size=13)),
+                            ft.DataCell(ft.Text(f"{exam['avg_score']:.1f}%" if exam['avg_score'] else "N/A", size=13)),
+                            ft.DataCell(ft.Text(f"{exam['min_score']:.1f}%" if exam['min_score'] else "N/A", size=13)),
+                            ft.DataCell(ft.Text(f"{exam['max_score']:.1f}%" if exam['max_score'] else "N/A", size=13)),
+                            ft.DataCell(ft.Text(f"{exam['avg_duration_minutes']:.1f}" if exam['avg_duration_minutes'] else "N/A", size=13))
+                        ])
+                    )
 
+                return ft.Container(
+                    content=ft.ListView(
+                        controls=[table],
+                        expand=True,
+                        auto_scroll=False
+                    ),
+                    bgcolor=ft.colors.WHITE,
+                    border_radius=8,
+                    padding=ft.padding.all(15),
+                    border=ft.border.all(1, ft.colors.BLACK12),
+                    expand=True
+                )
+
+            def on_filter_change(e):
+                """Handle filter change"""
+                # Rebuild table container
+                table_container_ref.current.content = load_data(e.control.value)
+                table_container_ref.current.update()
+
+            topic_filter.on_change = on_filter_change
+
+            # Initial table load
+            initial_table = load_data(topic_filter.value)
+
+            # Main container
             return ft.Container(
+                ref=container_ref,
                 content=ft.Column([
-                    # Filter display
+                    # Filter section
                     ft.Container(
                         content=ft.Row([
-                            ft.Icon(ft.icons.FILTER_ALT, size=20, color=COLORS['primary']),
-                            ft.Text(f"Filtered by: {filter_text}", size=14, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
-                        ], spacing=10),
-                        padding=ft.padding.all(10),
-                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
-                        border_radius=8,
-                        margin=ft.margin.only(bottom=15)
+                            topic_filter
+                        ]),
+                        padding=ft.padding.only(bottom=15)
                     ),
-                    # Table
+                    # Table container
                     ft.Container(
-                        content=ft.ListView(
-                            controls=[table],
-                            expand=True,
-                            auto_scroll=False
-                        ),
+                        ref=table_container_ref,
+                        content=initial_table,
                         expand=True
                     )
                 ], spacing=0),
+                padding=ft.padding.all(20),
                 expand=True
             )
-            
+
         except Exception as e:
+            print(f"[ERROR] create_exam_performance_details: {e}")
+            import traceback
+            traceback.print_exc()
             return ft.Text(f"Error loading exam details: {str(e)}")
     
-    def create_user_progress_details(self):
-        """Create detailed user progress report with working functionality"""
+    def create_user_progress_details(self, selected_exam_id=None):
+        """Create detailed user progress report with internal filter"""
         try:
             print("[DEBUG] Starting create_user_progress_details")
 
-            # Build query with exam filter
-            query = """
-                SELECT
-                    u.id,
-                    u.username,
-                    u.full_name,
-                    u.department,
-                    u.role,
-                    COALESCE(COUNT(DISTINCT es.exam_id), 0) as exams_taken,
-                    COALESCE(COUNT(es.id), 0) as total_attempts,
-                    COALESCE(ROUND(AVG(es.score), 1), 0) as avg_score,
-                    COALESCE(MAX(es.score), 0) as best_score,
-                    COALESCE(SUM(CASE WHEN es.score >= 70 THEN 1 ELSE 0 END), 0) as passed_exams,
-                    COALESCE(ROUND(AVG(es.duration_seconds)/60, 1), 0) as avg_duration_minutes,
-                    MAX(es.end_time) as last_exam_date
-                FROM users u
-                LEFT JOIN exam_sessions es ON u.id = es.user_id AND es.is_completed = 1"""
+            # Container refs for rebuilding
+            container_ref = ft.Ref[ft.Container]()
+            content_container_ref = ft.Ref[ft.Container]()
 
-            params = []
-            where_conditions = ["u.is_active = 1", "u.role = 'examinee'"]
+            # Get filter options
+            filter_options, exams_data = self.get_exam_filter_options()
 
-            # Add exam filter if selected
-            if self.selected_exam_id:
-                where_conditions.append("(es.exam_id = ? OR es.exam_id IS NULL)")
-                params.append(self.selected_exam_id)
-
-            query += " WHERE " + " AND ".join(where_conditions)
-            query += """
-                GROUP BY u.id, u.username, u.full_name, u.department, u.role
-                ORDER BY u.full_name
-                LIMIT 100
-            """
-
-            # Get user progress data with actual metrics
-            user_progress_data = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
-            
-            print(f"[DEBUG] Retrieved {len(user_progress_data) if user_progress_data else 0} users from database")
-            
-            if not user_progress_data:
-                return ft.Container(
-                    content=ft.Column([
-                        ft.Icon(ft.icons.PERSON_OFF, size=60, color=COLORS['text_secondary']),
-                        ft.Text("No examinee users found", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
-                        ft.Text("Add some examinees to see progress reports", size=14, color=COLORS['text_secondary'])
-                    ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    padding=ft.padding.all(40),
-                    alignment=ft.alignment.center
-                )
-            
-            # Calculate summary statistics
-            total_users = len(user_progress_data)
-            active_users = sum(1 for u in user_progress_data if u['total_attempts'] > 0)
-            avg_score = sum(u['avg_score'] for u in user_progress_data if u['avg_score'] > 0) / active_users if active_users > 0 else 0
-            
-            # Summary cards
-            summary_cards = ft.Row([
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(str(total_users), size=24, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-                        ft.Text("Total Users", size=12, color=COLORS['text_secondary'])
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
-                    width=100,
-                    height=70,
-                    bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
-                    border_radius=8,
-                    padding=ft.padding.all(10),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['primary']))
-                ),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(str(active_users), size=24, weight=ft.FontWeight.BOLD, color=COLORS['success']),
-                        ft.Text("Active Users", size=12, color=COLORS['text_secondary'])
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
-                    width=100,
-                    height=70,
-                    bgcolor=ft.colors.with_opacity(0.1, COLORS['success']),
-                    border_radius=8,
-                    padding=ft.padding.all(10),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['success']))
-                ),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(f"{avg_score:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['warning']),
-                        ft.Text("Avg Score", size=12, color=COLORS['text_secondary'])
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
-                    width=100,
-                    height=70,
-                    bgcolor=ft.colors.with_opacity(0.1, COLORS['warning']),
-                    border_radius=8,
-                    padding=ft.padding.all(10),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['warning']))
-                )
-            ], spacing=15)
-            
-            # Create comprehensive progress table
-            progress_table = ft.DataTable(
-                columns=[
-                    ft.DataColumn(ft.Text("User", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Department", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Exams", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Attempts", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Avg Score", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Best Score", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Pass Rate", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Avg Duration", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Last Activity", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Actions", weight=ft.FontWeight.BOLD))
-                ],
-                rows=[],
-                width=float("inf"),
-                column_spacing=15,
-                border=ft.border.all(1, ft.colors.BLACK12),
-                border_radius=8
+            # Create filter dropdown
+            exam_filter = ft.Dropdown(
+                label="Filter by Exam/Assignment",
+                options=filter_options,
+                value=str(selected_exam_id) if selected_exam_id else "all",
+                width=350,
+                on_change=None  # Will set below
             )
+
+            def load_data(filter_value):
+                """Load user progress data based on filter"""
+                # Build query with exam filter
+                query = """
+                    SELECT
+                        u.id,
+                        u.username,
+                        u.full_name,
+                        u.department,
+                        u.role,
+                        COALESCE(COUNT(DISTINCT es.exam_id), 0) as exams_taken,
+                        COALESCE(COUNT(es.id), 0) as total_attempts,
+                        COALESCE(ROUND(AVG(es.score), 1), 0) as avg_score,
+                        COALESCE(MAX(es.score), 0) as best_score,
+                        COALESCE(SUM(CASE WHEN es.score >= 70 THEN 1 ELSE 0 END), 0) as passed_exams,
+                        COALESCE(ROUND(AVG(es.duration_seconds)/60, 1), 0) as avg_duration_minutes,
+                        MAX(es.end_time) as last_exam_date
+                    FROM users u
+                    LEFT JOIN exam_sessions es ON u.id = es.user_id AND es.is_completed = 1"""
+
+                params = []
+                where_conditions = ["u.is_active = 1", "u.role = 'examinee'"]
+
+                # Add exam filter if selected
+                if filter_value != "all":
+                    where_conditions.append("(es.exam_id = ? OR es.exam_id IS NULL)")
+                    params.append(int(filter_value))
+
+                query += " WHERE " + " AND ".join(where_conditions)
+                query += """
+                    GROUP BY u.id, u.username, u.full_name, u.department, u.role
+                    ORDER BY u.full_name
+                    LIMIT 100
+                """
+
+                # Get user progress data with actual metrics
+                user_progress_data = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
             
-            # Populate table with data
-            for user in user_progress_data:
-                exams_taken = user['exams_taken'] or 0
-                total_attempts = user['total_attempts'] or 0
-                passed_exams = user['passed_exams'] or 0
-                avg_score = user['avg_score'] or 0
-                best_score = user['best_score'] or 0
-                avg_duration = user['avg_duration_minutes'] or 0
-                
-                # Calculate pass rate
-                pass_rate = (passed_exams / total_attempts * 100) if total_attempts > 0 else 0
-                
-                # Format last exam date
-                last_exam = user['last_exam_date']
-                if last_exam:
-                    try:
-                        last_exam_formatted = last_exam[:10] if len(last_exam) >= 10 else last_exam
-                    except:
+                print(f"[DEBUG] Retrieved {len(user_progress_data) if user_progress_data else 0} users from database")
+
+                if not user_progress_data:
+                    return ft.Container(
+                        content=ft.Column([
+                            ft.Icon(ft.icons.PERSON_OFF, size=60, color=COLORS['text_secondary']),
+                            ft.Text("No examinee users found", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
+                            ft.Text("Add some examinees to see progress reports", size=14, color=COLORS['text_secondary'])
+                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.padding.all(40),
+                        alignment=ft.alignment.center,
+                        expand=True
+                    )
+            
+                # Calculate summary statistics
+                total_users = len(user_progress_data)
+                active_users = sum(1 for u in user_progress_data if u['total_attempts'] > 0)
+                avg_score = sum(u['avg_score'] for u in user_progress_data if u['avg_score'] > 0) / active_users if active_users > 0 else 0
+            
+                # Summary cards
+                summary_cards = ft.Row([
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(total_users), size=24, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                            ft.Text("Total Users", size=12, color=COLORS['text_secondary'])
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        width=100,
+                        height=70,
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                        border_radius=8,
+                        padding=ft.padding.all(10),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['primary']))
+                    ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(active_users), size=24, weight=ft.FontWeight.BOLD, color=COLORS['success']),
+                            ft.Text("Active Users", size=12, color=COLORS['text_secondary'])
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        width=100,
+                        height=70,
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['success']),
+                        border_radius=8,
+                        padding=ft.padding.all(10),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['success']))
+                    ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(f"{avg_score:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['warning']),
+                            ft.Text("Avg Score", size=12, color=COLORS['text_secondary'])
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        width=100,
+                        height=70,
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['warning']),
+                        border_radius=8,
+                        padding=ft.padding.all(10),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['warning']))
+                    )
+                ], spacing=15)
+            
+                # Create comprehensive progress table
+                progress_table = ft.DataTable(
+                    columns=[
+                        ft.DataColumn(ft.Text("User", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Department", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Exams", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Attempts", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Avg Score", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Best Score", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Pass Rate", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Avg Duration", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Last Activity", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Actions", weight=ft.FontWeight.BOLD))
+                    ],
+                    rows=[],
+                    width=float("inf"),
+                    column_spacing=15,
+                    border=ft.border.all(1, ft.colors.BLACK12),
+                    border_radius=8
+                )
+            
+                # Populate table with data
+                for user in user_progress_data:
+                    exams_taken = user['exams_taken'] or 0
+                    total_attempts = user['total_attempts'] or 0
+                    passed_exams = user['passed_exams'] or 0
+                    avg_score = user['avg_score'] or 0
+                    best_score = user['best_score'] or 0
+                    avg_duration = user['avg_duration_minutes'] or 0
+
+                    # Calculate pass rate
+                    pass_rate = (passed_exams / total_attempts * 100) if total_attempts > 0 else 0
+
+                    # Format last exam date
+                    last_exam = user['last_exam_date']
+                    if last_exam:
+                        try:
+                            last_exam_formatted = last_exam[:10] if len(last_exam) >= 10 else last_exam
+                        except:
+                            last_exam_formatted = "Never"
+                    else:
                         last_exam_formatted = "Never"
-                else:
-                    last_exam_formatted = "Never"
-                
-                # Color coding
-                score_color = COLORS['success'] if avg_score >= 80 else (COLORS['warning'] if avg_score >= 60 else COLORS['error'])
-                
-                progress_table.rows.append(
-                    ft.DataRow([
-                        ft.DataCell(ft.Column([
-                            ft.Text(user['full_name'], weight=ft.FontWeight.BOLD, size=13),
-                            ft.Text(f"@{user['username']}", size=11, color=COLORS['text_secondary'])
-                        ], spacing=2)),
-                        ft.DataCell(ft.Text(user['department'] or "N/A", size=13)),
-                        ft.DataCell(ft.Text(str(exams_taken), size=13)),
-                        ft.DataCell(ft.Text(str(total_attempts), size=13)),
-                        ft.DataCell(ft.Text(f"{avg_score:.1f}%" if avg_score > 0 else "N/A", color=score_color, size=13, weight=ft.FontWeight.BOLD)),
-                        ft.DataCell(ft.Text(f"{best_score:.1f}%" if best_score > 0 else "N/A", size=13)),
-                        ft.DataCell(ft.Text(f"{pass_rate:.1f}%" if total_attempts > 0 else "N/A", size=13)),
-                        ft.DataCell(ft.Text(f"{avg_duration:.1f}m" if avg_duration > 0 else "N/A", size=13)),
-                        ft.DataCell(ft.Text(last_exam_formatted, size=13)),
-                        ft.DataCell(ft.Row([
-                            ft.IconButton(
+
+                    # Color coding
+                    score_color = COLORS['success'] if avg_score >= 80 else (COLORS['warning'] if avg_score >= 60 else COLORS['error'])
+
+                    progress_table.rows.append(
+                        ft.DataRow([
+                            ft.DataCell(ft.Column([
+                                ft.Text(user['full_name'], weight=ft.FontWeight.BOLD, size=13),
+                                ft.Text(f"@{user['username']}", size=11, color=COLORS['text_secondary'])
+                            ], spacing=2)),
+                            ft.DataCell(ft.Text(user['department'] or "N/A", size=13)),
+                            ft.DataCell(ft.Text(str(exams_taken), size=13)),
+                            ft.DataCell(ft.Text(str(total_attempts), size=13)),
+                            ft.DataCell(ft.Text(f"{avg_score:.1f}%" if avg_score > 0 else "N/A", color=score_color, size=13, weight=ft.FontWeight.BOLD)),
+                            ft.DataCell(ft.Text(f"{best_score:.1f}%" if best_score > 0 else "N/A", size=13)),
+                            ft.DataCell(ft.Text(f"{pass_rate:.1f}%" if total_attempts > 0 else "N/A", size=13)),
+                            ft.DataCell(ft.Text(f"{avg_duration:.1f}m" if avg_duration > 0 else "N/A", size=13)),
+                            ft.DataCell(ft.Text(last_exam_formatted, size=13)),
+                            ft.DataCell(ft.IconButton(
                                 icon=ft.icons.VISIBILITY,
                                 tooltip="View Details",
                                 on_click=lambda e, user_id=user['id']: self.show_individual_user_details(user_id),
                                 icon_color=COLORS['primary'],
                                 icon_size=16
-                            ),
-                            ft.IconButton(
-                                icon=ft.icons.TIMELINE,
-                                tooltip="Progress Chart",
-                                on_click=lambda e, user_id=user['id']: self.show_user_progress_chart(user_id),
-                                icon_color=COLORS['success'],
-                                icon_size=16
-                            )
-                        ], spacing=5))
-                    ])
-                )
+                            ))
+                        ])
+                    )
             
-            # Get current filter name
-            filter_text = "All Exams"
-            if self.selected_exam_id:
-                for exam in self.exams_data:
-                    if exam['id'] == self.selected_exam_id:
-                        filter_text = exam['title']
-                        break
-
-            # Main layout
-            return ft.Container(
-                content=ft.Column([
-                    # Filter display
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Icon(ft.icons.FILTER_ALT, size=20, color=COLORS['primary']),
-                            ft.Text(f"Filtered by: {filter_text}", size=14, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
-                        ], spacing=10),
-                        padding=ft.padding.all(10),
-                        bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
-                        border_radius=8,
-                        margin=ft.margin.only(bottom=15)
-                    ),
+                # Return the data container
+                return ft.Column([
                     # Summary cards
                     ft.Container(
                         content=summary_cards,
@@ -2457,6 +2439,36 @@ class Reports(ft.UserControl):
                         border_radius=8,
                         padding=ft.padding.all(15),
                         border=ft.border.all(1, ft.colors.BLACK12),
+                        expand=True
+                    )
+                ], spacing=0, expand=True)
+
+            def on_filter_change(e):
+                """Handle filter change"""
+                # Rebuild content container
+                content_container_ref.current.content = load_data(e.control.value)
+                content_container_ref.current.update()
+
+            exam_filter.on_change = on_filter_change
+
+            # Initial data load
+            initial_content = load_data(exam_filter.value)
+
+            # Main container
+            return ft.Container(
+                ref=container_ref,
+                content=ft.Column([
+                    # Filter section
+                    ft.Container(
+                        content=ft.Row([
+                            exam_filter
+                        ]),
+                        padding=ft.padding.only(bottom=15)
+                    ),
+                    # Content container
+                    ft.Container(
+                        ref=content_container_ref,
+                        content=initial_content,
                         expand=True
                     )
                 ], spacing=0),
@@ -3464,264 +3476,194 @@ class Reports(ft.UserControl):
             traceback.print_exc()
             self.show_message("Error", f"Failed to load question breakdown: {str(ex)}")
 
-    def show_user_progress_chart(self, user_id):
-        """Show progress chart for a specific user"""
+    def create_question_analysis_details(self, selected_topic=None):
+        """Create detailed question analysis report with topic filter and toggle"""
         try:
-            print(f"[DEBUG] show_user_progress_chart called for user_id: {user_id}")
-            
-            # Get user's score progression over time
-            progress_data = self.db.execute_query("""
-                SELECT
-                    u.full_name,
-                    COALESCE(ea.assignment_name, e.title) as exam_title,
-                    es.score,
-                    DATE(es.end_time) as exam_date
-                FROM exam_sessions es
-                JOIN users u ON es.user_id = u.id
-                JOIN exams e ON es.exam_id = e.id
-                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
-                WHERE u.id = ? AND es.is_completed = 1 AND es.score IS NOT NULL
-                ORDER BY es.end_time
-                LIMIT 50
-            """, (user_id,))
-            
-            if not progress_data or len(progress_data) < 2:
-                self.show_message("Progress Chart", "Not enough data to generate a progress chart for this user.")
-                return
-            
-            user_name = progress_data[0]['full_name']
-            
-            try:
-                # Generate progress chart
-                fig, ax = plt.subplots(figsize=(10, 6))
-                
-                dates = [datetime.strptime(row['exam_date'], '%Y-%m-%d') for row in progress_data]
-                scores = [row['score'] for row in progress_data]
-                
-                ax.plot(dates, scores, marker='o', linewidth=2, markersize=8, color='#3182ce')
-                ax.set_title(f'Score Progress for {user_name}', fontsize=16, fontweight='bold')
-                ax.set_xlabel('Date')
-                ax.set_ylabel('Score (%)')
-                ax.grid(True, alpha=0.3)
-                ax.set_ylim(0, 100)
-                
-                # Add horizontal line at 70% (passing score)
-                ax.axhline(y=70, color='red', linestyle='--', alpha=0.7, label='Passing Score (70%)')
-                ax.legend()
-                
-                # Format x-axis with tick limiting
-                ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
-                # Limit to max 10 ticks to prevent the MAXTICKS warning
-                ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=10))
-                plt.xticks(rotation=45)
-                plt.tight_layout()
-                
-                # Convert to base64 image
-                buffer = io.BytesIO()
-                plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
-                buffer.seek(0)
-                plt.close()
-                
-                chart_image = base64.b64encode(buffer.getvalue()).decode()
-                
-                # Create image display
-                chart_display = ft.Image(
-                    src_base64=chart_image,
-                    width=700,
-                    height=400,
-                    fit=ft.ImageFit.CONTAIN
-                )
-                
-                # Show chart in dialog
-                chart_content = ft.Column([
-                    chart_display,
-                    ft.Container(height=10),
-                    ft.Text(f"Total Exams: {len(progress_data)} | Latest Score: {scores[-1]:.1f}% | Average Score: {sum(scores)/len(scores):.1f}%", 
-                           size=14, text_align=ft.TextAlign.CENTER)
-                ])
-                
-                success = self.safe_show_dialog(
-                    title=f"Progress Chart - {user_name}",
-                    content=chart_content,
-                    width=1200,
-                    height=800
-                )
-                
-                if not success:
-                    print(f"[ERROR] Failed to show progress chart dialog")
-                    
-            except Exception as chart_ex:
-                print(f"Error generating progress chart: {chart_ex}")
-                self.show_message("Chart Error", f"Failed to generate progress chart: {str(chart_ex)}")
-                
-        except Exception as ex:
-            print(f"Error showing user progress chart: {ex}")
-            self.show_message("Error", f"Failed to load progress chart: {str(ex)}")
-    
-    def create_question_analysis_details(self):
-        """Create detailed question analysis report"""
-        try:
-            print(f"[DEBUG] create_question_analysis_details - selected_exam_id: {self.selected_exam_id}")
+            print(f"[DEBUG] create_question_analysis_details")
 
-            # Build query with optional exam filter
-            query = """
-                SELECT
-                    q.id,
-                    q.question_text,
-                    q.question_type,
-                    q.difficulty_level,
-                    COUNT(ua.id) as total_answers,
-                    SUM(CASE WHEN ua.is_correct = 1 THEN 1 ELSE 0 END) as correct_answers,
-                    ROUND((SUM(CASE WHEN ua.is_correct = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(ua.id)), 1) as success_rate
-                FROM questions q
-                LEFT JOIN user_answers ua ON q.id = ua.question_id
-                WHERE ua.id IS NOT NULL
-            """
+            # Container refs for rebuilding
+            container_ref = ft.Ref[ft.Container]()
+            content_container_ref = ft.Ref[ft.Container]()
 
-            params = []
-            if self.selected_exam_id:
-                query += " AND q.exam_id = ?"
-                params.append(self.selected_exam_id)
-                print(f"[DEBUG] Filtering by exam_id: {self.selected_exam_id}")
+            # Get filter options
+            filter_options = self.get_topic_filter_options()
 
-            query += """
-                GROUP BY q.id, q.question_text, q.question_type, q.difficulty_level
-                HAVING total_answers >= 3
-                ORDER BY success_rate ASC, total_answers DESC
-                LIMIT 50
-            """
-
-            print(f"[DEBUG] Final query: {query}")
-            print(f"[DEBUG] Params: {params}")
-
-            question_analysis = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
-
-            print(f"[DEBUG] Question analysis results: {len(question_analysis) if question_analysis else 0} questions")
-            if question_analysis and len(question_analysis) > 0:
-                print(f"[DEBUG] First question: {question_analysis[0]}")
-
-            if not question_analysis:
-                return ft.Container(
-                    content=ft.Column([
-                        ft.Icon(ft.icons.HELP_OUTLINE, size=60, color=COLORS['text_secondary']),
-                        ft.Text("No question data available", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
-                        ft.Text("Questions need at least 3 answers to appear in analysis", size=14, color=COLORS['text_secondary'])
-                    ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    padding=ft.padding.all(40),
-                    alignment=ft.alignment.center
-                )
-            
-            # Summary statistics
-            total_questions = len(question_analysis)
-            avg_success_rate = sum(q['success_rate'] for q in question_analysis) / total_questions
-            difficult_questions = sum(1 for q in question_analysis if q['success_rate'] < 60)
-            
-            # Summary cards
-            summary_cards = ft.Row([
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(str(total_questions), size=24, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-                        ft.Text("Questions Analyzed", size=12, color=COLORS['text_secondary'])
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
-                    width=120,
-                    height=70,
-                    bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
-                    border_radius=8,
-                    padding=ft.padding.all(10),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['primary']))
-                ),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(f"{avg_success_rate:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['success']),
-                        ft.Text("Avg Success Rate", size=12, color=COLORS['text_secondary'])
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
-                    width=120,
-                    height=70,
-                    bgcolor=ft.colors.with_opacity(0.1, COLORS['success']),
-                    border_radius=8,
-                    padding=ft.padding.all(10),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['success']))
-                ),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(str(difficult_questions), size=24, weight=ft.FontWeight.BOLD, color=COLORS['error']),
-                        ft.Text("Difficult Questions", size=12, color=COLORS['text_secondary'])
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
-                    width=120,
-                    height=70,
-                    bgcolor=ft.colors.with_opacity(0.1, COLORS['error']),
-                    border_radius=8,
-                    padding=ft.padding.all(10),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['error']))
-                )
-            ], spacing=15)
-            
-            # Create analysis table
-            analysis_table = ft.DataTable(
-                columns=[
-                    ft.DataColumn(ft.Text("Question", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Difficulty", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Total Answers", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Correct", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Success Rate", weight=ft.FontWeight.BOLD))
-                ],
-                rows=[],
-                width=float("inf"),
-                column_spacing=15,
-                border=ft.border.all(1, ft.colors.BLACK12),
-                border_radius=8
+            # Create filter dropdown
+            topic_filter = ft.Dropdown(
+                label="Filter by Topic",
+                options=filter_options,
+                value=selected_topic if selected_topic else "all",
+                width=350,
+                on_change=None  # Will set below
             )
-            
-            # Populate table
-            for question in question_analysis:
-                question_text = question['question_text']
-                if len(question_text) > 50:
-                    question_text = question_text[:47] + "..."
-                
-                success_rate = question['success_rate']
-                success_color = COLORS['success'] if success_rate >= 80 else (COLORS['warning'] if success_rate >= 60 else COLORS['error'])
-                
-                analysis_table.rows.append(
-                    ft.DataRow([
-                        ft.DataCell(ft.Text(question_text, size=13)),
-                        ft.DataCell(ft.Text(question['question_type'].title(), size=13)),
-                        ft.DataCell(ft.Text(question['difficulty_level'].title(), size=13)),
-                        ft.DataCell(ft.Text(str(question['total_answers']), size=13)),
-                        ft.DataCell(ft.Text(str(question['correct_answers']), size=13)),
-                        ft.DataCell(ft.Text(f"{success_rate:.1f}%", color=success_color, size=13, weight=ft.FontWeight.BOLD))
-                    ])
-                )
-            
-            # Get current filter name
-            filter_text = "All Exams"
-            if self.selected_exam_id:
-                for exam in self.exams_data:
-                    if exam['id'] == self.selected_exam_id:
-                        filter_text = exam['title']
-                        break
 
-            return ft.Container(
-                content=ft.Column([
-                    # Filter display
+            # Create toggle for showing all questions
+            show_all_toggle = ft.Checkbox(
+                label="Show all questions (including low-sample)",
+                value=False,
+                on_change=None  # Will set below
+            )
+
+            def load_data(filter_value, show_all):
+                """Load question analysis data based on topic filter and toggle"""
+                # Build query with optional topic filter (filtering by exam title)
+                query = """
+                    SELECT
+                        q.id,
+                        q.question_text,
+                        q.question_type,
+                        q.difficulty_level,
+                        e.title as category,
+                        COUNT(ua.id) as total_answers,
+                        SUM(CASE WHEN ua.is_correct = 1 THEN 1 ELSE 0 END) as correct_answers,
+                        ROUND((SUM(CASE WHEN ua.is_correct = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(ua.id)), 1) as success_rate
+                    FROM questions q
+                    LEFT JOIN user_answers ua ON q.id = ua.question_id
+                    LEFT JOIN exams e ON q.exam_id = e.id
+                    WHERE ua.id IS NOT NULL
+                """
+
+                params = []
+                if filter_value != "all":
+                    query += " AND e.title = ?"
+                    params.append(filter_value)
+                    print(f"[DEBUG] Filtering by topic: {filter_value}")
+
+                query += """
+                    GROUP BY q.id, q.question_text, q.question_type, q.difficulty_level, e.title
+                """
+
+                # Add HAVING clause only if not showing all
+                if not show_all:
+                    query += " HAVING total_answers >= 3"
+
+                query += """
+                    ORDER BY success_rate ASC, total_answers DESC
+                """
+
+                print(f"[DEBUG] Final query: {query}")
+                print(f"[DEBUG] Params: {params}, Show All: {show_all}")
+
+                question_analysis = self.db.execute_query(query, tuple(params)) if params else self.db.execute_query(query)
+
+                print(f"[DEBUG] Question analysis results: {len(question_analysis) if question_analysis else 0} questions")
+                if question_analysis and len(question_analysis) > 0:
+                    print(f"[DEBUG] First question: {question_analysis[0]}")
+
+                if not question_analysis:
+                    info_text = "Questions need at least 3 answers for analysis" if not show_all else "No question data available"
+                    return ft.Container(
+                        content=ft.Column([
+                            ft.Icon(ft.icons.HELP_OUTLINE, size=60, color=COLORS['text_secondary']),
+                            ft.Text("No question data available", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
+                            ft.Text(info_text, size=14, color=COLORS['text_secondary'])
+                        ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        padding=ft.padding.all(40),
+                        alignment=ft.alignment.center,
+                        expand=True
+                    )
+            
+                # Summary statistics
+                total_questions = len(question_analysis)
+                avg_success_rate = sum(q['success_rate'] for q in question_analysis) / total_questions
+                difficult_questions = sum(1 for q in question_analysis if q['success_rate'] < 60)
+            
+                # Summary cards
+                summary_cards = ft.Row([
                     ft.Container(
-                        content=ft.Row([
-                            ft.Icon(ft.icons.FILTER_ALT, size=20, color=COLORS['primary']),
-                            ft.Text(f"Filtered by: {filter_text}", size=14, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
-                        ], spacing=10),
-                        padding=ft.padding.all(10),
+                        content=ft.Column([
+                            ft.Text(str(total_questions), size=24, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                            ft.Text("Questions Analyzed", size=12, color=COLORS['text_secondary'])
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        width=120,
+                        height=70,
                         bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
-                        border_radius=8
+                        border_radius=8,
+                        padding=ft.padding.all(10),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['primary']))
                     ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(f"{avg_success_rate:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['success']),
+                            ft.Text("Avg Success Rate", size=12, color=COLORS['text_secondary'])
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        width=120,
+                        height=70,
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['success']),
+                        border_radius=8,
+                        padding=ft.padding.all(10),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['success']))
+                    ),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(str(difficult_questions), size=24, weight=ft.FontWeight.BOLD, color=COLORS['error']),
+                            ft.Text("Difficult Questions", size=12, color=COLORS['text_secondary'])
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        width=120,
+                        height=70,
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['error']),
+                        border_radius=8,
+                        padding=ft.padding.all(10),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['error']))
+                    )
+                ], spacing=15)
+            
+                # Create analysis table
+                analysis_table = ft.DataTable(
+                    columns=[
+                        ft.DataColumn(ft.Text("Question", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Topic", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Difficulty", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Total Answers", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Correct", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Success Rate", weight=ft.FontWeight.BOLD))
+                    ],
+                    rows=[],
+                    width=float("inf"),
+                    column_spacing=15,
+                    border=ft.border.all(1, ft.colors.BLACK12),
+                    border_radius=8
+                )
+
+                # Populate table
+                for question in question_analysis:
+                    question_text = question['question_text']
+                    if len(question_text) > 45:
+                        question_text = question_text[:42] + "..."
+
+                    success_rate = question['success_rate']
+                    success_color = COLORS['success'] if success_rate >= 80 else (COLORS['warning'] if success_rate >= 60 else COLORS['error'])
+
+                    analysis_table.rows.append(
+                        ft.DataRow([
+                            ft.DataCell(ft.Text(question_text, size=13)),
+                            ft.DataCell(ft.Text(question['category'] or "N/A", size=13, color=COLORS['text_secondary'])),
+                            ft.DataCell(ft.Text(question['question_type'].title(), size=13)),
+                            ft.DataCell(ft.Text(question['difficulty_level'].title(), size=13)),
+                            ft.DataCell(ft.Text(str(question['total_answers']), size=13)),
+                            ft.DataCell(ft.Text(str(question['correct_answers']), size=13)),
+                            ft.DataCell(ft.Text(f"{success_rate:.1f}%", color=success_color, size=13, weight=ft.FontWeight.BOLD))
+                        ])
+                    )
+            
+                # Create info text based on filter state
+                info_text = "Showing questions with at least 3 answers for statistical reliability" if not show_all else "Showing all questions (including those with less than 3 answers)"
+
+                # Return the data container
+                return ft.Column([
                     # Summary cards
                     ft.Container(
                         content=summary_cards,
-                        padding=ft.padding.only(bottom=20, top = 10)
+                        padding=ft.padding.only(bottom=20)
                     ),
                     # Info text
                     ft.Container(
-                        content=ft.Text("Questions with less than 60% success rate may need review",
-                                      size=14, color=COLORS['text_secondary'], italic=True),
+                        content=ft.Column([
+                            ft.Text(info_text, size=13, color=COLORS['text_secondary'], italic=True),
+                            ft.Text("Questions with less than 60% success rate may need review",
+                                  size=13, color=COLORS['warning'], weight=ft.FontWeight.BOLD)
+                        ], spacing=5),
                         padding=ft.padding.only(bottom=15)
                     ),
                     # Table
@@ -3735,6 +3677,41 @@ class Reports(ft.UserControl):
                         border_radius=8,
                         padding=ft.padding.all(15),
                         border=ft.border.all(1, ft.colors.BLACK12),
+                        expand=True
+                    )
+                ], spacing=0, expand=True)
+
+            def on_change(e):
+                """Handle filter or toggle change"""
+                # Rebuild content container
+                content_container_ref.current.content = load_data(topic_filter.value, show_all_toggle.value)
+                content_container_ref.current.update()
+
+            topic_filter.on_change = on_change
+            show_all_toggle.on_change = on_change
+
+            # Initial data load
+            initial_content = load_data(topic_filter.value, show_all_toggle.value)
+
+            # Main container
+            return ft.Container(
+                ref=container_ref,
+                content=ft.Column([
+                    # Filter section
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                topic_filter,
+                                ft.Container(expand=True),
+                                show_all_toggle
+                            ]),
+                        ]),
+                        padding=ft.padding.only(bottom=15)
+                    ),
+                    # Content container
+                    ft.Container(
+                        ref=content_container_ref,
+                        content=initial_content,
                         expand=True
                     )
                 ], spacing=0),

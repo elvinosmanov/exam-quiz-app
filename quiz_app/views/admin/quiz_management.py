@@ -1,4 +1,6 @@
 import flet as ft
+import random
+import json
 from datetime import datetime, timedelta, date
 from quiz_app.config import COLORS
 
@@ -44,6 +46,7 @@ class QuizManagement(ft.UserControl):
                 ft.DataColumn(ft.Text("Assignment (Exam)")),
                 ft.DataColumn(ft.Text("Duration")),
                 ft.DataColumn(ft.Text("Passing Score")),
+                ft.DataColumn(ft.Text("Type")),
                 ft.DataColumn(ft.Text("Questions")),
                 ft.DataColumn(ft.Text("Completion")),
                 ft.DataColumn(ft.Text("Deadline")),
@@ -82,7 +85,234 @@ class QuizManagement(ft.UserControl):
         """Called after the control is added to the page"""
         super().did_mount()
         self.load_exams()
-    
+
+    def export_assignment_as_pdf(self, assignment):
+        """Show dialog to export assignment as PDF using configured variant count"""
+        from quiz_app.utils.pdf_generator import ExamPDFGenerator
+        import os
+
+        # Check if assignment has randomization enabled
+        has_randomize = bool(assignment.get('randomize_questions'))
+        num_variants = assignment.get('pdf_variant_count') or 1
+        try:
+            num_variants = max(1, int(num_variants))
+        except (TypeError, ValueError):
+            num_variants = 1
+
+        # Warning if no randomization
+        warning = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.WARNING, color=COLORS['warning'], size=16),
+                ft.Text(
+                    "Randomization is disabled. All variants will be identical.",
+                    size=11,
+                    color=COLORS['warning']
+                )
+            ], spacing=5),
+            visible=(not has_randomize and num_variants > 1),
+            padding=8,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['warning']),
+            border_radius=6
+        )
+
+        def generate_pdfs(e):
+            try:
+                # Show progress
+                export_dialog.content = ft.Container(
+                    content=ft.Column([
+                        ft.ProgressRing(),
+                        ft.Text(f"Generating {num_variants} variant(s)...", size=14)
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                    padding=20
+                )
+                export_dialog.actions = []
+                self.page.update()
+
+                # Ensure export folder exists
+                os.makedirs("exam_exports", exist_ok=True)
+
+                pdf_gen = ExamPDFGenerator(self.db)
+                generated_files = []
+
+                # Check if this is a multi-template assignment
+                templates = self.db.execute_query("""
+                    SELECT COUNT(*) as count FROM assignment_exam_templates
+                    WHERE assignment_id = ?
+                """, (assignment['id'],))
+                is_multi_template = templates and templates[0]['count'] > 0
+
+                # For multi-template assignments, always use assignment_id for caching
+                # For single-template assignments, use exam_id for backward compatibility
+                export_exam_id = assignment['id'] if is_multi_template else (assignment.get('exam_id') or assignment['id'])
+
+                # Check if a master snapshot already exists for this assignment
+                existing_snapshot = self.db.execute_single(
+                    """SELECT question_snapshot FROM pdf_exports
+                       WHERE exam_id = ? AND variant_number = 1""",
+                    (export_exam_id,)
+                )
+
+                # Use existing snapshot or create new one (only once)
+                if existing_snapshot and existing_snapshot['question_snapshot']:
+                    print(f"[PDF] Using existing snapshot for assignment {assignment['id']}")
+                    master_snapshot = json.loads(existing_snapshot['question_snapshot'])
+                else:
+                    print(f"[PDF] Creating new snapshot for assignment {assignment['id']}")
+                    # Create snapshot WITHOUT randomization to get base question set
+                    master_snapshot = pdf_gen.create_question_snapshot(assignment['id'], randomize=False)
+
+                for variant in range(1, num_variants + 1):
+                    # Use the same master snapshot but shuffle for each variant if randomization is enabled
+                    if has_randomize and variant > 1:
+                        # Shuffle questions within each topic for variants 2+
+                        variant_snapshot = []
+                        for topic_data in master_snapshot:
+                            shuffled_questions = topic_data['questions'].copy()
+                            random.shuffle(shuffled_questions)
+                            variant_snapshot.append({
+                                'topic_id': topic_data['topic_id'],
+                                'topic_title': topic_data['topic_title'],
+                                'questions': shuffled_questions
+                            })
+                    else:
+                        # Variant 1 or no randomization - use master snapshot as-is
+                        variant_snapshot = master_snapshot
+
+                    # Generate file paths
+                    exam_id = pdf_gen.generate_instance_id(assignment['id'], variant)
+                    paper_path = f"exam_exports/{exam_id}_paper.pdf"
+                    answers_path = f"exam_exports/{exam_id}_answers.pdf"
+
+                    # Generate PDFs
+                    pdf_gen.generate_exam_paper(assignment, variant_snapshot, variant, paper_path)
+                    pdf_gen.generate_answer_key(assignment, variant_snapshot, variant, answers_path)
+
+                    # Save snapshot to database (master snapshot for variant 1, variant snapshots for others)
+                    snapshot_to_save = master_snapshot if variant == 1 else variant_snapshot
+                    self.db.execute_insert(
+                        """INSERT INTO pdf_exports (exam_id, variant_number, question_snapshot, exported_by, file_path)
+                           VALUES (?, ?, ?, ?, ?)
+                           ON CONFLICT(exam_id, variant_number)
+                           DO UPDATE SET
+                               exported_by=excluded.exported_by,
+                               exported_at=CURRENT_TIMESTAMP,
+                               file_path=excluded.file_path
+                        """,
+                        (export_exam_id, variant, json.dumps(snapshot_to_save), self.user_data['id'], paper_path)
+                    )
+
+                    generated_files.append({'exam_id': exam_id, 'paper': paper_path, 'answers': answers_path})
+
+                # Show success
+                self.show_pdf_success_dialog(generated_files)
+                export_dialog.open = False
+                self.page.update()
+
+            except Exception as ex:
+                # Show error
+                export_dialog.content = ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.ERROR, color=COLORS['error'], size=48),
+                        ft.Text("Error generating PDFs", size=16, weight=ft.FontWeight.BOLD),
+                        ft.Text(str(ex), size=12, color=COLORS['error'])
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                    padding=20
+                )
+                export_dialog.actions = [ft.TextButton("Close", on_click=lambda e: self.close_export_dialog(export_dialog))]
+                self.page.update()
+
+        export_dialog = ft.AlertDialog(
+            title=ft.Text("Export Assignment as PDF"),
+            content=ft.Column([
+                ft.Text(f"Assignment: {assignment['assignment_name']}", weight=ft.FontWeight.BOLD),
+                ft.Text(
+                    "Questions: "
+                    + (
+                        f"{assignment['question_count']} "
+                        if not assignment.get('question_bank_count')
+                        or assignment['question_bank_count'] == assignment['question_count']
+                        else f"{assignment['question_count']} (of {assignment['question_bank_count']})"
+                    ),
+                    size=12,
+                    color=COLORS['text_secondary']
+                ),
+                ft.Divider(),
+                ft.Text(
+                    f"Variants configured: {num_variants}",
+                    size=12,
+                    weight=ft.FontWeight.BOLD
+                ),
+                warning,
+                ft.Container(height=10),
+                ft.Text("This will generate:", size=13, weight=ft.FontWeight.BOLD),
+                ft.Text("• Exam paper for each variant", size=12),
+                ft.Text("• Answer key for each variant", size=12),
+                ft.Container(height=5),
+                ft.Text("📁 Files: EXAM-XXXXXX-VX_paper.pdf, etc.",
+                       size=11, italic=True, color=COLORS['text_secondary'])
+            ], tight=True, spacing=5, scroll=ft.ScrollMode.AUTO),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: self.close_export_dialog(export_dialog)),
+                ft.ElevatedButton(
+                    "Generate PDFs",
+                    on_click=generate_pdfs,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = export_dialog
+        export_dialog.open = True
+        self.page.update()
+
+    def close_export_dialog(self, dialog):
+        dialog.open = False
+        self.page.update()
+
+    def show_pdf_success_dialog(self, generated_files):
+        """Show success dialog after PDF generation"""
+        import os
+
+        files_list = ft.Column([], spacing=5, scroll=ft.ScrollMode.AUTO)
+
+        for file_info in generated_files:
+            variant_num = file_info['exam_id'].split('-V')[1]
+            files_list.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text(f"Variant {variant_num}", weight=ft.FontWeight.BOLD, size=13),
+                        ft.Text(f"• {file_info['paper']}", size=11),
+                        ft.Text(f"• {file_info['answers']}", size=11)
+                    ], spacing=3),
+                    padding=10,
+                    bgcolor=ft.colors.with_opacity(0.05, COLORS['success']),
+                    border_radius=6
+                )
+            )
+
+        success_dialog = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success']),
+                ft.Text("PDFs Generated Successfully!")
+            ]),
+            content=ft.Column([
+                ft.Text(f"{len(generated_files)} variant(s) generated", weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                files_list,
+                ft.Container(height=10),
+                ft.Text("Location: exam_exports/", size=12, color=COLORS['text_secondary'])
+            ], tight=True),
+            actions=[
+                ft.TextButton("Open Folder", on_click=lambda e: os.system("open exam_exports")),
+                ft.ElevatedButton("Close", on_click=lambda e: self.close_export_dialog(success_dialog))
+            ]
+        )
+
+        self.page.dialog = success_dialog
+        success_dialog.open = True
+        self.page.update()
+
     def build(self):
         # Create Assignment button
         self.add_assignment_btn = ft.ElevatedButton(
@@ -159,15 +389,32 @@ class QuizManagement(ft.UserControl):
     def load_exams(self):
         # Load assignments (not exams) with exam template info
         self.all_exams_data = self.db.execute_query("""
+            WITH template_counts AS (
+                SELECT
+                    assignment_id,
+                    SUM(COALESCE(easy_count, 0)) AS total_easy,
+                    SUM(COALESCE(medium_count, 0)) AS total_medium,
+                    SUM(COALESCE(hard_count, 0)) AS total_hard,
+                    SUM(COALESCE(easy_count, 0) + COALESCE(medium_count, 0) + COALESCE(hard_count, 0)) AS total_selected
+                FROM assignment_exam_templates
+                GROUP BY assignment_id
+            )
             SELECT ea.*,
                    e.title as exam_title,
                    e.description as exam_description,
-                   COUNT(DISTINCT q.id) as question_count,
+                   COUNT(DISTINCT q.id) as question_bank_count,
+                   COALESCE(tc.total_selected,
+                            NULLIF(ea.easy_questions_count + ea.medium_questions_count + ea.hard_questions_count, 0),
+                            COUNT(DISTINCT q.id)) as question_count,
+                   COALESCE(tc.total_easy, ea.easy_questions_count) as selected_easy_count,
+                   COALESCE(tc.total_medium, ea.medium_questions_count) as selected_medium_count,
+                   COALESCE(tc.total_hard, ea.hard_questions_count) as selected_hard_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
                    COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
                    u.full_name as creator_name
             FROM exam_assignments ea
             JOIN exams e ON ea.exam_id = e.id
+            LEFT JOIN template_counts tc ON tc.assignment_id = ea.id
             LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
             LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
@@ -194,6 +441,47 @@ class QuizManagement(ft.UserControl):
             total_count = assignment['assigned_users_count'] or 0
             completion_text = f"{completed_count}/{total_count}"
 
+            # Delivery type badge
+            delivery_type = assignment.get('delivery_method', 'online')
+            type_badge = ft.Container(
+                content=ft.Text(
+                    "Online" if delivery_type == 'online' else "PDF",
+                    size=11,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.colors.WHITE
+                ),
+                bgcolor=COLORS['primary'] if delivery_type == 'online' else ft.colors.ORANGE,
+                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                border_radius=4
+            )
+
+            # Action buttons
+            action_buttons = [
+                ft.IconButton(
+                    icon=ft.icons.EDIT,
+                    tooltip="Edit Assignment",
+                    on_click=lambda e, ex=assignment: self.show_edit_assignment_dialog(ex)
+                ),
+                ft.IconButton(
+                    icon=ft.icons.PICTURE_AS_PDF,
+                    tooltip="Export as PDF",
+                    on_click=lambda e, ex=assignment: self.export_assignment_as_pdf(ex),
+                    icon_color=ft.colors.RED_400
+                ),
+                ft.IconButton(
+                    icon=ft.icons.TOGGLE_ON if assignment['is_active'] else ft.icons.TOGGLE_OFF,
+                    tooltip="Deactivate" if assignment['is_active'] else "Activate",
+                    on_click=lambda e, ex=assignment: self.toggle_assignment_status(ex),
+                    icon_color=COLORS['success'] if assignment['is_active'] else COLORS['error']
+                ),
+                ft.IconButton(
+                    icon=ft.icons.DELETE,
+                    tooltip="Delete Assignment",
+                    on_click=lambda e, ex=assignment: self.delete_assignment(ex),
+                    icon_color=COLORS['error']
+                )
+            ]
+
             self.exams_table.rows.append(
                 ft.DataRow(
                     cells=[
@@ -201,30 +489,19 @@ class QuizManagement(ft.UserControl):
                         ft.DataCell(ft.Text(assignment_title)),
                         ft.DataCell(ft.Text(f"{assignment['duration_minutes']} min")),
                         ft.DataCell(ft.Text(f"{assignment['passing_score']}%")),
-                        ft.DataCell(ft.Text(str(assignment['question_count'] or 0))),
+                        ft.DataCell(type_badge),
+                        ft.DataCell(ft.Text(
+                            f"{assignment['question_count'] or 0}"
+                            + (
+                                f" / {assignment['question_bank_count']}"
+                                if assignment.get('question_bank_count')
+                                and assignment['question_bank_count'] != assignment['question_count']
+                                else ""
+                            )
+                        )),
                         ft.DataCell(ft.Text(completion_text)),
                         ft.DataCell(ft.Text(assignment.get('deadline')[:10] if assignment.get('deadline') else "No deadline")),
-                        ft.DataCell(
-                            ft.Row([
-                                ft.IconButton(
-                                    icon=ft.icons.EDIT,
-                                    tooltip="Edit Assignment",
-                                    on_click=lambda e, ex=assignment: self.show_edit_assignment_dialog(ex)
-                                ),
-                                ft.IconButton(
-                                    icon=ft.icons.TOGGLE_ON if assignment['is_active'] else ft.icons.TOGGLE_OFF,
-                                    tooltip="Deactivate" if assignment['is_active'] else "Activate",
-                                    on_click=lambda e, ex=assignment: self.toggle_assignment_status(ex),
-                                    icon_color=COLORS['success'] if assignment['is_active'] else COLORS['error']
-                                ),
-                                ft.IconButton(
-                                    icon=ft.icons.DELETE,
-                                    tooltip="Delete Assignment",
-                                    on_click=lambda e, ex=assignment: self.delete_assignment(ex),
-                                    icon_color=COLORS['error']
-                                )
-                            ], spacing=5)
-                        )
+                        ft.DataCell(ft.Row(action_buttons, spacing=5))
                     ]
                 )
             )
@@ -886,6 +1163,45 @@ class QuizManagement(ft.UserControl):
 
         is_edit = assignment is not None
 
+        # If in edit mode and pool_configs not provided, load from exams data
+        # (exams parameter contains easy_count, medium_count, hard_count from database)
+        if is_edit and pool_configs is None and exams:
+            # Check if any template has pool counts configured
+            has_pool_config = any(
+                (exam.get('easy_count', 0) or 0) > 0 or
+                (exam.get('medium_count', 0) or 0) > 0 or
+                (exam.get('hard_count', 0) or 0) > 0
+                for exam in exams
+            )
+
+            if has_pool_config:
+                # Create TextField controls with existing values for editing
+                pool_configs = {}
+                for exam in exams:
+                    pool_configs[exam['id']] = {
+                        'easy': ft.TextField(
+                            label="Easy",
+                            value=str(exam.get('easy_count', 0) or 0),
+                            keyboard_type=ft.KeyboardType.NUMBER,
+                            width=80,
+                            content_padding=8
+                        ),
+                        'medium': ft.TextField(
+                            label="Medium",
+                            value=str(exam.get('medium_count', 0) or 0),
+                            keyboard_type=ft.KeyboardType.NUMBER,
+                            width=80,
+                            content_padding=8
+                        ),
+                        'hard': ft.TextField(
+                            label="Hard",
+                            value=str(exam.get('hard_count', 0) or 0),
+                            keyboard_type=ft.KeyboardType.NUMBER,
+                            width=80,
+                            content_padding=8
+                        )
+                    }
+
         # Calculate total question count from pool configs if provided, otherwise use all questions
         if pool_configs:
             total_questions = sum(
@@ -893,7 +1209,8 @@ class QuizManagement(ft.UserControl):
                 for config in pool_configs.values()
             )
         else:
-            total_questions = sum(exam['question_count'] for exam in exams)
+            # For non-pool assignments, sum question_count if available
+            total_questions = sum(exam.get('question_count', 0) for exam in exams)
 
         exam_titles = ", ".join([exam['title'] for exam in exams])
 
@@ -906,37 +1223,53 @@ class QuizManagement(ft.UserControl):
             expand=True
         )
 
-        # Show selected exam templates (read-only in creation dialog)
+        # Show selected exam templates with editable pool configs if in edit mode
+        header_text = "Selected Exam Templates (Edit Pool Counts):" if (is_edit and pool_configs) else "Selected Exam Templates:"
         selected_exams_display = ft.Column([
-            ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
+            ft.Text(header_text, size=14, weight=ft.FontWeight.BOLD),
             ft.Container(height=5)
         ])
 
         for exam in exams:
-            # Build question count text based on whether pool is used
+            # Build question count display - editable if pool_configs exist, otherwise read-only
             if pool_configs and exam['id'] in pool_configs:
                 config = pool_configs[exam['id']]
-                easy = int(config['easy'].value or 0)
-                medium = int(config['medium'].value or 0)
-                hard = int(config['hard'].value or 0)
-                exam_total = easy + medium + hard
-                question_text = f"E:{easy} M:{medium} H:{hard} (Total: {exam_total})"
-            else:
-                question_text = f"{exam['question_count']} questions"
 
-            selected_exams_display.controls.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
-                        ft.Text(f"{exam['title']}", size=13),
-                        ft.Container(expand=True),
-                        ft.Text(question_text, size=12, color=COLORS['text_secondary'])
-                    ], spacing=8),
-                    padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                # Show editable TextFields for pool counts
+                exam_card = ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
+                            ft.Text(f"{exam['title']}", size=13, weight=ft.FontWeight.BOLD),
+                        ], spacing=8),
+                        ft.Row([
+                            config['easy'],
+                            config['medium'],
+                            config['hard']
+                        ], spacing=10)
+                    ], spacing=5),
+                    padding=ft.padding.all(12),
                     bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
-                    border_radius=4
+                    border_radius=8,
+                    border=ft.border.all(1, COLORS['secondary'])
                 )
-            )
+                selected_exams_display.controls.append(exam_card)
+            else:
+                # Read-only display for non-pool assignments
+                question_text = f"{exam.get('question_count', 0)} questions"
+                selected_exams_display.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
+                            ft.Text(f"{exam['title']}", size=13),
+                            ft.Container(expand=True),
+                            ft.Text(question_text, size=12, color=COLORS['text_secondary'])
+                        ], spacing=8),
+                        padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                        border_radius=4
+                    )
+                )
 
         selected_exams_display.controls.append(
             ft.Container(
@@ -993,6 +1326,74 @@ class QuizManagement(ft.UserControl):
             label="Enable Full Window Mode",
             value=bool(assignment['enable_fullscreen']) if is_edit else False
         )
+
+        # Delivery Method
+        delivery_method = ft.RadioGroup(
+            content=ft.Column([
+                ft.Radio(value="online", label="Online Exam (students take on computer)"),
+                ft.Radio(value="pdf_export", label="PDF Export (print for paper exam)")
+            ]),
+            value=assignment.get('delivery_method', 'online') if is_edit else "online"
+        )
+
+        # Variant count dropdown
+        existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
+        variant_count = ft.Dropdown(
+            label="Number of Variants",
+            options=[
+                ft.dropdown.Option("1", "1 Variant"),
+                ft.dropdown.Option("2", "2 Variants"),
+                ft.dropdown.Option("3", "3 Variants"),
+                ft.dropdown.Option("4", "4 Variants")
+            ],
+            value=existing_variant_count,
+            width=200,
+            visible=is_edit and assignment.get('delivery_method') == "pdf_export"
+        )
+
+        # Variant note
+        variant_note = ft.Container(
+            content=ft.Column([
+                ft.Text("💡 Variants Info:", size=11, weight=ft.FontWeight.BOLD),
+                ft.Text("• Each variant has different question order", size=10),
+                ft.Text("• Helps prevent cheating in classroom", size=10),
+                ft.Text("• Only works if 'Randomize Questions' is enabled", size=10)
+            ], spacing=2),
+            padding=8,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['warning']),
+            border_radius=6,
+            visible=is_edit and assignment.get('delivery_method') == "pdf_export" and bool(assignment.get('randomize_questions'))
+        )
+
+        # PDF assignment note
+        pdf_note = ft.Container(
+            content=ft.Column([
+                ft.Text("📌 Note for PDF Export:", size=12, weight=ft.FontWeight.BOLD),
+                ft.Text("• Questions will be saved when assignment is created", size=11),
+                ft.Text("• You can export PDF multiple times (same questions)", size=11),
+                ft.Text("• No need to assign to students", size=11)
+            ], spacing=3),
+            padding=10,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['info']),
+            border_radius=8,
+            visible=False
+        )
+
+        def on_delivery_method_change(e):
+            is_pdf = (e.control.value == "pdf_export")
+            variant_count.visible = is_pdf
+            variant_note.visible = is_pdf and randomize_questions.value
+            pdf_note.visible = is_pdf
+            user_selection_section.visible = not is_pdf  # Hide user selection for PDF
+            assignment_dialog.update()
+
+        def on_randomize_change(e):
+            if delivery_method.value == "pdf_export":
+                variant_note.visible = e.control.value
+                assignment_dialog.update()
+
+        delivery_method.on_change = on_delivery_method_change
+        randomize_questions.on_change = on_randomize_change
 
 
         # Date picker - Initialize with assignment deadline if editing
@@ -1154,9 +1555,10 @@ class QuizManagement(ft.UserControl):
                 assignment_dialog.update()
                 return
 
-            # For create mode, validate user/department selection
-            if not is_edit and not self.selected_assignment_users and not self.selected_assignment_departments:
-                error_text.value = "Please select at least one user or department"
+            # For create mode, validate user/department selection (skip for PDF export)
+            is_pdf_export = delivery_method.value == "pdf_export"
+            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments:
+                error_text.value = "Please select at least one user or department (not required for PDF Export)"
                 error_text.visible = True
                 assignment_dialog.update()
                 return
@@ -1172,6 +1574,20 @@ class QuizManagement(ft.UserControl):
                     assignment_dialog.update()
                     return
 
+                pdf_variant_count = 1
+                if is_pdf_export:
+                    try:
+                        pdf_variant_count = max(1, int(variant_count.value or "1"))
+                    except (TypeError, ValueError):
+                        pdf_variant_count = 1
+
+                pdf_variant_count = 1
+                if is_pdf_export:
+                    try:
+                        pdf_variant_count = max(1, int(variant_count.value or "1"))
+                    except (TypeError, ValueError):
+                        pdf_variant_count = 1
+
                 # Validate and collect question pool settings if enabled
                 using_pool = bool(pool_configs)
                 pool_settings = []
@@ -1184,75 +1600,157 @@ class QuizManagement(ft.UserControl):
                             medium_count = int(config['medium'].value or 0)
                             hard_count = int(config['hard'].value or 0)
 
-                            if easy_count > 0 or medium_count > 0 or hard_count > 0:
-                                pool_settings.append({
-                                    'exam_id': exam_id,
-                                    'easy': easy_count,
-                                    'medium': medium_count,
-                                    'hard': hard_count
-                                })
+                            # Always add to pool_settings, even if all zeros
+                            # (zeros mean "don't use any questions from this template")
+                            pool_settings.append({
+                                'exam_id': exam_id,
+                                'easy': easy_count,
+                                'medium': medium_count,
+                                'hard': hard_count
+                            })
                         except (ValueError, AttributeError) as ve:
                             error_text.value = f"Invalid question pool configuration: {str(ve)}"
                             error_text.visible = True
                             assignment_dialog.update()
                             return
 
-                    if not pool_settings:
-                        error_text.value = "Please configure at least one exam's question pool"
+                    # Check that at least one exam has questions configured
+                    total_questions = sum(p['easy'] + p['medium'] + p['hard'] for p in pool_settings)
+                    if total_questions == 0:
+                        error_text.value = "Please configure at least one question across all exam templates"
                         error_text.visible = True
                         assignment_dialog.update()
                         return
 
-                # Create assignment (use first exam as primary, others stored in junction table)
-                primary_exam_id = exams[0]['id']
+                if is_edit:
+                    # Update existing assignment
+                    assignment_id = assignment['id']
 
-                query = """
-                    INSERT INTO exam_assignments (
-                        exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
-                        randomize_questions, show_results, enable_fullscreen,
-                        use_question_pool, questions_to_select,
-                        easy_questions_count, medium_questions_count, hard_questions_count,
-                        deadline, created_at, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                # Note: For multi-template with pool, we store config per template in junction table
-                params = (
-                    primary_exam_id,
-                    assignment_name_field.value.strip(),
-                    duration,
-                    passing_score,
-                    max_attempts,
-                    1 if randomize_questions.value else 0,
-                    1 if show_results.value else 0,
-                    1 if enable_fullscreen.value else 0,
-                    1 if using_pool else 0,
-                    0, 0, 0, 0,  # Legacy question counts (not used for multi-template)
-                    self.assignment_deadline.isoformat() if self.assignment_deadline else None,
-                    datetime.now().isoformat(),
-                    self.user_data['id']
-                )
-                assignment_id = self.db.execute_insert(query, params)
+                    self.db.execute_update("""
+                        UPDATE exam_assignments
+                        SET assignment_name = ?,
+                            duration_minutes = ?,
+                            passing_score = ?,
+                            max_attempts = ?,
+                            randomize_questions = ?,
+                            show_results = ?,
+                            enable_fullscreen = ?,
+                            delivery_method = ?,
+                            use_question_pool = ?,
+                            deadline = ?,
+                            pdf_variant_count = ?
+                        WHERE id = ?
+                    """, (
+                        assignment_name_field.value.strip(),
+                        duration,
+                        passing_score,
+                        max_attempts,
+                        1 if randomize_questions.value else 0,
+                        1 if show_results.value else 0,
+                        1 if enable_fullscreen.value else 0,
+                        delivery_method.value,
+                        1 if using_pool else 0,
+                        self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                        pdf_variant_count,
+                        assignment_id
+                    ))
 
-                # Store ALL selected exam templates in junction table with pool config
-                for order_idx, exam in enumerate(exams):
-                    # Find pool config for this exam if exists
-                    exam_pool = next((p for p in pool_settings if p['exam_id'] == exam['id']), None)
+                    # Update template-level pool counts
+                    for exam in exams:
+                        exam_pool = next((p for p in pool_settings if p['exam_id'] == exam['id']), None)
 
-                    if using_pool and exam_pool:
-                        # Store with pool configuration
-                        self.db.execute_insert("""
-                            INSERT INTO assignment_exam_templates (
-                                assignment_id, exam_id, order_index,
-                                easy_count, medium_count, hard_count
-                            ) VALUES (?, ?, ?, ?, ?, ?)
-                        """, (assignment_id, exam['id'], order_idx,
-                              exam_pool['easy'], exam_pool['medium'], exam_pool['hard']))
-                    else:
-                        # Store without pool configuration (use all questions)
-                        self.db.execute_insert("""
-                            INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
-                            VALUES (?, ?, ?)
-                        """, (assignment_id, exam['id'], order_idx))
+                        if using_pool and exam_pool:
+                            # Update or insert template pool configuration
+                            existing = self.db.execute_single("""
+                                SELECT id FROM assignment_exam_templates
+                                WHERE assignment_id = ? AND exam_id = ?
+                            """, (assignment_id, exam['id']))
+
+                            if existing:
+                                self.db.execute_update("""
+                                    UPDATE assignment_exam_templates
+                                    SET easy_count = ?, medium_count = ?, hard_count = ?
+                                    WHERE assignment_id = ? AND exam_id = ?
+                                """, (exam_pool['easy'], exam_pool['medium'], exam_pool['hard'],
+                                      assignment_id, exam['id']))
+                            else:
+                                self.db.execute_insert("""
+                                    INSERT INTO assignment_exam_templates (
+                                        assignment_id, exam_id, order_index,
+                                        easy_count, medium_count, hard_count
+                                    ) VALUES (?, ?, 0, ?, ?, ?)
+                                """, (assignment_id, exam['id'],
+                                      exam_pool['easy'], exam_pool['medium'], exam_pool['hard']))
+
+                    # Delete any cached PDF snapshots for this assignment to force regeneration
+                    # Use assignment_id for multi-template assignments
+                    self.db.execute_update("""
+                        DELETE FROM pdf_exports WHERE exam_id = ?
+                    """, (assignment_id,))
+
+                else:
+                    # Create new assignment (use first exam as primary, others stored in junction table)
+                    primary_exam_id = exams[0]['id']
+
+                    query = """
+                        INSERT INTO exam_assignments (
+                            exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
+                            randomize_questions, show_results, enable_fullscreen,
+                            delivery_method,
+                            use_question_pool, questions_to_select,
+                            easy_questions_count, medium_questions_count, hard_questions_count,
+                            deadline, created_at, created_by
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                    # Note: For multi-template with pool, we store config per template in junction table
+                    params = (
+                        primary_exam_id,
+                        assignment_name_field.value.strip(),
+                        duration,
+                        passing_score,
+                        max_attempts,
+                        1 if randomize_questions.value else 0,
+                        1 if show_results.value else 0,
+                        1 if enable_fullscreen.value else 0,
+                        delivery_method.value,
+                        1 if using_pool else 0,
+                        0, 0, 0, 0,  # Legacy question counts (not used for multi-template)
+                        self.assignment_deadline.isoformat() if self.assignment_deadline else None,
+                        datetime.now().isoformat(),
+                        self.user_data['id']
+                    )
+                    assignment_id = self.db.execute_insert(query, params)
+
+                    self.db.execute_update(
+                        "UPDATE exam_assignments SET pdf_variant_count = ? WHERE id = ?",
+                        (pdf_variant_count, assignment_id)
+                    )
+
+                    self.db.execute_update(
+                        "UPDATE exam_assignments SET pdf_variant_count = ? WHERE id = ?",
+                        (pdf_variant_count, assignment_id)
+                    )
+
+                    # Store ALL selected exam templates in junction table with pool config
+                    for order_idx, exam in enumerate(exams):
+                        # Find pool config for this exam if exists
+                        exam_pool = next((p for p in pool_settings if p['exam_id'] == exam['id']), None)
+
+                        if using_pool and exam_pool:
+                            # Store with pool configuration
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_exam_templates (
+                                    assignment_id, exam_id, order_index,
+                                    easy_count, medium_count, hard_count
+                                ) VALUES (?, ?, ?, ?, ?, ?)
+                            """, (assignment_id, exam['id'], order_idx,
+                                  exam_pool['easy'], exam_pool['medium'], exam_pool['hard']))
+                        else:
+                            # Store without pool configuration (use all questions)
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
+                                VALUES (?, ?, ?)
+                            """, (assignment_id, exam['id'], order_idx))
 
                 # Assign users (only for create mode)
                 for user_id in self.selected_assignment_users:
@@ -1292,7 +1790,8 @@ class QuizManagement(ft.UserControl):
                     self.update()
 
                 # Show success message
-                success_message = f"Multi-template assignment '{assignment_name_field.value.strip()}' created successfully with {len(exams)} exam templates!"
+                action = "updated" if is_edit else "created"
+                success_message = f"Multi-template assignment '{assignment_name_field.value.strip()}' {action} successfully with {len(exams)} exam templates!"
                 self.page.snack_bar = ft.SnackBar(
                     content=ft.Text(success_message),
                     bgcolor=COLORS['success']
@@ -1301,7 +1800,8 @@ class QuizManagement(ft.UserControl):
                 self.page.update()
 
             except Exception as ex:
-                error_text.value = f"Error creating assignment: {str(ex)}"
+                action = "updating" if is_edit else "creating"
+                error_text.value = f"Error {action} assignment: {str(ex)}"
                 error_text.visible = True
                 assignment_dialog.update()
                 import traceback
@@ -1334,18 +1834,30 @@ class QuizManagement(ft.UserControl):
             ft.Row([enable_fullscreen], spacing=15, wrap=True),
             ft.Container(height=8),
 
-            # User Selection
+            # Delivery Method
+            ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            delivery_method,
+            variant_count,
+            variant_note,
+            pdf_note,
+            ft.Container(height=8),
+        ]
+
+        # User Selection section (can be hidden for PDF export)
+        user_selection_section = ft.Column([
             ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Row([user_dropdown, department_dropdown], spacing=20),
             selected_items_container,
             ft.Container(height=10),
-        ]
+        ], visible=True)
 
+        dialog_content_controls.append(user_selection_section)
         dialog_content_controls.append(error_text)
 
-        dialog_title = f"Create Multi-Template Assignment ({len(exams)} exams)"
-        button_text = "Create Assignment"
+        dialog_title = f"Edit Multi-Template Assignment ({len(exams)} exams)" if is_edit else f"Create Multi-Template Assignment ({len(exams)} exams)"
+        button_text = "Update Assignment" if is_edit else "Create Assignment"
 
         assignment_dialog = ft.AlertDialog(
             modal=True,
@@ -1468,6 +1980,72 @@ class QuizManagement(ft.UserControl):
             value=False
         )
 
+        # Delivery Method
+        delivery_method = ft.RadioGroup(
+            content=ft.Column([
+                ft.Radio(value="online", label="Online Exam (students take on computer)"),
+                ft.Radio(value="pdf_export", label="PDF Export (print for paper exam)")
+            ]),
+            value="online"
+        )
+
+        # Variant count dropdown
+        variant_count = ft.Dropdown(
+            label="Number of Variants",
+            options=[
+                ft.dropdown.Option("1", "1 Variant"),
+                ft.dropdown.Option("2", "2 Variants"),
+                ft.dropdown.Option("3", "3 Variants"),
+                ft.dropdown.Option("4", "4 Variants")
+            ],
+            value="1",
+            width=200,
+            visible=False
+        )
+
+        # Variant note
+        variant_note = ft.Container(
+            content=ft.Column([
+                ft.Text("💡 Variants Info:", size=11, weight=ft.FontWeight.BOLD),
+                ft.Text("• Each variant has different question order", size=10),
+                ft.Text("• Helps prevent cheating in classroom", size=10),
+                ft.Text("• Only works if 'Randomize Questions' is enabled", size=10)
+            ], spacing=2),
+            padding=8,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['warning']),
+            border_radius=6,
+            visible=False
+        )
+
+        # PDF assignment note
+        pdf_note = ft.Container(
+            content=ft.Column([
+                ft.Text("📌 Note for PDF Export:", size=12, weight=ft.FontWeight.BOLD),
+                ft.Text("• Questions will be saved when assignment is created", size=11),
+                ft.Text("• You can export PDF multiple times (same questions)", size=11),
+                ft.Text("• No need to assign to students", size=11)
+            ], spacing=3),
+            padding=10,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['info']),
+            border_radius=8,
+            visible=False
+        )
+
+        def on_delivery_method_change(e):
+            is_pdf = (e.control.value == "pdf_export")
+            variant_count.visible = is_pdf
+            variant_note.visible = is_pdf and randomize_questions.value
+            pdf_note.visible = is_pdf
+            user_selection_section.visible = not is_pdf  # Hide user selection for PDF
+            assignment_dialog.update()
+
+        def on_randomize_change(e):
+            if delivery_method.value == "pdf_export":
+                variant_note.visible = e.control.value
+                assignment_dialog.update()
+
+        delivery_method.on_change = on_delivery_method_change
+        randomize_questions.on_change = on_randomize_change
 
         # Date picker
         self.assignment_deadline = None
@@ -1614,8 +2192,10 @@ class QuizManagement(ft.UserControl):
                 assignment_dialog.update()
                 return
 
-            if not self.selected_assignment_users and not self.selected_assignment_departments:
-                error_text.value = "Please select at least one user or department"
+            # For create mode, validate user/department selection (skip for PDF export)
+            is_pdf_export = delivery_method.value == "pdf_export"
+            if not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments:
+                error_text.value = "Please select at least one user or department (not required for PDF Export)"
                 error_text.visible = True
                 assignment_dialog.update()
                 return
@@ -1639,10 +2219,11 @@ class QuizManagement(ft.UserControl):
                     INSERT INTO exam_assignments (
                         exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
                         randomize_questions, show_results, enable_fullscreen,
+                        delivery_method,
                         use_question_pool, questions_to_select,
                         easy_questions_count, medium_questions_count, hard_questions_count,
                         deadline, created_at, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     primary_exam_id,
@@ -1653,6 +2234,7 @@ class QuizManagement(ft.UserControl):
                     1 if randomize_questions.value else 0,
                     1 if show_results.value else 0,
                     1 if enable_fullscreen.value else 0,
+                    delivery_method.value,
                     1,  # Use question pool mode for preset-based assignments
                     total_questions,  # Total questions
                     sum(c['easy_count'] for c in preset_config),
@@ -1749,14 +2331,26 @@ class QuizManagement(ft.UserControl):
             ft.Row([enable_fullscreen], spacing=15, wrap=True),
             ft.Container(height=8),
 
-            # User Selection
+            # Delivery Method
+            ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            delivery_method,
+            variant_count,
+            variant_note,
+            pdf_note,
+            ft.Container(height=8),
+        ]
+
+        # User Selection section (can be hidden for PDF export)
+        user_selection_section = ft.Column([
             ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Row([user_dropdown, department_dropdown], spacing=20),
             selected_items_container,
             ft.Container(height=10),
-        ]
+        ], visible=True)
 
+        dialog_content_controls.append(user_selection_section)
         dialog_content_controls.append(error_text)
 
         assignment_dialog = ft.AlertDialog(
@@ -1827,7 +2421,7 @@ class QuizManagement(ft.UserControl):
 
         # Security Settings
         randomize_questions = ft.Checkbox(
-            label="Randomize Questions",
+            label="Randomize Questions (within topics)",
             value=bool(assignment['randomize_questions']) if is_edit else False
         )
 
@@ -1841,6 +2435,75 @@ class QuizManagement(ft.UserControl):
             value=bool(assignment['enable_fullscreen']) if is_edit else False
         )
 
+        # Delivery Method
+        delivery_method = ft.RadioGroup(
+            content=ft.Column([
+                ft.Radio(value="online", label="Online Exam (students take on computer)"),
+                ft.Radio(value="pdf_export", label="PDF Export (print for paper exam)")
+            ]),
+            value=assignment.get('delivery_method', 'online') if is_edit else "online"
+        )
+
+        # Variant count dropdown
+        existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
+        variant_count = ft.Dropdown(
+            label="Number of Variants",
+            options=[
+                ft.dropdown.Option("1", "1 Variant"),
+                ft.dropdown.Option("2", "2 Variants"),
+                ft.dropdown.Option("3", "3 Variants"),
+                ft.dropdown.Option("4", "4 Variants")
+            ],
+            value=existing_variant_count,
+            width=200,
+            visible=is_edit and assignment.get('delivery_method') == "pdf_export"
+        )
+
+        # Variant note
+        variant_note = ft.Container(
+            content=ft.Column([
+                ft.Text("💡 Variants Info:", size=11, weight=ft.FontWeight.BOLD),
+                ft.Text("• Each variant has different question order", size=10),
+                ft.Text("• Helps prevent cheating in classroom", size=10),
+                ft.Text("• Only works if 'Randomize Questions' is enabled", size=10)
+            ], spacing=2),
+            padding=8,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['warning']),
+            border_radius=6,
+            visible=is_edit and assignment.get('delivery_method') == "pdf_export" and bool(assignment.get('randomize_questions'))
+        )
+
+        # PDF assignment note
+        pdf_note = ft.Container(
+            content=ft.Column([
+                ft.Text("📌 Note for PDF Export:", size=12, weight=ft.FontWeight.BOLD),
+                ft.Text("• Questions will be saved when assignment is created", size=11),
+                ft.Text("• You can export PDF multiple times (same questions)", size=11),
+                ft.Text("• No need to assign to students", size=11)
+            ], spacing=3),
+            padding=10,
+            bgcolor=ft.colors.with_opacity(0.05, COLORS['info']),
+            border_radius=8,
+            visible=False
+        )
+
+
+        # Delivery method change handlers
+        def on_delivery_method_change(e):
+            is_pdf = (e.control.value == "pdf_export")
+            variant_count.visible = is_pdf
+            variant_note.visible = is_pdf and randomize_questions.value
+            pdf_note.visible = is_pdf
+            user_selection_section.visible = not is_pdf  # Hide user selection for PDF
+            assignment_dialog.update()
+
+        def on_randomize_change(e):
+            if delivery_method.value == "pdf_export":
+                variant_note.visible = e.control.value
+                assignment_dialog.update()
+
+        delivery_method.on_change = on_delivery_method_change
+        randomize_questions.on_change = on_randomize_change
 
         # Get question counts for this exam
         question_count = self.db.execute_single(
@@ -1870,6 +2533,30 @@ class QuizManagement(ft.UserControl):
                 elif row['difficulty_level'] == 'hard':
                     hard_q = row['count']
 
+        # Check if template-level counts exist (for multi-template assignments or pool-based single-template)
+        template_counts_exist = False
+        template_easy = 0
+        template_medium = 0
+        template_hard = 0
+
+        if is_edit and assignment:
+            template_data = self.db.execute_single("""
+                SELECT easy_count, medium_count, hard_count
+                FROM assignment_exam_templates
+                WHERE assignment_id = ? AND exam_id = ?
+            """, (assignment['id'], exam['id']))
+
+            if template_data:
+                template_counts_exist = True
+                template_easy = template_data['easy_count'] or 0
+                template_medium = template_data['medium_count'] or 0
+                template_hard = template_data['hard_count'] or 0
+
+        # Use template-level counts if they exist, otherwise use assignment-level counts
+        initial_easy = template_easy if template_counts_exist else (assignment['easy_questions_count'] if is_edit else 0)
+        initial_medium = template_medium if template_counts_exist else (assignment['medium_questions_count'] if is_edit else 0)
+        initial_hard = template_hard if template_counts_exist else (assignment['hard_questions_count'] if is_edit else 0)
+
         # Random Question Selection Settings
         use_pool_value = bool(assignment['use_question_pool']) if is_edit else False
         use_question_pool = ft.Checkbox(
@@ -1898,7 +2585,7 @@ class QuizManagement(ft.UserControl):
         easy_questions_count_field = ft.Dropdown(
             label=f"Easy (Available: {easy_q})",
             options=easy_options,
-            value=str(assignment['easy_questions_count']) if is_edit and assignment['easy_questions_count'] else "0",
+            value=str(initial_easy),
             width=150,
             content_padding=5,
             disabled=not use_pool_value
@@ -1907,7 +2594,7 @@ class QuizManagement(ft.UserControl):
         medium_questions_count_field = ft.Dropdown(
             label=f"Medium (Available: {medium_q})",
             options=medium_options,
-            value=str(assignment['medium_questions_count']) if is_edit and assignment['medium_questions_count'] else "0",
+            value=str(initial_medium),
             width=150,
             content_padding=5,
             disabled=not use_pool_value
@@ -1916,7 +2603,7 @@ class QuizManagement(ft.UserControl):
         hard_questions_count_field = ft.Dropdown(
             label=f"Hard (Available: {hard_q})",
             options=hard_options,
-            value=str(assignment['hard_questions_count']) if is_edit and assignment['hard_questions_count'] else "0",
+            value=str(initial_hard),
             width=150,
             content_padding=5,
             disabled=not use_pool_value
@@ -2120,9 +2807,10 @@ class QuizManagement(ft.UserControl):
                 assignment_dialog.update()
                 return
 
-            # For create mode, validate user/department selection
-            if not is_edit and not self.selected_assignment_users and not self.selected_assignment_departments:
-                error_text.value = "Please select at least one user or department"
+            # For create mode, validate user/department selection (skip for PDF export)
+            is_pdf_export = delivery_method.value == "pdf_export"
+            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments:
+                error_text.value = "Please select at least one user or department (not required for PDF Export)"
                 error_text.visible = True
                 assignment_dialog.update()
                 return
@@ -2157,6 +2845,8 @@ class QuizManagement(ft.UserControl):
                             randomize_questions = ?,
                             show_results = ?,
                             enable_fullscreen = ?,
+                            delivery_method = ?,
+                            pdf_variant_count = ?,
                             use_question_pool = ?,
                             questions_to_select = ?,
                             easy_questions_count = ?,
@@ -2173,6 +2863,8 @@ class QuizManagement(ft.UserControl):
                         1 if randomize_questions.value else 0,
                         1 if show_results.value else 0,
                         1 if enable_fullscreen.value else 0,
+                        delivery_method.value,
+                        int(variant_count.value) if variant_count.value else 1,
                         1 if use_pool else 0,
                         to_select,
                         easy_count,
@@ -2183,6 +2875,28 @@ class QuizManagement(ft.UserControl):
                     )
                     self.db.execute_update(query, params)
                     assignment_id = assignment['id']
+
+                    # Update or create template-level counts if using question pool
+                    if use_pool and (easy_count > 0 or medium_count > 0 or hard_count > 0):
+                        # Check if template record exists
+                        existing_template = self.db.execute_single("""
+                            SELECT id FROM assignment_exam_templates
+                            WHERE assignment_id = ? AND exam_id = ?
+                        """, (assignment_id, exam['id']))
+
+                        if existing_template:
+                            # Update existing template record
+                            self.db.execute_update("""
+                                UPDATE assignment_exam_templates
+                                SET easy_count = ?, medium_count = ?, hard_count = ?
+                                WHERE assignment_id = ? AND exam_id = ?
+                            """, (easy_count, medium_count, hard_count, assignment_id, exam['id']))
+                        else:
+                            # Create new template record
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index, easy_count, medium_count, hard_count)
+                                VALUES (?, ?, 0, ?, ?, ?)
+                            """, (assignment_id, exam['id'], easy_count, medium_count, hard_count))
 
                     # Update assignment_users in edit mode
                     # First, remove all current assignments
@@ -2222,10 +2936,11 @@ class QuizManagement(ft.UserControl):
                         INSERT INTO exam_assignments (
                             exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
                             randomize_questions, show_results, enable_fullscreen,
+                            delivery_method, pdf_variant_count,
                             use_question_pool, questions_to_select,
                             easy_questions_count, medium_questions_count, hard_questions_count,
-                            deadline, created_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            deadline, created_at, created_by
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam['id'],
@@ -2236,6 +2951,8 @@ class QuizManagement(ft.UserControl):
                         1 if randomize_questions.value else 0,
                         1 if show_results.value else 0,
                         1 if enable_fullscreen.value else 0,
+                        delivery_method.value,
+                        int(variant_count.value) if variant_count.value else 1,
                         1 if use_pool else 0,
                         to_select,
                         easy_count,
@@ -2246,6 +2963,13 @@ class QuizManagement(ft.UserControl):
                         self.user_data['id']
                     )
                     assignment_id = self.db.execute_insert(query, params)
+
+                    # Create template-level counts if using question pool
+                    if use_pool and (easy_count > 0 or medium_count > 0 or hard_count > 0):
+                        self.db.execute_insert("""
+                            INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index, easy_count, medium_count, hard_count)
+                            VALUES (?, ?, 0, ?, ?, ?)
+                        """, (assignment_id, exam['id'], easy_count, medium_count, hard_count))
 
                     # Assign users (only for create mode)
                     for user_id in self.selected_assignment_users:
@@ -2319,6 +3043,15 @@ class QuizManagement(ft.UserControl):
             ft.Row([enable_fullscreen], spacing=15, wrap=True),
             ft.Container(height=8),
 
+            # Delivery Method
+            ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+            ft.Divider(height=1, color=COLORS['primary']),
+            delivery_method,
+            variant_count,
+            variant_note,
+            pdf_note,
+            ft.Container(height=8),
+
             # Random Question Selection
             ft.Text("Random Question Selection", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
@@ -2355,14 +3088,16 @@ class QuizManagement(ft.UserControl):
                 )
                 selected_items_container.controls.append(chip)
 
-        dialog_content_controls.extend([
-            # User Selection
+        # User Selection section (can be hidden for PDF export)
+        user_selection_section = ft.Column([
             ft.Text("Manage Assigned Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Row([user_dropdown, department_dropdown], spacing=20),
             selected_items_container,
             ft.Container(height=10),
-        ])
+        ], visible=delivery_method.value != "pdf_export")
+
+        dialog_content_controls.append(user_selection_section)
 
         dialog_content_controls.append(error_text)
 
@@ -2987,24 +3722,39 @@ class QuizManagement(ft.UserControl):
         return ft.Column(badges, spacing=2, tight=True)
     def show_edit_assignment_dialog(self, assignment):
         """Edit an existing assignment - reuses creation dialog with pre-filled values"""
-        # Get the exam template info for this assignment
-        exam = self.db.execute_single("""
-            SELECT id, title, description
-            FROM exams
-            WHERE id = ?
-        """, (assignment['exam_id'],))
+        # Check if this is a multi-template assignment
+        templates = self.db.execute_query("""
+            SELECT e.id, e.title, e.description,
+                   aet.easy_count, aet.medium_count, aet.hard_count
+            FROM assignment_exam_templates aet
+            JOIN exams e ON aet.exam_id = e.id
+            WHERE aet.assignment_id = ?
+            ORDER BY aet.order_index
+        """, (assignment['id'],))
 
-        if not exam:
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text("Exam template not found!"),
-                bgcolor=COLORS['error']
-            )
-            self.page.snack_bar.open = True
-            self.page.update()
-            return
+        if templates and len(templates) > 0:
+            # Multi-template assignment - use multi-template edit dialog
+            # Note: pool_configs will be loaded inside the multi dialog from database
+            self.show_assignment_creation_dialog_multi(templates, pool_configs=None, assignment=assignment)
+        else:
+            # Single-template assignment - use single-template dialog
+            exam = self.db.execute_single("""
+                SELECT id, title, description
+                FROM exams
+                WHERE id = ?
+            """, (assignment['exam_id'],))
 
-        # Call the creation dialog but in edit mode
-        self.show_assignment_creation_dialog(exam, assignment)
+            if not exam:
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text("Exam template not found!"),
+                    bgcolor=COLORS['error']
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+                return
+
+            # Call the creation dialog but in edit mode
+            self.show_assignment_creation_dialog(exam, assignment)
     
     def show_assignment_user_dialog(self, assignment):
         """Manage users for an assignment"""
@@ -4035,4 +4785,3 @@ class QuizManagement(ft.UserControl):
         if self.page.dialog:
             self.page.dialog.open = False
             self.page.update()
-

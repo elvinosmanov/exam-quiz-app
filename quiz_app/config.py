@@ -23,6 +23,7 @@ COLORS = {
     'success': '#10b981',
     'warning': '#f59e0b',
     'error': '#ef4444',
+    'info': '#3b82f6',
     'background': '#f8fafc',
     'surface': '#ffffff',
     'text_primary': '#1e293b',

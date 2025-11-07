@@ -610,6 +610,16 @@ class ExamineeDashboard(ft.UserControl):
     def get_available_exams(self):
         # Get assignments (not exams) user has permission to take
         return self.db.execute_query("""
+            WITH template_counts AS (
+                SELECT
+                    assignment_id,
+                    SUM(COALESCE(easy_count, 0)) AS total_easy,
+                    SUM(COALESCE(medium_count, 0)) AS total_medium,
+                    SUM(COALESCE(hard_count, 0)) AS total_hard,
+                    SUM(COALESCE(easy_count, 0) + COALESCE(medium_count, 0) + COALESCE(hard_count, 0)) AS total_selected
+                FROM assignment_exam_templates
+                GROUP BY assignment_id
+            )
             SELECT
                 ea.id as assignment_id,
                 ea.assignment_name as title,
@@ -627,12 +637,17 @@ class ExamineeDashboard(ft.UserControl):
                 ea.enable_fullscreen,
                 ea.use_question_pool,
                 ea.questions_to_select,
-                ea.easy_questions_count,
-                ea.medium_questions_count,
-                ea.hard_questions_count
+                COALESCE(tc.total_easy, ea.easy_questions_count) as easy_questions_count,
+                COALESCE(tc.total_medium, ea.medium_questions_count) as medium_questions_count,
+                COALESCE(tc.total_hard, ea.hard_questions_count) as hard_questions_count,
+                COALESCE(tc.total_selected,
+                         NULLIF(ea.easy_questions_count + ea.medium_questions_count + ea.hard_questions_count, 0),
+                         (SELECT COUNT(*) FROM questions WHERE exam_id = ea.exam_id AND is_active = 1)
+                ) as selected_question_count
             FROM exam_assignments ea
             JOIN exams e ON ea.exam_id = e.id
             JOIN assignment_users au ON ea.id = au.assignment_id
+            LEFT JOIN template_counts tc ON tc.assignment_id = ea.id
             WHERE ea.is_active = 1
             AND au.user_id = ?
             AND au.is_active = 1

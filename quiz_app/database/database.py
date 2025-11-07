@@ -140,6 +140,12 @@ def create_tables():
             cursor.execute('ALTER TABLE exams ADD COLUMN hard_questions_count INTEGER DEFAULT 0')
         except sqlite3.OperationalError:
             pass
+
+        # Ensure PDF variant count column exists on exam assignments
+        try:
+            cursor.execute('ALTER TABLE exam_assignments ADD COLUMN pdf_variant_count INTEGER DEFAULT 1')
+        except sqlite3.OperationalError:
+            pass
         
         # Questions table
         cursor.execute('''
@@ -268,7 +274,24 @@ def create_tables():
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
-        
+
+        # PDF exports table (for tracking variant exports)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pdf_exports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_id INTEGER NOT NULL,
+                variant_number INTEGER NOT NULL,
+                question_snapshot TEXT NOT NULL,
+                exported_by INTEGER NOT NULL,
+                exported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                file_path TEXT,
+                notes TEXT,
+                FOREIGN KEY (exam_id) REFERENCES exams (id),
+                FOREIGN KEY (exported_by) REFERENCES users (id),
+                UNIQUE(exam_id, variant_number)
+            )
+        ''')
+
         # Create indexes for better performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
@@ -278,7 +301,9 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_question_options_question ON question_options(question_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_session_questions_session ON session_questions(session_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_questions_difficulty ON questions(difficulty_level)')
-        
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pdf_exports_exam ON pdf_exports(exam_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pdf_exports_variant ON pdf_exports(exam_id, variant_number)')
+
         conn.commit()
 
 def create_default_admin():

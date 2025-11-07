@@ -5,6 +5,7 @@ from quiz_app.views.admin.quiz_management import QuizManagement
 from quiz_app.views.admin.question_management import QuestionManagement
 from quiz_app.views.admin.grading import Grading
 from quiz_app.views.admin.reports import Reports
+from quiz_app.views.admin.settings import Settings
 from quiz_app.database.database import Database
 from quiz_app.config import COLORS
 
@@ -148,11 +149,8 @@ class AdminDashboard(BaseAdminLayout):
         self.set_content(reports)
     
     def show_settings(self):
-        content = ft.Column([
-            ft.Text("System Settings", size=24, weight=ft.FontWeight.BOLD),
-            ft.Text("Coming soon...", size=16, color=COLORS['text_secondary'])
-        ])
-        self.set_content(content)
+        settings_view = Settings(self.db)
+        self.set_content(settings_view)
     
     def get_dashboard_stats(self):
         total_users = self.db.execute_single("SELECT COUNT(*) as count FROM users WHERE is_active = 1")['count']
