@@ -307,6 +307,23 @@ class ExamPDFGenerator:
         }
         assignment_pool_total = sum(assignment_pool_counts.values())
         use_question_pool = bool(assignment.get('use_question_pool'))
+
+        # When multiple templates exist but none store template-level counts,
+        # fall back to assignment-level counts exactly once across all templates.
+        if (
+            use_question_pool
+            and len(topics) > 1
+            and assignment_pool_total > 0
+            and all(
+                (topic.get('easy_count', 0) or 0)
+                + (topic.get('medium_count', 0) or 0)
+                + (topic.get('hard_count', 0) or 0) == 0
+                for topic in topics
+            )
+        ):
+            print("[PDF] Multi-template preset without per-template counts detected; using assignment-level distribution")
+            return self._snapshot_from_shared_pool(topics, assignment_pool_counts, randomize)
+
         snapshot_data = []
 
         for topic in topics:
@@ -336,6 +353,53 @@ class ExamPDFGenerator:
             })
 
         return snapshot_data
+    
+    def _snapshot_from_shared_pool(self, topics, assignment_counts, randomize):
+        """Select questions across multiple templates using assignment-level counts."""
+        exam_ids = [topic['id'] for topic in topics]
+        selected_by_exam = {exam_id: [] for exam_id in exam_ids}
+
+        for difficulty in ['easy', 'medium', 'hard']:
+            requested = assignment_counts.get(difficulty, 0) or 0
+            if requested <= 0:
+                continue
+
+            placeholders = ",".join(["?"] * len(exam_ids))
+            query = f"""
+                SELECT * FROM questions
+                WHERE exam_id IN ({placeholders})
+                  AND difficulty_level = ?
+                  AND is_active = 1
+            """
+            params = tuple(exam_ids) + (difficulty,)
+            available = self.db.execute_query(query, params)
+
+            available_count = len(available)
+            print(f"[PDF] {difficulty.capitalize()} pool: {available_count} available across templates, {requested} requested")
+
+            if available_count == 0:
+                continue
+
+            if available_count < requested:
+                requested = available_count
+
+            chosen = random.sample(available, requested) if available_count > requested else available
+
+            for question in chosen:
+                selected_by_exam.setdefault(question['exam_id'], []).append(question)
+
+        snapshot = []
+        for topic in topics:
+            questions = selected_by_exam.get(topic['id'], [])
+            if randomize and questions:
+                random.shuffle(questions)
+            snapshot.append({
+                'topic_id': topic['id'],
+                'topic_title': topic['title'],
+                'questions': [q['id'] for q in questions]
+            })
+
+        return snapshot
 
     def generate_exam_paper(self, assignment, snapshot, variant_num, output_path):
         """Generate printable exam paper PDF"""
@@ -582,7 +646,8 @@ class ExamPDFGenerator:
             topic_points[topic_data['topic_title']] = topic_total
             story.append(Spacer(1, 5*mm))
 
-        # Grading section
+        # Grading section on a new page for clarity
+        story.append(PageBreak())
         story.append(Spacer(1, 10*mm))
         story.append(Paragraph("GRADING SECTION:", self.styles['TopicHeader']))
         story.append(Spacer(1, 5*mm))
