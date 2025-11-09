@@ -191,6 +191,47 @@ class QuestionSelector:
         
         print(f"  Selected {len(selected)} {difficulty} questions")
         return selected
+    
+    def _select_questions_by_difficulty_multi(self, exam_ids: List[int], difficulty: str, count: int,
+                                              session_id: int, start_order_index: int) -> List[Dict]:
+        """
+        Select random questions of a specific difficulty level across multiple exam templates.
+        """
+        if not exam_ids or count <= 0:
+            return []
+
+        placeholders = ",".join(["?"] * len(exam_ids))
+        query = f"""
+            SELECT * FROM questions
+            WHERE exam_id IN ({placeholders})
+              AND difficulty_level = ?
+              AND is_active = 1
+            ORDER BY exam_id, order_index, id
+        """
+        params = tuple(exam_ids) + (difficulty,)
+        available_questions = self.db.execute_query(query, params)
+
+        available_count = len(available_questions)
+        print(f"  {difficulty.capitalize()} (multi-template): {available_count} available across {len(exam_ids)} exams, {count} requested")
+
+        if available_count == 0:
+            print(f"  Warning: No {difficulty} questions available across templates")
+            return []
+
+        if available_count < count:
+            print(f"  Warning: Only {available_count} {difficulty} questions available across templates, but {count} requested")
+            count = available_count
+
+        selected = random.sample(available_questions, count)
+
+        for i, question in enumerate(selected):
+            self.db.execute_insert("""
+                INSERT INTO session_questions (session_id, question_id, difficulty_level, order_index)
+                VALUES (?, ?, ?, ?)
+            """, (session_id, question['id'], difficulty, start_order_index + i))
+
+        print(f"  Selected {len(selected)} multi-template {difficulty} questions")
+        return selected
 
     def _randomize_by_topic_groups(self, questions: List[Dict], session_id: int) -> List[Dict]:
         """
@@ -388,6 +429,41 @@ class QuestionSelector:
 
         print(f"Total questions selected: {len(all_questions)} from {len(exam_templates)} templates")
         return all_questions
+    
+    def select_questions_for_multi_template_assignment_counts(self, exam_data: Dict,
+                                                              exam_templates: List[Dict],
+                                                              session_id: int) -> List[Dict]:
+        """
+        Fallback selection when multi-template assignments lack per-template counts.
+        Uses assignment-level difficulty counts across all templates.
+        """
+        exam_ids = [template['id'] for template in exam_templates]
+        if not exam_ids:
+            return []
+
+        easy_count = exam_data.get('easy_questions_count', 0)
+        medium_count = exam_data.get('medium_questions_count', 0)
+        hard_count = exam_data.get('hard_questions_count', 0)
+
+        print("[POOL] Multi-template assignment missing template counts; using assignment-level distribution")
+        print(f"        Requested totals: easy={easy_count}, medium={medium_count}, hard={hard_count}")
+
+        selected_questions = []
+        order_index = 1
+
+        for difficulty, count in [('easy', easy_count), ('medium', medium_count), ('hard', hard_count)]:
+            if count > 0:
+                chosen = self._select_questions_by_difficulty_multi(
+                    exam_ids, difficulty, count, session_id, order_index
+                )
+                selected_questions.extend(chosen)
+                order_index += len(chosen)
+
+        if exam_data.get('randomize_questions', False) and selected_questions:
+            selected_questions = self._randomize_by_topic_groups(selected_questions, session_id)
+
+        print(f"[POOL] Selected {len(selected_questions)} questions total using assignment-level counts")
+        return selected_questions
 
 
 def select_questions_for_exam_session(exam_data: Dict, session_id: int, assignment_id: int = None) -> List[Dict]:
@@ -419,12 +495,24 @@ def select_questions_for_exam_session(exam_data: Dict, session_id: int, assignme
             ORDER BY aet.order_index
         """, (assignment_id,))
 
+        template_total_counts = sum(
+            (template.get('easy_count', 0) or 0) +
+            (template.get('medium_count', 0) or 0) +
+            (template.get('hard_count', 0) or 0)
+            for template in exam_templates
+        )
+
         if len(exam_templates) > 1:
             # Multiple templates - always use multi-template logic
             print(f"Multi-template assignment with {len(exam_templates)} templates detected")
-            return selector.select_questions_for_multi_template_session(
-                exam_data, exam_templates, session_id
-            )
+            if template_total_counts > 0:
+                return selector.select_questions_for_multi_template_session(
+                    exam_data, exam_templates, session_id
+                )
+            else:
+                return selector.select_questions_for_multi_template_assignment_counts(
+                    exam_data, exam_templates, session_id
+                )
         elif len(exam_templates) == 1:
             # Single template - check if template-level counts are defined
             template = exam_templates[0]

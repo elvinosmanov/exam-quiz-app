@@ -2302,9 +2302,19 @@ class QuizManagement(ft.UserControl):
                 # Store all exam templates from preset in junction table
                 for order_idx, config in enumerate(preset_config):
                     self.db.execute_insert("""
-                        INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
-                        VALUES (?, ?, ?)
-                    """, (assignment_id, config['exam_id'], order_idx))
+                        INSERT INTO assignment_exam_templates (
+                            assignment_id, exam_id, order_index,
+                            easy_count, medium_count, hard_count
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        assignment_id,
+                        config['exam_id'],
+                        order_idx,
+                        config.get('easy_count', 0) or 0,
+                        config.get('medium_count', 0) or 0,
+                        config.get('hard_count', 0) or 0
+                    ))
 
                 # Assign users
                 for user_id in self.selected_assignment_users:
