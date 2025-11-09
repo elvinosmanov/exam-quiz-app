@@ -240,10 +240,11 @@ class ExamineeDashboard(ft.UserControl):
         )
     
     def show_available_exams(self):
-        # Get available assignments for the user
-        available_exams = self.get_available_exams()
+        # Only show exams that are currently open for this user
+        available_exams = self.get_open_exams()
 
         exam_cards = []
+        now = datetime.now()
         for exam in available_exams:
             # Check if user has already taken this assignment
             sessions = self.db.execute_query("""
@@ -256,12 +257,13 @@ class ExamineeDashboard(ft.UserControl):
             has_completed = sessions[0]['has_completed'] if sessions else False
             
             can_take = attempt_count < exam['max_attempts']
+            user_has_attempts_left = can_take
             
             # Determine exam status
-            now = datetime.now()
-            if exam['start_date'] and exam['end_date']:
-                start_date = datetime.fromisoformat(exam['start_date'])
-                end_date = datetime.fromisoformat(exam['end_date'])
+            start_date = datetime.fromisoformat(exam['start_date']) if exam['start_date'] else None
+            end_date = datetime.fromisoformat(exam['end_date']) if exam['end_date'] else None
+
+            if start_date and end_date:
                 if now < start_date:
                     status = "Scheduled"
                     status_color = COLORS['warning']
@@ -272,9 +274,34 @@ class ExamineeDashboard(ft.UserControl):
                 else:
                     status = "Available"
                     status_color = COLORS['success']
+            elif start_date:
+                if now < start_date:
+                    status = "Scheduled"
+                    status_color = COLORS['warning']
+                    can_take = False
+                else:
+                    status = "Available"
+                    status_color = COLORS['success']
+            elif end_date:
+                if now > end_date:
+                    status = "Expired"
+                    status_color = COLORS['error']
+                    can_take = False
+                else:
+                    status = "Available"
+                    status_color = COLORS['success']
             else:
                 status = "Available"
                 status_color = COLORS['success']
+
+            # Hide exams that are not currently open or have no attempts left
+            if not can_take:
+                continue
+
+            if exam['start_date'] and now < datetime.fromisoformat(exam['start_date']):
+                continue
+            if exam['end_date'] and now > datetime.fromisoformat(exam['end_date']):
+                continue
             
             # Create compact list-style exam card
             exam_card = ft.Container(
@@ -321,7 +348,7 @@ class ExamineeDashboard(ft.UserControl):
                         ft.Text(
                             f"Attempts: {exam['max_attempts'] - attempt_count}/{exam['max_attempts']} left",
                             size=12,
-                            color=COLORS['success'] if can_take else COLORS['error']
+                            color=COLORS['success'] if user_has_attempts_left else COLORS['error']
                         )
                     ], spacing=6),
                     
@@ -591,8 +618,8 @@ class ExamineeDashboard(ft.UserControl):
         self.set_content(content)
     
     def get_user_stats(self):
-        # Get available exams count
-        available_exams = len(self.get_available_exams())
+        # Get available exams count (only exams the user can take right now)
+        available_exams = len(self.get_open_exams())
 
         # Get total exams count (all active exams in the system)
         total = self.db.execute_single("""
@@ -664,6 +691,38 @@ class ExamineeDashboard(ft.UserControl):
             AND au.is_active = 1
             ORDER BY ea.created_at DESC
         """, (self.user_data['id'],))
+
+    def get_open_exams(self):
+        """Filter assignments down to those currently available to the user."""
+        all_exams = self.get_available_exams()
+        now = datetime.now()
+        open_exams = []
+
+        for exam in all_exams:
+            # Respect assignment windows
+            if exam['start_date']:
+                start = datetime.fromisoformat(exam['start_date'])
+                if now < start:
+                    continue
+            if exam['end_date']:
+                end = datetime.fromisoformat(exam['end_date'])
+                if now > end:
+                    continue
+
+            # Enforce remaining attempts
+            sessions = self.db.execute_single("""
+                SELECT COUNT(*) as attempt_count
+                FROM exam_sessions
+                WHERE user_id = ? AND assignment_id = ?
+            """, (self.user_data['id'], exam['assignment_id']))
+            attempt_count = sessions['attempt_count'] if sessions else 0
+
+            if exam['max_attempts'] is not None and attempt_count >= exam['max_attempts']:
+                continue
+
+            open_exams.append(exam)
+
+        return open_exams
     
     def get_recent_exam_sessions(self):
         return self.db.execute_query("""
@@ -1549,7 +1608,7 @@ class ExamineeDashboard(ft.UserControl):
             # Multiple choice questions  
             elif question_type == 'multiple_choice':
                 return ft.Column([
-                    ft.Text("Type: Multiple Choice (Select all that apply)", size=12, color=COLORS['text_secondary'], italic=True),
+                    ft.Text("Type: Multiple Choice (Choose all the correct answers)", size=12, color=COLORS['text_secondary'], italic=True),
                     ft.Container(height=8),
                     
                     # Show all options with indicators

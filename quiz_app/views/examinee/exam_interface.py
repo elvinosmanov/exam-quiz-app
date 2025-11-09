@@ -82,11 +82,98 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         'question_time_spent': {},  # Track cumulative time spent on each question
         'enable_fullscreen_lock': exam_data.get('enable_fullscreen', False),  # Fullscreen lock feature
         'fullscreen_lock_active': False,  # Is fullscreen currently locked?
-        'page_ref': None,  # Reference to page for fullscreen lock
+        'page_ref': page,  # Reference to page for fullscreen/close handling
         'randomize_questions': exam_data.get('randomize_questions', False),  # Randomize answer options
-        'shuffled_options_cache': {}  # Cache shuffled options for consistency during exam
+        'shuffled_options_cache': {},  # Cache shuffled options for consistency during exam
+        'original_window_event': None,
+        'original_window_prevent_close': None,
+        'original_keyboard_handler': None,
+        'exam_finished': False,
+        'exit_prompt_open': False,
+        'handlers_restored': False,
+        'keyboard_hooked': False,
+        'window_event_hooked': False,
+        'beforeunload_registered': False
     }
     
+    def cleanup_page_handlers():
+        """Restore original page event handlers and allow closing the window."""
+        if exam_state.get('handlers_restored'):
+            return
+
+        page_ref = exam_state.get('page_ref')
+        if not page_ref and exam_state.get('main_container') and hasattr(exam_state['main_container'], 'page'):
+            page_ref = exam_state['main_container'].page
+
+        try:
+            if page_ref:
+                # Restore keyboard handler
+                if exam_state.get('keyboard_hooked'):
+                    if exam_state['original_keyboard_handler'] is not None:
+                        page_ref.on_keyboard_event = exam_state['original_keyboard_handler']
+                    else:
+                        page_ref.on_keyboard_event = None
+
+                # Restore window event handler
+                if exam_state.get('window_event_hooked'):
+                    if exam_state['original_window_event'] is not None:
+                        page_ref.on_window_event = exam_state['original_window_event']
+                    else:
+                        page_ref.on_window_event = None
+
+                    # Restore prevent-close flag if supported
+                    if exam_state['original_window_prevent_close'] is not None:
+                        try:
+                            page_ref.window_prevent_close = exam_state['original_window_prevent_close']
+                        except AttributeError:
+                            pass
+        except Exception as handler_error:
+            print(f"[EXIT] Error restoring page handlers: {handler_error}")
+        finally:
+            if exam_state.get('beforeunload_registered') and hasattr(page_ref, "run_javascript"):
+                try:
+                    page_ref.run_javascript("""
+                        if (window.__examBeforeUnloadHandler) {
+                            window.removeEventListener('beforeunload', window.__examBeforeUnloadHandler);
+                            delete window.__examBeforeUnloadHandler;
+                        }
+                    """)
+                except Exception as js_err:
+                    print(f"[EXIT] Error removing beforeunload handler: {js_err}")
+
+        exam_state['handlers_restored'] = True
+        exam_state['exam_finished'] = True
+
+    def return_to_dashboard():
+        """Return to dashboard safely, ensuring fullscreen and handlers are reset."""
+        try:
+            # Release fullscreen lock tracking
+            if exam_state['enable_fullscreen_lock']:
+                exam_state['fullscreen_lock_active'] = False
+                print("[FULLSCREEN] Fullscreen lock released on exit")
+
+            # Close any open dialog
+            page_ref = None
+            if exam_state.get('main_container') and hasattr(exam_state['main_container'], 'page'):
+                page_ref = exam_state['main_container'].page
+            if page_ref and page_ref.dialog:
+                page_ref.dialog.open = False
+                page_ref.update()
+
+            cleanup_page_handlers()
+
+            if return_callback and callable(return_callback):
+                return_callback()
+            else:
+                print("Error: Invalid or missing return_callback for dashboard return")
+        except Exception as ex:
+            print(f"Error returning to dashboard: {ex}")
+            if return_callback and callable(return_callback):
+                try:
+                    return_callback()
+                except Exception as callback_ex:
+                    print(f"Error calling return_callback: {callback_ex}")
+
     # Colors
     EXAM_COLORS = {
         'primary': '#3182ce',
@@ -152,10 +239,145 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             if exam_state['main_container'].page:
                 exam_state['main_container'].page.update()
 
-    # Attach keyboard handler if page is provided
+    def register_beforeunload_handler():
+        """Register browser beforeunload handler to warn users when closing tab."""
+        if exam_state.get('beforeunload_registered'):
+            return
+
+        page_ref = exam_state.get('page_ref')
+        if not page_ref or not hasattr(page_ref, "run_javascript"):
+            return
+
+        script = """
+            if (!window.__examBeforeUnloadHandler) {
+                window.__examBeforeUnloadHandler = function (event) {
+                    event.preventDefault();
+                    event.returnValue = "Exiting now will submit and finish your exam.";
+                    return event.returnValue;
+                };
+                window.addEventListener("beforeunload", window.__examBeforeUnloadHandler);
+            }
+        """
+        try:
+            page_ref.run_javascript(script)
+            exam_state['beforeunload_registered'] = True
+            print("[EXIT] Browser beforeunload confirmation enabled")
+        except Exception as js_error:
+            print(f"[EXIT] Warning: Could not register beforeunload handler: {js_error}")
+
+    def show_exit_confirmation():
+        """Prompt the user before closing the window during an active exam."""
+        if exam_state.get('exit_prompt_open'):
+            return
+
+        page_ref = exam_state.get('page_ref')
+        if not page_ref and exam_state.get('main_container') and hasattr(exam_state['main_container'], 'page'):
+            page_ref = exam_state['main_container'].page
+
+        if not page_ref:
+            print("[EXIT] No page reference available for exit confirmation. Submitting exam.")
+            submit_exam_final()
+            return
+
+        def close_dialog(_=None):
+            if page_ref.dialog:
+                page_ref.dialog.open = False
+                page_ref.update()
+            exam_state['exit_prompt_open'] = False
+
+        def confirm_exit(_=None):
+            close_dialog()
+            submit_exam_final()
+
+        exit_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING, color=EXAM_COLORS['error'], size=24),
+                ft.Text("Exit Exam?", color=EXAM_COLORS['error'], weight=ft.FontWeight.BOLD)
+            ], spacing=8),
+            content=ft.Text(
+                "Exiting now will submit and finish your exam. Are you sure you want to exit?",
+                size=15
+            ),
+            actions=[
+                ft.TextButton("Stay in Exam", on_click=close_dialog),
+                ft.ElevatedButton(
+                    "Exit & Submit",
+                    on_click=confirm_exit,
+                    style=ft.ButtonStyle(bgcolor=EXAM_COLORS['error'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        page_ref.dialog = exit_dialog
+        exit_dialog.open = True
+        page_ref.update()
+        exam_state['exit_prompt_open'] = True
+
+    def handle_window_event(e):
+        """Handle global window events (close, fullscreen changes)."""
+        if e.data == "close":
+            if exam_state.get('exam_finished'):
+                cleanup_page_handlers()
+            else:
+                show_exit_confirmation()
+            return
+
+        # Forward other events to fullscreen handler
+        on_fullscreen_change(e)
+
+    # Attach keyboard and window handlers if page is provided
     if page:
-        page.on_keyboard_event = handle_keyboard_event
-        print("[KEYBOARD] Keyboard shortcuts enabled: ← (previous), → (next), M (mark for review)")
+        exam_state['page_ref'] = page
+
+        # Hook keyboard events
+        try:
+            exam_state['original_keyboard_handler'] = getattr(page, 'on_keyboard_event', None)
+        except Exception as keyboard_get_error:
+            print(f"[KEYBOARD] Could not read existing handler: {keyboard_get_error}")
+            exam_state['original_keyboard_handler'] = None
+
+        try:
+            page.on_keyboard_event = handle_keyboard_event
+            exam_state['keyboard_hooked'] = True
+            print("[KEYBOARD] Keyboard shortcuts enabled: ← (previous), → (next), M (mark for review)")
+        except Exception as keyboard_hook_error:
+            exam_state['keyboard_hooked'] = False
+            print(f"[KEYBOARD] Warning: Could not attach keyboard handler: {keyboard_hook_error}")
+
+        window_obj = getattr(page, "_Page__window", None)
+        window_control_available = window_obj is not None
+
+        if window_control_available:
+            try:
+                exam_state['original_window_event'] = getattr(page, 'on_window_event', None)
+            except Exception as window_get_error:
+                print(f"[EXIT] Could not read existing window handler: {window_get_error}")
+                exam_state['original_window_event'] = None
+
+            if hasattr(page, 'window_prevent_close'):
+                try:
+                    exam_state['original_window_prevent_close'] = page.window_prevent_close
+                    page.window_prevent_close = True
+                except Exception as prevent_error:
+                    print(f"[EXIT] Warning: Could not set window_prevent_close: {prevent_error}")
+                    exam_state['original_window_prevent_close'] = None
+            else:
+                exam_state['original_window_prevent_close'] = None
+
+            try:
+                page.on_window_event = handle_window_event
+                exam_state['window_event_hooked'] = True
+                print("[EXIT] Native window close confirmation enabled during exam session")
+            except Exception as window_hook_error:
+                exam_state['window_event_hooked'] = False
+                print(f"[EXIT] Warning: Window events not available ({window_hook_error})")
+        else:
+            exam_state['original_window_event'] = None
+            exam_state['original_window_prevent_close'] = None
+            exam_state['window_event_hooked'] = False
+            register_beforeunload_handler()
 
     def get_question_options(question_id):
         """Get options for a question, with optional shuffling"""
@@ -477,11 +699,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 elif exam_state['time_remaining'] == 0:
                     print("Time's up! Auto-submitting exam...")
                     exam_state['timer_running'] = False
-                    if return_callback:
-                        try:
-                            return_callback()
-                        except:
-                            pass
+                    submit_exam_final()
         except Exception as e:
             print(f"[TIMER] Timer thread error: {e}")
         finally:
@@ -716,7 +934,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 )
             
             answer_section = ft.Column([
-                ft.Text("Select all that apply:", size=14, color=EXAM_COLORS['text_secondary'], italic=True),
+                ft.Text("Choose all the correct answers:", size=14, color=EXAM_COLORS['text_secondary'], italic=True),
                 ft.Container(height=8),
                 ft.Column(checkbox_options, spacing=8)
             ], spacing=0)
@@ -943,6 +1161,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         def submit_exam_final():
             """Final exam submission with proper processing"""
             try:
+                cleanup_page_handlers()
+
                 # Track time for current question before submission
                 if questions and exam_state['current_question_index'] < len(questions):
                     current_q = questions[exam_state['current_question_index']]
@@ -1145,21 +1365,11 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
                 if not page:
                     print("No page context for submission confirmation - returning to dashboard")
-                    if return_callback and callable(return_callback):
-                        return_callback()
+                    return_to_dashboard()
                     return
 
                 def close_dialog(e):
-                    # Deactivate fullscreen lock before exiting
-                    if exam_state['enable_fullscreen_lock']:
-                        exam_state['fullscreen_lock_active'] = False
-                        print("[FULLSCREEN] Fullscreen lock released after exam submission")
-
-                    if page and page.dialog:
-                        page.dialog.open = False
-                        page.update()
-                    if return_callback and callable(return_callback):
-                        return_callback()
+                    return_to_dashboard()
                 
                 # Create simple confirmation dialog
                 confirmation_dialog = ft.AlertDialog(
@@ -1190,8 +1400,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 
             except Exception as e:
                 print(f"Error showing submission confirmation: {e}")
-                if return_callback and callable(return_callback):
-                    return_callback()
+                return_to_dashboard()
         
         def show_pending_release_confirmation():
             """Show confirmation when exam is fully graded but results not released"""
@@ -1202,21 +1411,11 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
                 if not page:
                     print("No page context for pending release confirmation - returning to dashboard")
-                    if return_callback and callable(return_callback):
-                        return_callback()
+                    return_to_dashboard()
                     return
 
                 def close_dialog(e):
-                    # Deactivate fullscreen lock before exiting
-                    if exam_state['enable_fullscreen_lock']:
-                        exam_state['fullscreen_lock_active'] = False
-                        print("[FULLSCREEN] Fullscreen lock released after exam submission")
-
-                    if page and page.dialog:
-                        page.dialog.open = False
-                        page.update()
-                    if return_callback and callable(return_callback):
-                        return_callback()
+                    return_to_dashboard()
                 
                 # Create pending release dialog
                 confirmation_dialog = ft.AlertDialog(
@@ -1247,8 +1446,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 
             except Exception as e:
                 print(f"Error showing pending release confirmation: {e}")
-                if return_callback and callable(return_callback):
-                    return_callback()
+                return_to_dashboard()
         
         def show_exam_results(total_questions, answered_questions, correct_answers=0, score_percentage=0, passing_score=70):
             """Show comprehensive exam results dialog"""
@@ -1291,8 +1489,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 
                 if not page:
                     print("No page context for results dialog - returning to dashboard")
-                    if return_callback and callable(return_callback):
-                        return_callback()
+                    return_to_dashboard()
                     return
                 
                 # Determine pass/fail status
@@ -1400,39 +1597,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             except Exception as ex:
                 print(f"Error showing exam results: {ex}")
                 # Fallback - just return to dashboard
-                if return_callback and callable(return_callback):
-                    return_callback()
-        
-        def return_to_dashboard():
-            """Return to dashboard from results dialog"""
-            try:
-                # Deactivate fullscreen lock before exiting
-                if exam_state['enable_fullscreen_lock']:
-                    exam_state['fullscreen_lock_active'] = False
-                    print("[FULLSCREEN] Fullscreen lock released after exam submission")
-
-                # Close dialog first
-                page = None
-                if exam_state['main_container'] and hasattr(exam_state['main_container'], 'page'):
-                    page = exam_state['main_container'].page
-                if page and page.dialog:
-                    page.dialog.open = False
-                    page.update()
-
-                # Then return to dashboard (this will restore fullscreen state via callback)
-                if return_callback and callable(return_callback):
-                    return_callback()
-                else:
-                    print("Error: Invalid or missing return_callback for dashboard return")
-                    
-            except Exception as ex:
-                print(f"Error returning to dashboard: {ex}")
-                # Try to call return_callback anyway
-                if return_callback and callable(return_callback):
-                    try:
-                        return_callback()
-                    except Exception as callback_ex:
-                        print(f"Error calling return_callback: {callback_ex}")
+                return_to_dashboard()
         
         navigation = ft.Row([
             ft.ElevatedButton(
@@ -1609,19 +1774,29 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         # Build navigator with topic groups
         navigator_sections = []
 
-        for topic in sorted(topic_groups.keys()):
+        # Preserve the order topics first appear in the randomized question list
+        ordered_topics = sorted(topic_groups.keys(), key=lambda t: topic_question_indices[t][0])
+
+        cumulative_number = 1  # Tracks the label to assign next
+
+        for topic in ordered_topics:
             topic_questions = topic_groups[topic]
             topic_indices = topic_question_indices[topic]
 
             # Calculate topic progress
             topic_answered = sum(1 for q in topic_questions if q['id'] in exam_state['user_answers'])
             topic_total = len(topic_questions)
+            if topic_total == 0:
+                continue  # No questions to render for this topic
+
+            topic_start_number = cumulative_number
+            topic_end_number = cumulative_number + topic_total - 1
 
             # Topic header
             topic_header = ft.Container(
                 content=ft.Row([
                     ft.Text(
-                        f"{topic} ({topic_indices[0] + 1}-{topic_indices[-1] + 1})",
+                        f"{topic} ({topic_start_number}-{topic_end_number})" if topic_total > 1 else f"{topic} ({topic_start_number})",
                         size=13,
                         weight=ft.FontWeight.BOLD,
                         color=EXAM_COLORS['text_primary']
@@ -1640,7 +1815,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
             # Create question buttons for this topic
             topic_buttons = []
-            for idx in topic_indices:
+            for local_order, idx in enumerate(topic_indices):
+                display_number = topic_start_number + local_order
                 question_id = questions[idx]['id']
                 is_current = idx == exam_state['current_question_index']
                 is_answered = question_id in exam_state['user_answers']
@@ -1663,7 +1839,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 topic_buttons.append(
                     ft.Container(
                         content=ft.Text(
-                            str(idx + 1),
+                            str(display_number),
                             size=11,
                             weight=ft.FontWeight.BOLD,
                             color=text_color
@@ -1689,6 +1865,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     padding=ft.padding.only(bottom=8)
                 )
             )
+
+            cumulative_number += topic_total  # Prepare numbering for the next topic
 
         question_navigator = ft.Container(
             content=ft.Column([
