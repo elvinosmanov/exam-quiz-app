@@ -3,6 +3,7 @@ import random
 import json
 from datetime import datetime, timedelta, date
 from quiz_app.config import COLORS
+from quiz_app.utils.permissions import UnitPermissionManager
 
 class QuizManagement(ft.UserControl):
     def __init__(self, db, user_data):
@@ -387,8 +388,12 @@ class QuizManagement(ft.UserControl):
         ], spacing=10, expand=True)
     
     def load_exams(self):
-        # Load assignments (not exams) with exam template info
-        self.all_exams_data = self.db.execute_query("""
+        # Apply unit-level filtering for experts
+        perm_manager = UnitPermissionManager(self.db)
+        filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data, table_alias='ea')
+
+        # Build query with unit filtering
+        query = """
             WITH template_counts AS (
                 SELECT
                     assignment_id,
@@ -411,7 +416,9 @@ class QuizManagement(ft.UserControl):
                    COALESCE(tc.total_hard, ea.hard_questions_count) as selected_hard_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
                    COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
-                   u.full_name as creator_name
+                   u.full_name as creator_name,
+                   u.department as creator_department,
+                   u.unit as creator_unit
             FROM exam_assignments ea
             JOIN exams e ON ea.exam_id = e.id
             LEFT JOIN template_counts tc ON tc.assignment_id = ea.id
@@ -419,22 +426,47 @@ class QuizManagement(ft.UserControl):
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
             LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
             LEFT JOIN users u ON ea.created_by = u.id
-            WHERE ea.is_archived = 0
+            WHERE ea.is_archived = 0 {filter_clause}
             GROUP BY ea.id
             ORDER BY ea.created_at DESC
-        """)
+        """.format(filter_clause=filter_clause)
+
+        # Load assignments with unit filtering
+        self.all_exams_data = self.db.execute_query(query, tuple(filter_params))
         self.exams_data = self.all_exams_data.copy()
         self.apply_filters(None)
     
     def update_table(self):
         self.exams_table.rows.clear()
+        perm_manager = UnitPermissionManager(self.db)
 
         for idx, assignment in enumerate(self.exams_data, 1):
             # Create enhanced status badges
             status_badges = self.calculate_exam_status_badges(assignment)
 
-            # Display assignment name only
-            assignment_title = assignment['assignment_name']
+            # Display assignment name with creator badge
+            assignment_title_controls = [ft.Text(assignment['assignment_name'])]
+
+            # Add creator badge for experts
+            if assignment.get('creator_name'):
+                creator_text = assignment['creator_name']
+                if assignment.get('creator_unit'):
+                    creator_text += f" ({assignment['creator_unit']})"
+
+                assignment_title_controls.append(
+                    ft.Container(
+                        content=ft.Text(
+                            creator_text,
+                            size=10,
+                            color=ft.colors.WHITE,
+                            weight=ft.FontWeight.BOLD
+                        ),
+                        bgcolor=ft.colors.BLUE_400,
+                        padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                        border_radius=4,
+                        margin=ft.margin.only(left=8)
+                    )
+                )
 
             # Format completion as "completed/total"
             completed_count = assignment['completed_users_count'] or 0
@@ -455,38 +487,59 @@ class QuizManagement(ft.UserControl):
                 border_radius=4
             )
 
-            # Action buttons
-            action_buttons = [
-                ft.IconButton(
-                    icon=ft.icons.EDIT,
-                    tooltip="Edit Assignment",
-                    on_click=lambda e, ex=assignment: self.show_edit_assignment_dialog(ex)
-                ),
+            # Check if user can edit this content
+            can_edit = perm_manager.can_edit_content(assignment['created_by'], self.user_data)
+
+            # Action buttons - conditionally show edit/delete for experts
+            action_buttons = []
+
+            # Edit button - only if user can edit
+            if can_edit:
+                action_buttons.append(
+                    ft.IconButton(
+                        icon=ft.icons.EDIT,
+                        tooltip="Edit Assignment",
+                        on_click=lambda e, ex=assignment: self.show_edit_assignment_dialog(ex)
+                    )
+                )
+
+            # PDF export - available to all
+            action_buttons.append(
                 ft.IconButton(
                     icon=ft.icons.PICTURE_AS_PDF,
                     tooltip="Export as PDF",
                     on_click=lambda e, ex=assignment: self.export_assignment_as_pdf(ex),
                     icon_color=ft.colors.RED_400
-                ),
-                ft.IconButton(
-                    icon=ft.icons.TOGGLE_ON if assignment['is_active'] else ft.icons.TOGGLE_OFF,
-                    tooltip="Deactivate" if assignment['is_active'] else "Activate",
-                    on_click=lambda e, ex=assignment: self.toggle_assignment_status(ex),
-                    icon_color=COLORS['success'] if assignment['is_active'] else COLORS['error']
-                ),
-                ft.IconButton(
-                    icon=ft.icons.DELETE,
-                    tooltip="Delete Assignment",
-                    on_click=lambda e, ex=assignment: self.delete_assignment(ex),
-                    icon_color=COLORS['error']
                 )
-            ]
+            )
+
+            # Toggle status - only if user can edit
+            if can_edit:
+                action_buttons.append(
+                    ft.IconButton(
+                        icon=ft.icons.TOGGLE_ON if assignment['is_active'] else ft.icons.TOGGLE_OFF,
+                        tooltip="Deactivate" if assignment['is_active'] else "Activate",
+                        on_click=lambda e, ex=assignment: self.toggle_assignment_status(ex),
+                        icon_color=COLORS['success'] if assignment['is_active'] else COLORS['error']
+                    )
+                )
+
+            # Delete button - only if user can edit
+            if can_edit:
+                action_buttons.append(
+                    ft.IconButton(
+                        icon=ft.icons.DELETE,
+                        tooltip="Delete Assignment",
+                        on_click=lambda e, ex=assignment: self.delete_assignment(ex),
+                        icon_color=COLORS['error']
+                    )
+                )
 
             self.exams_table.rows.append(
                 ft.DataRow(
                     cells=[
                         ft.DataCell(ft.Text(str(idx))),
-                        ft.DataCell(ft.Text(assignment_title)),
+                        ft.DataCell(ft.Row(assignment_title_controls, spacing=5)),
                         ft.DataCell(ft.Text(f"{assignment['duration_minutes']} min")),
                         ft.DataCell(ft.Text(f"{assignment['passing_score']}%")),
                         ft.DataCell(type_badge),
@@ -505,7 +558,7 @@ class QuizManagement(ft.UserControl):
                     ]
                 )
             )
-        
+
         self.update()
     
     def apply_filters(self, e):
@@ -1437,18 +1490,18 @@ class QuizManagement(ft.UserControl):
         self.selected_assignment_users = []
         self.selected_assignment_departments = []
 
-        # Load users and departments for selection
+        # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
-            SELECT id, full_name, username
+            SELECT id, full_name, username, role
             FROM users
-            WHERE role = 'examinee' AND is_active = 1
+            WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
         """)
 
         departments = self.db.execute_query("""
             SELECT DISTINCT department
             FROM users
-            WHERE department IS NOT NULL AND department != '' AND role = 'examinee'
+            WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
             ORDER BY department
         """)
 
@@ -1763,7 +1816,7 @@ class QuizManagement(ft.UserControl):
                 for dept in self.selected_assignment_departments:
                     dept_users = self.db.execute_query("""
                         SELECT id FROM users
-                        WHERE department = ? AND role = 'examinee' AND is_active = 1
+                        WHERE department = ? AND role IN ('examinee', 'expert') AND is_active = 1
                     """, (dept,))
 
                     for user in dept_users:
@@ -2080,9 +2133,9 @@ class QuizManagement(ft.UserControl):
         self.selected_assignment_departments = []
 
         users = self.db.execute_query("""
-            SELECT id, full_name, username
+            SELECT id, full_name, username, role
             FROM users
-            WHERE role = 'examinee' AND is_active = 1
+            WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
         """)
 
@@ -2264,7 +2317,7 @@ class QuizManagement(ft.UserControl):
                 for dept in self.selected_assignment_departments:
                     dept_users = self.db.execute_query("""
                         SELECT id FROM users
-                        WHERE department = ? AND role = 'examinee' AND is_active = 1
+                        WHERE department = ? AND role IN ('examinee', 'expert') AND is_active = 1
                     """, (dept,))
 
                     for user in dept_users:
@@ -2689,18 +2742,18 @@ class QuizManagement(ft.UserControl):
         self.selected_assignment_users = []
         self.selected_assignment_departments = []
 
-        # Load users and departments for selection
+        # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
-            SELECT id, full_name, username
+            SELECT id, full_name, username, role
             FROM users
-            WHERE role = 'examinee' AND is_active = 1
+            WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
         """)
 
         departments = self.db.execute_query("""
             SELECT DISTINCT department
             FROM users
-            WHERE department IS NOT NULL AND department != '' AND role = 'examinee'
+            WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
             ORDER BY department
         """)
 
@@ -3306,12 +3359,12 @@ class QuizManagement(ft.UserControl):
             WHERE ep.exam_id = ? AND ep.is_active = 1 AND u.department IS NOT NULL
         """, (exam_id,))
         assigned_dept_names = {dept['department'] for dept in assigned_departments}
-        
-        # Load all examinee users
+
+        # Load all examinee and expert users
         users = self.db.execute_query("""
-            SELECT id, full_name, username 
-            FROM users 
-            WHERE role = 'examinee' AND is_active = 1
+            SELECT id, full_name, username, role
+            FROM users
+            WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
         """)
         
@@ -3324,12 +3377,12 @@ class QuizManagement(ft.UserControl):
                 text=option_text,
                 disabled=is_assigned
             ))
-        
+
         # Load all departments
         departments = self.db.execute_query("""
-            SELECT DISTINCT department 
-            FROM users 
-            WHERE department IS NOT NULL AND department != '' AND role = 'examinee'
+            SELECT DISTINCT department
+            FROM users
+            WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
             ORDER BY department
         """)
         
@@ -3626,7 +3679,7 @@ class QuizManagement(ft.UserControl):
                     # Get all users in this department
                     dept_users = self.db.execute_query("""
                         SELECT id FROM users
-                        WHERE department = ? AND role = 'examinee' AND is_active = 1
+                        WHERE department = ? AND role IN ('examinee', 'expert') AND is_active = 1
                     """, (department,))
 
                     for user in dept_users:
@@ -3663,10 +3716,10 @@ class QuizManagement(ft.UserControl):
                 border_radius=3
             ))
         else:
-            # Check if all examinees are assigned
+            # Check if all examinees and experts are assigned
             total_examinees = self.db.execute_single("""
-                SELECT COUNT(*) as count FROM users 
-                WHERE role = 'examinee' AND is_active = 1
+                SELECT COUNT(*) as count FROM users
+                WHERE role IN ('examinee', 'expert') AND is_active = 1
             """)
             
             total_count = total_examinees['count'] if total_examinees else 0
@@ -3758,18 +3811,18 @@ class QuizManagement(ft.UserControl):
     
     def show_assignment_user_dialog(self, assignment):
         """Manage users for an assignment"""
-        # Load users and departments for selection
+        # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
-            SELECT id, full_name, username
+            SELECT id, full_name, username, role
             FROM users
-            WHERE role = 'examinee' AND is_active = 1
+            WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
         """)
 
         departments = self.db.execute_query("""
             SELECT DISTINCT department
             FROM users
-            WHERE department IS NOT NULL AND department != '' AND role = 'examinee'
+            WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
             ORDER BY department
         """)
 
@@ -3873,7 +3926,7 @@ class QuizManagement(ft.UserControl):
             # Get all users in department
             dept_users = self.db.execute_query("""
                 SELECT id FROM users
-                WHERE department = ? AND role = 'examinee' AND is_active = 1
+                WHERE department = ? AND role IN ('examinee', 'expert') AND is_active = 1
             """, (dept,))
 
             for user in dept_users:

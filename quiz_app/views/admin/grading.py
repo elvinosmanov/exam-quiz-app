@@ -1,11 +1,13 @@
 import flet as ft
 from datetime import datetime
 from quiz_app.config import COLORS
+from quiz_app.utils.permissions import UnitPermissionManager
 
 class Grading(ft.UserControl):
-    def __init__(self, db):
+    def __init__(self, db, user_data=None):
         super().__init__()
         self.db = db
+        self.user_data = user_data or {'role': 'admin'}  # Default to admin if not provided
         self.ungraded_answers = []
         self.current_answer = None
         self.parent_dashboard = None  # Reference to parent dashboard for badge updates
@@ -33,10 +35,14 @@ class Grading(ft.UserControl):
     def load_ungraded_answers(self):
         """Load exam sessions that have ungraded essay/short answer questions"""
         try:
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
             # Get ALL exam sessions with ungraded essay/short_answer questions
             # (regardless of exam's "show_results" setting - that only controls result release)
-            self.ungraded_answers = self.db.execute_query("""
-                SELECT 
+            query = """
+                SELECT
                     es.id as session_id,
                     es.start_time,
                     es.end_time,
@@ -57,10 +63,13 @@ class Grading(ft.UserControl):
                 AND ua.answer_text IS NOT NULL
                 AND ua.answer_text != ''
                 AND es.is_completed = 1
+                {filter_clause}
                 GROUP BY es.id, e.id, u.id
                 HAVING COUNT(ua.id) > 0
                 ORDER BY es.end_time DESC
-            """)
+            """.format(filter_clause=filter_clause)
+
+            self.ungraded_answers = self.db.execute_query(query, tuple(filter_params))
             
             print(f"Found {len(self.ungraded_answers)} exam sessions with ungraded essay/short answer submissions")
             

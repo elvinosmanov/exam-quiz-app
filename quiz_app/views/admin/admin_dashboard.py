@@ -10,8 +10,8 @@ from quiz_app.database.database import Database
 from quiz_app.config import COLORS
 
 class AdminDashboard(BaseAdminLayout):
-    def __init__(self, session_manager, user_data, logout_callback):
-        super().__init__(session_manager, user_data, logout_callback)
+    def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
+        super().__init__(session_manager, user_data, logout_callback, view_switcher)
         self.db = Database()
 
         # Don't initialize dashboard view here - wait until added to page
@@ -45,7 +45,7 @@ class AdminDashboard(BaseAdminLayout):
     def show_dashboard(self):
         # Get statistics
         stats = self.get_dashboard_stats()
-        
+
         # Create dashboard cards
         cards = ft.Row([
             self.create_stat_card("Total Users", str(stats['total_users']), ft.icons.PEOPLE, COLORS['primary']),
@@ -53,7 +53,7 @@ class AdminDashboard(BaseAdminLayout):
             self.create_stat_card("Active Sessions", str(stats['active_sessions']), ft.icons.TIMER, COLORS['warning']),
             self.create_stat_card("Completed Exams", str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success'])
         ], spacing=20, wrap=True)
-        
+
         # Recent activity
         recent_activity = self.get_recent_activity()
         activity_list = ft.Column([
@@ -65,7 +65,8 @@ class AdminDashboard(BaseAdminLayout):
                 subtitle=ft.Text(activity['timestamp'])
             ) for activity in recent_activity[:10]]
         ], spacing=5)
-        
+
+        # Build content
         content = ft.Column([
             ft.Text("Dashboard Overview", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
@@ -83,9 +84,9 @@ class AdminDashboard(BaseAdminLayout):
                 )
             )
         ], spacing=10)
-        
+
         self.set_content(content)
-    
+
     def create_stat_card(self, title, value, icon, color):
         return ft.Container(
             content=ft.Column([
@@ -112,7 +113,7 @@ class AdminDashboard(BaseAdminLayout):
     def show_user_management(self):
         print("[DEBUG] show_user_management called")
         try:
-            user_mgmt = UserManagement(self.db)
+            user_mgmt = UserManagement(self.db, self.user_data)
             self.set_content(user_mgmt)
             print("[DEBUG] UserManagement component set as content")
         except Exception as e:
@@ -129,23 +130,23 @@ class AdminDashboard(BaseAdminLayout):
             print(f"[ERROR] Exception in show_exam_management: {e}")
     
     def show_question_management(self):
-        question_mgmt = QuestionManagement(self.db)
+        question_mgmt = QuestionManagement(self.db, self.user_data)
         self.set_content(question_mgmt)
-    
+
     def show_question_management_with_exam(self, exam_id):
         """Show question management with pre-selected exam"""
-        question_mgmt = QuestionManagement(self.db)
+        question_mgmt = QuestionManagement(self.db, self.user_data)
         # Pre-select the exam
         question_mgmt.preselect_exam(exam_id)
         self.set_content(question_mgmt)
     
     def show_grading(self):
-        grading = Grading(self.db)
+        grading = Grading(self.db, self.user_data)
         grading.parent_dashboard = self  # Pass reference to update badge after grading
         self.set_content(grading)
     
     def show_reports(self):
-        reports = Reports(self.db)
+        reports = Reports(self.db, self.user_data)
         self.set_content(reports)
     
     def show_settings(self):

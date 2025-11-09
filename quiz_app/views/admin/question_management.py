@@ -4,11 +4,13 @@ import uuid
 from quiz_app.config import COLORS, UPLOAD_FOLDER, MAX_FILE_SIZE, ALLOWED_EXTENSIONS
 from quiz_app.utils.bulk_import import BulkImporter
 from quiz_app.utils.question_selector import QuestionSelector
+from quiz_app.utils.permissions import UnitPermissionManager
 
 class QuestionManagement(ft.UserControl):
-    def __init__(self, db):
+    def __init__(self, db, user_data=None):
         super().__init__()
         self.db = db
+        self.user_data = user_data or {'role': 'admin'}  # Default to admin if not provided
         self.questions_data = []
         self.all_questions_data = []  # Keep original data for filtering
         self.exams_data = []
@@ -180,11 +182,20 @@ class QuestionManagement(ft.UserControl):
         ], spacing=10, expand=True)
     
     def load_exams(self):
-        self.exams_data = self.db.execute_query("""
-            SELECT id, title FROM exams 
-            WHERE is_active = 1 
-            ORDER BY title
-        """)
+        # Apply unit-level filtering for experts
+        perm_manager = UnitPermissionManager(self.db)
+        filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+        # Build query with unit filtering
+        query = """
+            SELECT e.id, e.title, u.full_name as creator_name, u.unit as creator_unit
+            FROM exams e
+            LEFT JOIN users u ON e.created_by = u.id
+            WHERE e.is_active = 1 {filter_clause}
+            ORDER BY e.title
+        """.format(filter_clause=filter_clause)
+
+        self.exams_data = self.db.execute_query(query, tuple(filter_params))
     
     def exam_selected(self, e):
         old_exam_id = self.selected_exam_id
@@ -210,10 +221,13 @@ class QuestionManagement(ft.UserControl):
             return
 
         print(f"DEBUG: Loading questions for exam ID: {self.selected_exam_id}")
+        # Load questions with exam's created_by for permission checking
         self.all_questions_data = self.db.execute_query("""
-            SELECT * FROM questions
-            WHERE exam_id = ?
-            ORDER BY order_index, created_at
+            SELECT q.*, e.created_by as exam_created_by
+            FROM questions q
+            JOIN exams e ON q.exam_id = e.id
+            WHERE q.exam_id = ?
+            ORDER BY q.order_index, q.created_at
         """, (self.selected_exam_id,))
         print(f"DEBUG: Retrieved {len(self.all_questions_data)} questions from database")
         self.questions_data = self.all_questions_data.copy()
@@ -263,6 +277,8 @@ class QuestionManagement(ft.UserControl):
             return
         
         # Add actual question rows
+        perm_manager = UnitPermissionManager(self.db)
+
         for idx, question in enumerate(self.questions_data, 1):
             # Truncate long questions for display
             question_text = question['question_text']
@@ -281,6 +297,33 @@ class QuestionManagement(ft.UserControl):
                 )
             )
 
+            # Check if user can edit this question (based on exam ownership)
+            can_edit = perm_manager.can_edit_content(question.get('exam_created_by'), self.user_data)
+
+            # Build action buttons based on permissions
+            action_buttons = [
+                ft.IconButton(
+                    icon=ft.icons.VISIBILITY,
+                    tooltip="View Question",
+                    on_click=lambda e, q=question: self.view_question(q)
+                )
+            ]
+
+            if can_edit:
+                action_buttons.extend([
+                    ft.IconButton(
+                        icon=ft.icons.EDIT,
+                        tooltip="Edit Question",
+                        on_click=lambda e, q=question: self.show_edit_question_dialog(q)
+                    ),
+                    ft.IconButton(
+                        icon=ft.icons.DELETE,
+                        tooltip="Delete Question",
+                        on_click=lambda e, q=question: self.delete_question(q),
+                        icon_color=COLORS['error']
+                    )
+                ])
+
             self.questions_table.rows.append(
                 ft.DataRow(
                     cells=[
@@ -291,26 +334,7 @@ class QuestionManagement(ft.UserControl):
                         ft.DataCell(ft.Text(question['difficulty_level'].title())),
                         ft.DataCell(ft.Text(str(question['points']))),
                         ft.DataCell(ft.Text(status, color=status_color)),
-                        ft.DataCell(
-                            ft.Row([
-                                ft.IconButton(
-                                    icon=ft.icons.VISIBILITY,
-                                    tooltip="View Question",
-                                    on_click=lambda e, q=question: self.view_question(q)
-                                ),
-                                ft.IconButton(
-                                    icon=ft.icons.EDIT,
-                                    tooltip="Edit Question",
-                                    on_click=lambda e, q=question: self.show_edit_question_dialog(q)
-                                ),
-                                ft.IconButton(
-                                    icon=ft.icons.DELETE,
-                                    tooltip="Delete Question",
-                                    on_click=lambda e, q=question: self.delete_question(q),
-                                    icon_color=COLORS['error']
-                                )
-                            ], spacing=5)
-                        )
+                        ft.DataCell(ft.Row(action_buttons, spacing=5))
                     ]
                 )
             )

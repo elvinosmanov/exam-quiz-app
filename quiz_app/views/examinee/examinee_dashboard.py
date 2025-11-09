@@ -3,11 +3,12 @@ from datetime import datetime
 from quiz_app.config import COLORS
 
 class ExamineeDashboard(ft.UserControl):
-    def __init__(self, session_manager, user_data, logout_callback):
+    def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
         super().__init__()
         self.session_manager = session_manager
         self.user_data = user_data
         self.logout_callback = logout_callback
+        self.view_switcher = view_switcher  # For expert role switching
         self.db = None  # Will be set when needed
         
         # Initialize database
@@ -71,6 +72,28 @@ class ExamineeDashboard(ft.UserControl):
         self.show_dashboard()
     
     def create_top_bar(self):
+        # Right side controls
+        right_controls = []
+
+        # Add view switcher for experts (if provided)
+        if self.view_switcher:
+            right_controls.append(self.view_switcher)
+
+        # User info and logout
+        right_controls.extend([
+            ft.Icon(ft.icons.PERSON, color=COLORS['text_secondary']),
+            ft.Text(
+                f"Welcome, {self.user_data['full_name']}",
+                color=COLORS['text_secondary']
+            ),
+            ft.IconButton(
+                icon=ft.icons.LOGOUT,
+                tooltip="Logout",
+                on_click=self.logout_clicked,
+                icon_color=COLORS['error']
+            )
+        ])
+
         return ft.Container(
             content=ft.Row([
                 ft.Text(
@@ -79,19 +102,7 @@ class ExamineeDashboard(ft.UserControl):
                     weight=ft.FontWeight.BOLD,
                     color=COLORS['text_primary']
                 ),
-                ft.Row([
-                    ft.Icon(ft.icons.PERSON, color=COLORS['text_secondary']),
-                    ft.Text(
-                        f"Welcome, {self.user_data['full_name']}",
-                        color=COLORS['text_secondary']
-                    ),
-                    ft.IconButton(
-                        icon=ft.icons.LOGOUT,
-                        tooltip="Logout",
-                        on_click=self.logout_clicked,
-                        icon_color=COLORS['error']
-                    )
-                ], spacing=10)
+                ft.Row(right_controls, spacing=10)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.padding.symmetric(horizontal=20, vertical=15),
             bgcolor=COLORS['surface'],

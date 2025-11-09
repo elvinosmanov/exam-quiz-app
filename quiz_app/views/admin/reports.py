@@ -10,11 +10,13 @@ import base64
 import pandas as pd
 from quiz_app.config import COLORS
 from quiz_app.database.database import Database
+from quiz_app.utils.permissions import UnitPermissionManager
 
 class Reports(ft.UserControl):
-    def __init__(self, db):
+    def __init__(self, db, user_data=None):
         super().__init__()
         self.db = db
+        self.user_data = user_data or {'role': 'admin'}  # Default to admin if not provided
         self.chart_images = {}  # Store chart images
         self.current_dialog = None  # Track current dialog
 
@@ -341,21 +343,42 @@ class Reports(ft.UserControl):
     def load_analytics_data(self):
         """Load analytics data from database"""
         try:
-            # Get basic metrics
-            self.total_exams = self.db.execute_single("SELECT COUNT(*) as count FROM exams WHERE is_active = 1")['count']
-            self.total_sessions = self.db.execute_single("SELECT COUNT(*) as count FROM exam_sessions WHERE is_completed = 1")['count']
-            
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+            # Get basic metrics with unit filtering
+            query = "SELECT COUNT(*) as count FROM exams e WHERE e.is_active = 1 {filter_clause}".format(filter_clause=filter_clause)
+            self.total_exams = self.db.execute_single(query, tuple(filter_params))['count']
+
+            query = """
+                SELECT COUNT(*) as count FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.is_completed = 1 {filter_clause}
+            """.format(filter_clause=filter_clause)
+            self.total_sessions = self.db.execute_single(query, tuple(filter_params))['count']
+
             # Get average score
-            avg_score_result = self.db.execute_single("SELECT AVG(score) as avg_score FROM exam_sessions WHERE is_completed = 1 AND score IS NOT NULL")
+            query = """
+                SELECT AVG(es.score) as avg_score FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.is_completed = 1 AND es.score IS NOT NULL {filter_clause}
+            """.format(filter_clause=filter_clause)
+            avg_score_result = self.db.execute_single(query, tuple(filter_params))
             self.avg_score = round(avg_score_result['avg_score'], 1) if avg_score_result['avg_score'] else 0
-            
+
             # Get pass rate (assuming 70% is passing)
-            pass_sessions = self.db.execute_single("SELECT COUNT(*) as count FROM exam_sessions WHERE is_completed = 1 AND score >= 70")['count']
+            query = """
+                SELECT COUNT(*) as count FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.is_completed = 1 AND es.score >= 70 {filter_clause}
+            """.format(filter_clause=filter_clause)
+            pass_sessions = self.db.execute_single(query, tuple(filter_params))['count']
             self.pass_rate = round((pass_sessions / self.total_sessions * 100), 1) if self.total_sessions > 0 else 0
-            
+
             # Update metric cards
             self.update_metric_cards()
-            
+
         except Exception as e:
             print(f"Error loading analytics data: {e}")
     
@@ -390,21 +413,24 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating performance trend chart...")
 
-            # Build query with optional exam filter
-            query = """
-                SELECT DATE(end_time) as exam_date, AVG(score) as avg_score, COUNT(*) as session_count
-                FROM exam_sessions
-                WHERE is_completed = 1 AND score IS NOT NULL AND end_time IS NOT NULL
-            """
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
 
-            query += """
-                GROUP BY DATE(end_time)
+            # Build query with unit filtering
+            query = """
+                SELECT DATE(es.end_time) as exam_date, AVG(es.score) as avg_score, COUNT(*) as session_count
+                FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.is_completed = 1 AND es.score IS NOT NULL AND es.end_time IS NOT NULL
+                {filter_clause}
+                GROUP BY DATE(es.end_time)
                 ORDER BY exam_date DESC
                 LIMIT 30
-            """
+            """.format(filter_clause=filter_clause)
 
             # Execute query
-            sessions_data = self.db.execute_query(query)
+            sessions_data = self.db.execute_query(query, tuple(filter_params))
 
             print(f"[DEBUG] Performance trend data: {len(sessions_data) if sessions_data else 0} rows")
 
@@ -453,11 +479,20 @@ class Reports(ft.UserControl):
         """Generate score distribution histogram"""
         try:
             print("[DEBUG] Generating score distribution chart...")
-            # Get all scores
-            query = "SELECT score FROM exam_sessions WHERE is_completed = 1 AND score IS NOT NULL"
+
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+            # Get all scores with unit filtering
+            query = """
+                SELECT es.score FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.is_completed = 1 AND es.score IS NOT NULL {filter_clause}
+            """.format(filter_clause=filter_clause)
 
             # Execute query
-            scores_data = self.db.execute_query(query)
+            scores_data = self.db.execute_query(query, tuple(filter_params))
 
             print(f"[DEBUG] Score distribution data: {len(scores_data) if scores_data else 0} scores")
 
@@ -504,25 +539,28 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating pass/fail rate trend chart...")
 
-            # Build query with optional exam filter
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+            # Build query with unit filtering
             query = """
                 SELECT
-                    DATE(end_time) as exam_date,
+                    DATE(es.end_time) as exam_date,
                     COUNT(*) as total_exams,
-                    SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) as passed_exams,
-                    ROUND((SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)), 1) as pass_rate
-                FROM exam_sessions
-                WHERE is_completed = 1 AND score IS NOT NULL AND end_time IS NOT NULL
-            """
-
-            query += """
-                GROUP BY DATE(end_time)
+                    SUM(CASE WHEN es.score >= 70 THEN 1 ELSE 0 END) as passed_exams,
+                    ROUND((SUM(CASE WHEN es.score >= 70 THEN 1 ELSE 0 END) * 100.0 / COUNT(*)), 1) as pass_rate
+                FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                WHERE es.is_completed = 1 AND es.score IS NOT NULL AND es.end_time IS NOT NULL
+                {filter_clause}
+                GROUP BY DATE(es.end_time)
                 ORDER BY exam_date DESC
                 LIMIT 30
-            """
+            """.format(filter_clause=filter_clause)
 
             # Execute query
-            trend_data = self.db.execute_query(query)
+            trend_data = self.db.execute_query(query, tuple(filter_params))
 
             print(f"[DEBUG] Pass/fail trend data: {len(trend_data) if trend_data else 0} rows")
 
@@ -581,20 +619,26 @@ class Reports(ft.UserControl):
         try:
             print("[DEBUG] Generating question difficulty chart...")
 
-            # Build query
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+            # Build query with unit filtering
             query = """
                 SELECT q.difficulty_level,
                        AVG(CASE WHEN ua.is_correct = 1 THEN 100.0 ELSE 0.0 END) as success_rate,
                        COUNT(ua.id) as answer_count
                 FROM user_answers ua
                 JOIN questions q ON ua.question_id = q.id
+                JOIN exams e ON q.exam_id = e.id
                 WHERE ua.is_correct IS NOT NULL AND q.difficulty_level IS NOT NULL AND q.difficulty_level != ''
+                {filter_clause}
                 GROUP BY q.difficulty_level
                 HAVING answer_count >= 5
-            """
+            """.format(filter_clause=filter_clause)
 
             # Execute query
-            question_data = self.db.execute_query(query)
+            question_data = self.db.execute_query(query, tuple(filter_params))
 
             print(f"[DEBUG] Question difficulty data: {len(question_data) if question_data else 0} difficulty levels")
 
@@ -3012,7 +3056,7 @@ class Reports(ft.UserControl):
 
             # Get user basic info
             user_info = self.db.execute_single("""
-                SELECT id, username, full_name, department, email, employee_id
+                SELECT id, username, full_name, department, email
                 FROM users WHERE id = ?
             """, (user_id,))
 

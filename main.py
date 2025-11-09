@@ -13,6 +13,8 @@ class QuizApp:
     def __init__(self):
         self.session_manager = SessionManager()
         self.current_view = None
+        self.expert_view_mode = 'expert'  # 'expert' or 'examinee' for expert users
+        self.current_user_data = None  # Store current user for view switching
         
     def main(self, page: ft.Page):
         page.title = "Quiz Examination System"
@@ -45,21 +47,83 @@ class QuizApp:
         page.update()
         
     def on_login_success(self, page: ft.Page, user_data):
+        """Handle successful login and route to appropriate dashboard"""
+        # Store current user for view switching
+        self.current_user_data = user_data
+
+        # Reset expert view mode to default
+        if user_data['role'] == 'expert':
+            self.expert_view_mode = 'expert'
+
+        # Show appropriate dashboard
+        self.show_dashboard(page)
+
+    def show_dashboard(self, page: ft.Page):
+        """Show appropriate dashboard based on user role and view mode"""
         from quiz_app.views.admin.admin_dashboard import AdminDashboard
         from quiz_app.views.examinee.examinee_dashboard import ExamineeDashboard
-        
+        from quiz_app.utils.view_switcher import create_view_switcher
+
         page.clean()
-        
-        if user_data['role'] == 'admin':
+
+        user_data = self.current_user_data
+        role = user_data['role']
+
+        # Determine which dashboard to show
+        if role == 'admin':
+            # Admin always sees admin dashboard
             dashboard = AdminDashboard(self.session_manager, user_data, self.logout)
-        else:
+
+        elif role == 'expert':
+            # Expert can switch between expert and examinee views
+            if self.expert_view_mode == 'examinee':
+                # Show examinee dashboard with view switcher
+                dashboard = ExamineeDashboard(
+                    self.session_manager,
+                    user_data,
+                    self.logout,
+                    view_switcher=create_view_switcher(
+                        'examinee',
+                        'expert',
+                        self.switch_expert_view
+                    )
+                )
+            else:
+                # Show admin dashboard (expert mode) with view switcher
+                dashboard = AdminDashboard(
+                    self.session_manager,
+                    user_data,
+                    self.logout,
+                    view_switcher=create_view_switcher(
+                        'expert',
+                        'expert',
+                        self.switch_expert_view
+                    )
+                )
+
+        else:  # examinee
+            # Regular examinee sees examinee dashboard
             dashboard = ExamineeDashboard(self.session_manager, user_data, self.logout)
-        
-        # Store page reference in dashboard before adding to page
+
+        # Store page reference and current view
         dashboard._page_ref = page
-            
+        self.current_view = dashboard
+
         page.add(dashboard)
         page.update()
+
+    def switch_expert_view(self, new_view):
+        """Switch expert between expert and examinee views"""
+        print(f"[DEBUG] switch_expert_view called with new_view: {new_view}")
+        if self.current_user_data and self.current_user_data['role'] == 'expert':
+            print(f"[DEBUG] Switching from {self.expert_view_mode} to {new_view}")
+            self.expert_view_mode = new_view
+            # Re-render dashboard with new view
+            if self.current_view and hasattr(self.current_view, '_page_ref'):
+                print(f"[DEBUG] Calling show_dashboard with page reference")
+                self.show_dashboard(self.current_view._page_ref)
+            else:
+                print(f"[ERROR] No page reference found")
         
     def logout(self, page: ft.Page):
         """Logout and return to login screen with proper cleanup"""
@@ -68,6 +132,10 @@ class QuizApp:
 
             # Clear session
             self.session_manager.clear_session()
+
+            # Reset state
+            self.current_user_data = None
+            self.expert_view_mode = 'expert'
 
             # Small delay to allow background threads to detect page changes
             import time

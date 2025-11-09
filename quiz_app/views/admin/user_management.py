@@ -1,11 +1,13 @@
 import flet as ft
 from quiz_app.utils.auth import AuthManager
-from quiz_app.config import COLORS
+from quiz_app.config import COLORS, DEPARTMENTS, get_units_for_department
+from quiz_app.utils.permissions import UnitPermissionManager
 
 class UserManagement(ft.UserControl):
-    def __init__(self, db):
+    def __init__(self, db, user_data=None):
         super().__init__()
         self.db = db
+        self.user_data = user_data or {'role': 'admin'}  # Default to admin if not provided
         self.auth_manager = AuthManager()
         self.users_data = []
         self.all_users_data = []  # Keep original data for filtering
@@ -103,11 +105,26 @@ class UserManagement(ft.UserControl):
         ], spacing=10, expand=True)
     
     def load_users(self):
-        self.all_users_data = self.db.execute_query("""
-            SELECT id, username, full_name, email, role, department, unit, employee_id, is_active, created_at
-            FROM users
-            ORDER BY created_at DESC
-        """)
+        # Experts can only see examinees in their unit
+        if self.user_data['role'] == 'expert':
+            department = self.user_data.get('department', '')
+            unit = self.user_data.get('unit', '')
+
+            self.all_users_data = self.db.execute_query("""
+                SELECT id, username, full_name, email, role, department, unit, is_active, created_at
+                FROM users
+                WHERE role = 'examinee'
+                AND department = ?
+                AND unit = ?
+                ORDER BY created_at DESC
+            """, (department, unit))
+        else:
+            # Admins see all users
+            self.all_users_data = self.db.execute_query("""
+                SELECT id, username, full_name, email, role, department, unit, is_active, created_at
+                FROM users
+                ORDER BY created_at DESC
+            """)
         self.users_data = self.all_users_data.copy()
         self.apply_filters(None)
     
@@ -208,30 +225,109 @@ class UserManagement(ft.UserControl):
             can_reveal_password=True
         )
         
-        role_dropdown = ft.Dropdown(
-            label="Role",
-            options=[
-                ft.dropdown.Option("admin", "Admin"),
-                ft.dropdown.Option("examinee", "Examinee")
-            ],
-            value=user['role'] if is_edit else "examinee"
-        )
-        
-        department_field = ft.TextField(
-            label="Department",
-            value=user['department'] if is_edit else ""
-        )
+        # Role dropdown - restrict for experts
+        if self.user_data['role'] == 'expert':
+            # Experts can only create examinees
+            role_dropdown = ft.Dropdown(
+                label="Role",
+                options=[ft.dropdown.Option("examinee", "Examinee")],
+                value="examinee",
+                disabled=True,  # Force examinee role
+                on_change=None
+            )
+        else:
+            # Admins can create any role
+            role_dropdown = ft.Dropdown(
+                label="Role",
+                options=[
+                    ft.dropdown.Option("admin", "Admin"),
+                    ft.dropdown.Option("expert", "Expert"),
+                    ft.dropdown.Option("examinee", "Examinee")
+                ],
+                value=user['role'] if is_edit else "examinee",
+                on_change=None  # Will set below
+            )
 
-        unit_field = ft.TextField(
-            label="Unit",
-            value=user['unit'] if is_edit else ""
-        )
+        # Department/Unit - auto-fill and lock for experts
+        if self.user_data['role'] == 'expert':
+            # Experts can only create users in their own unit
+            department_dropdown = ft.TextField(
+                label="Department",
+                value=self.user_data.get('department', ''),
+                disabled=True,  # Locked to expert's department
+                width=300
+            )
 
-        employee_id_field = ft.TextField(
-            label="Employee ID",
-            value=user['employee_id'] if is_edit else ""
-        )
-        
+            unit_dropdown = ft.TextField(
+                label="Unit",
+                value=self.user_data.get('unit', ''),
+                disabled=True,  # Locked to expert's unit
+                width=300
+            )
+        else:
+            # Admins can select any department/unit
+            department_dropdown = ft.Dropdown(
+                label="Department" + (" *" if not is_edit else ""),
+                hint_text="Select department",
+                options=[ft.dropdown.Option(dept) for dept in DEPARTMENTS],
+                value=user['department'] if is_edit else None,
+                width=300,
+                on_change=None  # Will set below
+            )
+
+            # Unit dropdown (cascading - populated when department selected)
+            unit_dropdown = ft.Dropdown(
+                label="Unit" + (" *" if not is_edit else ""),
+                hint_text="First select department",
+                options=[],
+                value=user['unit'] if is_edit else None,
+                width=300,
+                disabled=True
+            )
+
+        # Cascading dropdown logic - only for admins
+        if self.user_data['role'] == 'admin':
+            # If editing and has department, populate units
+            if is_edit and user.get('department'):
+                units = get_units_for_department(user['department'])
+                unit_dropdown.options = [ft.dropdown.Option(unit) for unit in units]
+                unit_dropdown.disabled = False
+
+            def on_department_change(e):
+                """When department changes, populate units dropdown"""
+                selected_dept = e.control.value
+
+                if selected_dept:
+                    # Get units for selected department
+                    units = get_units_for_department(selected_dept)
+                    unit_dropdown.options = [ft.dropdown.Option(unit) for unit in units]
+                    unit_dropdown.disabled = False
+                    unit_dropdown.value = None  # Reset selection
+                else:
+                    unit_dropdown.options = []
+                    unit_dropdown.disabled = True
+                    unit_dropdown.value = None
+
+                unit_dropdown.update()
+
+            def on_role_change(e):
+                """When role changes, show/hide department/unit requirement"""
+                selected_role = e.control.value
+
+                # Expert requires department and unit
+                if selected_role == 'expert':
+                    department_dropdown.label = "Department *"
+                    unit_dropdown.label = "Unit *"
+                else:
+                    department_dropdown.label = "Department"
+                    unit_dropdown.label = "Unit"
+
+                department_dropdown.update()
+                unit_dropdown.update()
+
+            department_dropdown.on_change = on_department_change
+            role_dropdown.on_change = on_role_change
+
         error_text = ft.Text("", color=COLORS['error'], visible=False)
         
         def save_user(e):
@@ -241,27 +337,34 @@ class UserManagement(ft.UserControl):
                 error_text.visible = True
                 self.user_dialog.update()
                 return
-            
+
             if not is_edit and not password_field.value:
                 error_text.value = "Password is required for new users"
                 error_text.visible = True
                 self.user_dialog.update()
                 return
+
+            # Validate expert role requirements
+            if role_dropdown.value == 'expert':
+                if not department_dropdown.value or not unit_dropdown.value:
+                    error_text.value = "Department and Unit are required for Expert role"
+                    error_text.visible = True
+                    self.user_dialog.update()
+                    return
             
             try:
                 if is_edit:
                     # Update user
                     query = """
-                        UPDATE users SET email = ?, full_name = ?, role = ?, department = ?, unit = ?, employee_id = ?
+                        UPDATE users SET email = ?, full_name = ?, role = ?, department = ?, unit = ?
                         WHERE id = ?
                     """
                     params = (
                         email_field.value.strip(),
                         full_name_field.value.strip(),
                         role_dropdown.value,
-                        department_field.value.strip() or None,
-                        unit_field.value.strip() or None,
-                        employee_id_field.value.strip() or None,
+                        department_dropdown.value or None,
+                        unit_dropdown.value or None,
                         user['id']
                     )
                     self.db.execute_update(query, params)
@@ -277,9 +380,8 @@ class UserManagement(ft.UserControl):
                         password_field.value,
                         full_name_field.value.strip(),
                         role_dropdown.value,
-                        department_field.value.strip() or None,
-                        unit_field.value.strip() or None,
-                        employee_id_field.value.strip() or None
+                        department_dropdown.value or None,
+                        unit_dropdown.value or None
                     )
                     
                     if not user_id:
@@ -319,9 +421,8 @@ class UserManagement(ft.UserControl):
                     full_name_field,
                     password_field,
                     role_dropdown,
-                    department_field,
-                    unit_field,
-                    employee_id_field,
+                    department_dropdown,
+                    unit_dropdown,
                     error_text
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
                 width=500,
