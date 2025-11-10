@@ -292,6 +292,42 @@ def create_tables():
             )
         ''')
 
+        # Email templates table (for customizable email notifications)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS email_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_type TEXT NOT NULL,
+                language TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                body_template TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(template_type, language)
+            )
+        ''')
+
+        # Email log table (for tracking email notifications)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS email_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                recipient_email TEXT NOT NULL,
+                recipient_name TEXT,
+                sent_by INTEGER NOT NULL,
+                email_type TEXT NOT NULL,
+                language TEXT NOT NULL,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES exam_sessions (id),
+                FOREIGN KEY (sent_by) REFERENCES users (id)
+            )
+        ''')
+
+        # Add language_preference column to users table if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN language_preference TEXT DEFAULT 'en'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Create indexes for better performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
@@ -303,6 +339,9 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_questions_difficulty ON questions(difficulty_level)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pdf_exports_exam ON pdf_exports(exam_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pdf_exports_variant ON pdf_exports(exam_id, variant_number)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_templates_type_lang ON email_templates(template_type, language)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_log_session ON email_log(session_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_log_sent_by ON email_log(sent_by)')
 
         conn.commit()
 

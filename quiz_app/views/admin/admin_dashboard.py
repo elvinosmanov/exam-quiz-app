@@ -150,7 +150,7 @@ class AdminDashboard(BaseAdminLayout):
         self.set_content(reports)
     
     def show_settings(self):
-        settings_view = Settings(self.db)
+        settings_view = Settings(self.db, self.user_data)
         self.set_content(settings_view)
     
     def get_dashboard_stats(self):

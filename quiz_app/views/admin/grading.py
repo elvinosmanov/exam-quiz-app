@@ -2,6 +2,7 @@ import flet as ft
 from datetime import datetime
 from quiz_app.config import COLORS
 from quiz_app.utils.permissions import UnitPermissionManager
+from quiz_app.utils.email_ui_components import create_email_button
 
 class Grading(ft.UserControl):
     def __init__(self, db, user_data=None):
@@ -9,16 +10,20 @@ class Grading(ft.UserControl):
         self.db = db
         self.user_data = user_data or {'role': 'admin'}  # Default to admin if not provided
         self.ungraded_answers = []
+        self.completed_sessions = []
         self.current_answer = None
         self.parent_dashboard = None  # Reference to parent dashboard for badge updates
-        
+
         # Load ungraded essay/short answer submissions
         self.load_ungraded_answers()
-        
-        # Main content
+
+        # Load completed sessions
+        self.load_completed_sessions()
+
+        # Main content - Ungraded table
         self.answers_list = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Exam")),
+                ft.DataColumn(ft.Text("Assignment (Topic)")),
                 ft.DataColumn(ft.Text("Student")),
                 ft.DataColumn(ft.Text("Questions")),
                 ft.DataColumn(ft.Text("Submitted")),
@@ -29,50 +34,70 @@ class Grading(ft.UserControl):
             width=float("inf"),
             column_spacing=20
         )
-        
+
+        # Completed sessions table
+        self.completed_list = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Assignment (Topic)")),
+                ft.DataColumn(ft.Text("Student")),
+                ft.DataColumn(ft.Text("Score")),
+                ft.DataColumn(ft.Text("Status")),
+                ft.DataColumn(ft.Text("Completed")),
+                ft.DataColumn(ft.Text("Actions"))
+            ],
+            rows=[],
+            width=float("inf"),
+            column_spacing=20
+        )
+
         self.update_answers_table()
+        self.update_completed_table()
     
     def load_ungraded_answers(self):
-        """Load exam sessions that have ungraded essay/short answer questions"""
+        """Load exam sessions that have ungraded essay/short answer questions (assignment-based)"""
         try:
             # Apply unit-level filtering for experts
             perm_manager = UnitPermissionManager(self.db)
             filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
 
-            # Get ALL exam sessions with ungraded essay/short_answer questions
-            # (regardless of exam's "show_results" setting - that only controls result release)
+            # Get exam sessions with ungraded essay/short_answer questions (assignment-based)
             query = """
                 SELECT
                     es.id as session_id,
                     es.start_time,
                     es.end_time,
+                    es.assignment_id,
                     e.id as exam_id,
                     e.title as exam_title,
+                    ea.assignment_name,
                     u.id as user_id,
                     u.full_name as student_name,
                     u.username as student_username,
+                    u.email as student_email,
                     COUNT(ua.id) as ungraded_count,
                     GROUP_CONCAT(q.question_type) as question_types
                 FROM exam_sessions es
-                JOIN exams e ON es.exam_id = e.id
                 JOIN users u ON es.user_id = u.id
                 JOIN user_answers ua ON ua.session_id = es.id
                 JOIN questions q ON ua.question_id = q.id
+                JOIN exam_assignments ea ON es.assignment_id = ea.id
+                JOIN exams e ON ea.exam_id = e.id
                 WHERE q.question_type IN ('essay', 'short_answer')
                 AND ua.points_earned IS NULL
                 AND ua.answer_text IS NOT NULL
                 AND ua.answer_text != ''
                 AND es.is_completed = 1
+                AND es.assignment_id IS NOT NULL
                 {filter_clause}
-                GROUP BY es.id, e.id, u.id
+                GROUP BY es.id, ea.id, e.id, u.id
                 HAVING COUNT(ua.id) > 0
                 ORDER BY es.end_time DESC
             """.format(filter_clause=filter_clause)
 
             self.ungraded_answers = self.db.execute_query(query, tuple(filter_params))
-            
-            print(f"Found {len(self.ungraded_answers)} exam sessions with ungraded essay/short answer submissions")
-            
+
+            print(f"Found {len(self.ungraded_answers)} exam sessions with ungraded essay/short answer submissions (assignment-based)")
+
         except Exception as e:
             print(f"Error loading ungraded sessions: {e}")
             self.ungraded_answers = []
@@ -90,21 +115,157 @@ class Grading(ft.UserControl):
             print(f"Error formatting date {date_string}: {e}")
             # Fallback to original format
             return date_string[:16] if date_string else ""
-    
+
+    def load_completed_sessions(self):
+        """Load completed exam sessions for email notifications (assignment-based)"""
+        try:
+            # Apply unit-level filtering for experts
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+            # Get completed sessions - MUST have assignment_id (assignment-based system)
+            query = """
+                SELECT
+                    es.id as session_id,
+                    es.end_time,
+                    es.score,
+                    es.assignment_id,
+                    e.id as exam_id,
+                    e.title as exam_title,
+                    ea.assignment_name,
+                    u.id as user_id,
+                    u.full_name as student_name,
+                    u.email as student_email,
+                    COALESCE(ea.passing_score, e.passing_score) as passing_score
+                FROM exam_sessions es
+                JOIN users u ON es.user_id = u.id
+                JOIN exam_assignments ea ON es.assignment_id = ea.id
+                JOIN exams e ON ea.exam_id = e.id
+                WHERE es.is_completed = 1
+                AND es.score IS NOT NULL
+                AND es.assignment_id IS NOT NULL
+                {filter_clause}
+                ORDER BY es.end_time DESC
+                LIMIT 50
+            """.format(filter_clause=filter_clause)
+
+            self.completed_sessions = self.db.execute_query(query, tuple(filter_params))
+
+            print(f"Loaded {len(self.completed_sessions)} completed exam sessions (assignment-based)")
+
+        except Exception as e:
+            print(f"Error loading completed sessions: {e}")
+            self.completed_sessions = []
+
+    def update_completed_table(self):
+        """Update the completed sessions table (assignment-based)"""
+        self.completed_list.rows.clear()
+
+        for session in self.completed_sessions:
+            score = round(session['score'], 1) if session['score'] is not None else 0
+            passing_score = session['passing_score'] or 70
+            passed = score >= passing_score
+
+            # Status indicator
+            status_text = "Passed ✅" if passed else "Failed ❌"
+            status_color = COLORS['success'] if passed else COLORS['error']
+
+            # Display assignment name (with topic in tooltip)
+            assignment_display = session.get('assignment_name', session['exam_title'])
+            if len(assignment_display) > 35:
+                assignment_display = assignment_display[:32] + "..."
+
+            # Email button
+            email_btn = create_email_button(
+                page=self.page,
+                db=self.db,
+                session_id=session['session_id'],
+                user_data=self.user_data,
+                on_success=lambda: self.show_email_sent_message()
+            ) if self.page else ft.Container()
+
+            self.completed_list.rows.append(
+                ft.DataRow([
+                    ft.DataCell(ft.Column([
+                        ft.Text(assignment_display, weight=ft.FontWeight.BOLD, size=13),
+                        ft.Text(f"Topic: {session['exam_title']}", size=11, color=COLORS['text_secondary'])
+                    ], spacing=2)),
+                    ft.DataCell(ft.Text(session['student_name'])),
+                    ft.DataCell(ft.Text(f"{score}%", weight=ft.FontWeight.BOLD)),
+                    ft.DataCell(ft.Text(status_text, color=status_color)),
+                    ft.DataCell(ft.Text(self.format_date(session['end_time']))),
+                    ft.DataCell(
+                        ft.Row([
+                            email_btn if email_btn else ft.Container(),
+                            ft.IconButton(
+                                icon=ft.icons.VISIBILITY,
+                                tooltip="View Details",
+                                icon_color=COLORS['secondary'],
+                                on_click=lambda e, s=session: self.show_session_details(s)
+                            )
+                        ], spacing=5)
+                    )
+                ])
+            )
+
+        # Show message if no completed sessions
+        if not self.completed_sessions:
+            self.completed_list.rows.append(
+                ft.DataRow([
+                    ft.DataCell(ft.Text("No completed exam sessions found")),
+                    ft.DataCell(ft.Text("")),
+                    ft.DataCell(ft.Text("")),
+                    ft.DataCell(ft.Text("")),
+                    ft.DataCell(ft.Text("")),
+                    ft.DataCell(ft.Text(""))
+                ])
+            )
+
+    def show_email_sent_message(self):
+        """Callback after email is sent"""
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("Email draft opened successfully"),
+                bgcolor=COLORS['success']
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+    def show_session_details(self, session):
+        """Show detailed view of exam session (placeholder)"""
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"Session details for {session['student_name']} - {session['exam_title']}")
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
     def update_answers_table(self):
-        """Update the answers table with current data"""
+        """Update the answers table with current data (assignment-based)"""
         self.answers_list.rows.clear()
-        
+
+        print(f"[DEBUG] Updating answers table with {len(self.ungraded_answers)} sessions")
+
         for session in self.ungraded_answers:
+            print(f"[DEBUG] Session: id={session.get('session_id')}, assignment={session.get('assignment_name')}, topic={session.get('exam_title')}")
+
             # Create questions summary
             question_summary = f"{session['ungraded_count']} essay/short answer questions"
-            
+
+            # Display assignment name (with topic in subtitle)
+            assignment_display = session.get('assignment_name') or session.get('exam_title', 'Unknown')
+            if assignment_display and len(assignment_display) > 35:
+                assignment_display = assignment_display[:32] + "..."
+
             self.answers_list.rows.append(
                 ft.DataRow([
-                    ft.DataCell(ft.Text(session['exam_title'][:30] + "..." if len(session['exam_title']) > 30 else session['exam_title'])),
-                    ft.DataCell(ft.Text(session['student_name'])),
+                    ft.DataCell(ft.Column([
+                        ft.Text(assignment_display or "Unknown Assignment", weight=ft.FontWeight.BOLD, size=13),
+                        ft.Text(f"Topic: {session.get('exam_title', 'N/A')}", size=11, color=COLORS['text_secondary'])
+                    ], spacing=2)),
+                    ft.DataCell(ft.Text(session.get('student_name', 'Unknown'))),
                     ft.DataCell(ft.Text(question_summary)),
-                    ft.DataCell(ft.Text(self.format_date(session['end_time']))),
+                    ft.DataCell(ft.Text(self.format_date(session.get('end_time')))),
                     ft.DataCell(ft.Text("Needs Grading", color=COLORS['warning'])),
                     ft.DataCell(
                         ft.ElevatedButton(
@@ -115,6 +276,8 @@ class Grading(ft.UserControl):
                     )
                 ])
             )
+
+        print(f"[DEBUG] Added {len(self.answers_list.rows)} rows to pending grading table")
         
         # Show message if no ungraded sessions
         if not self.ungraded_answers:
@@ -132,10 +295,10 @@ class Grading(ft.UserControl):
     def show_session_grading_dialog(self, session_data):
         """Show grading dialog for all essay questions in an exam session"""
         self.current_session = session_data
-        
-        # Get all ungraded essay/short_answer questions for this session (avoid duplicates)
+
+        # Get all ungraded essay/short_answer questions for this session
         session_questions = self.db.execute_query("""
-            SELECT 
+            SELECT DISTINCT
                 ua.id as answer_id,
                 ua.answer_text,
                 q.id as question_id,
@@ -149,20 +312,31 @@ class Grading(ft.UserControl):
             AND ua.points_earned IS NULL
             AND ua.answer_text IS NOT NULL
             AND ua.answer_text != ''
-            AND ua.id = (
-                SELECT MAX(ua2.id) 
-                FROM user_answers ua2 
-                WHERE ua2.session_id = ua.session_id 
-                AND ua2.question_id = ua.question_id
-            )
             ORDER BY q.order_index, q.id
         """, (session_data['session_id'],))
-        
+
+        print(f"[DEBUG] Found {len(session_questions)} ungraded questions for session {session_data['session_id']}")
+        for q in session_questions:
+            print(f"  - Question {q['question_id']}: {q['question_type']} - Answer ID: {q['answer_id']}")
+
         if not session_questions:
+            # Debug: Check what's in the database
+            debug_query = self.db.execute_query("""
+                SELECT ua.id, ua.points_earned, ua.answer_text, q.question_type
+                FROM user_answers ua
+                JOIN questions q ON ua.question_id = q.id
+                WHERE ua.session_id = ?
+                AND q.question_type IN ('essay', 'short_answer')
+            """, (session_data['session_id'],))
+
+            print(f"[DEBUG] All essay/short_answer answers for session {session_data['session_id']}:")
+            for a in debug_query:
+                print(f"  - Answer {a['id']}: type={a['question_type']}, points_earned={a['points_earned']}, has_answer={bool(a['answer_text'])}")
+
             if self.page:
-                self.page.show_snack_bar(
-                    ft.SnackBar(content=ft.Text("No ungraded questions found for this session"))
-                )
+                self.page.snack_bar = ft.SnackBar(content=ft.Text("No ungraded questions found for this session"))
+                self.page.snack_bar.open = True
+                self.page.update()
             return
         
         # Create grading sections for each question
@@ -448,9 +622,11 @@ class Grading(ft.UserControl):
             traceback.print_exc()
     
     def refresh_data(self, e):
-        """Refresh the ungraded answers data"""
+        """Refresh the ungraded answers and completed sessions data"""
         self.load_ungraded_answers()
+        self.load_completed_sessions()
         self.update_answers_table()
+        self.update_completed_table()
         self.update()
     
     def build(self):
@@ -470,25 +646,79 @@ class Grading(ft.UserControl):
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     padding=ft.padding.only(bottom=20)
                 ),
-                
-                # Info text
-                ft.Text(
-                    f"Exam sessions with ungraded essay/short answer questions: {len(self.ungraded_answers)}",
-                    size=16,
-                    color=COLORS['text_secondary']
-                ),
-                ft.Container(height=10),
-                
-                # Answers table
-                ft.Container(
-                    content=ft.ListView(
-                        controls=[self.answers_list],
-                        expand=True,
-                        auto_scroll=False
-                    ),
-                    bgcolor=COLORS['surface'],
-                    border_radius=8,
-                    padding=ft.padding.all(16),
+
+                # Tabs for ungraded and completed sessions
+                ft.Tabs(
+                    selected_index=0,
+                    tabs=[
+                        # Ungraded tab
+                        ft.Tab(
+                            text=f"Pending Grading ({len(self.ungraded_answers)})",
+                            icon=ft.icons.PENDING_ACTIONS,
+                            content=ft.Container(
+                                content=ft.Column([
+                                    ft.Text(
+                                        "Exam sessions with ungraded essay/short answer questions",
+                                        size=14,
+                                        color=COLORS['text_secondary']
+                                    ),
+                                    ft.Container(height=10),
+                                    ft.Container(
+                                        content=ft.ListView(
+                                            controls=[self.answers_list],
+                                            expand=True,
+                                            auto_scroll=False
+                                        ),
+                                        bgcolor=COLORS['surface'],
+                                        border_radius=8,
+                                        padding=ft.padding.all(16),
+                                        expand=True
+                                    )
+                                ]),
+                                padding=ft.padding.all(10),
+                                expand=True
+                            )
+                        ),
+
+                        # Completed tab
+                        ft.Tab(
+                            text=f"Completed ({len(self.completed_sessions)})",
+                            icon=ft.icons.CHECK_CIRCLE,
+                            content=ft.Container(
+                                content=ft.Column([
+                                    ft.Row([
+                                        ft.Text(
+                                            "Completed exam sessions - send result notifications",
+                                            size=14,
+                                            color=COLORS['text_secondary']
+                                        ),
+                                        ft.Container(expand=True),
+                                        ft.Icon(ft.icons.EMAIL_OUTLINED, color=COLORS['primary'], size=20),
+                                        ft.Text(
+                                            "Click email icon to notify examinees",
+                                            size=12,
+                                            color=COLORS['primary'],
+                                            italic=True
+                                        )
+                                    ]),
+                                    ft.Container(height=10),
+                                    ft.Container(
+                                        content=ft.ListView(
+                                            controls=[self.completed_list],
+                                            expand=True,
+                                            auto_scroll=False
+                                        ),
+                                        bgcolor=COLORS['surface'],
+                                        border_radius=8,
+                                        padding=ft.padding.all(16),
+                                        expand=True
+                                    )
+                                ]),
+                                padding=ft.padding.all(10),
+                                expand=True
+                            )
+                        )
+                    ],
                     expand=True
                 )
             ], spacing=0),
