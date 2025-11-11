@@ -9,6 +9,7 @@ import io
 import base64
 import pandas as pd
 from quiz_app.config import COLORS
+from quiz_app.utils.localization import t
 from quiz_app.database.database import Database
 from quiz_app.utils.permissions import UnitPermissionManager
 
@@ -20,6 +21,14 @@ class Reports(ft.UserControl):
         self.chart_images = {}  # Store chart images
         self.current_dialog = None  # Track current dialog
 
+        # Initialize file picker for PDF downloads
+        self.file_picker = ft.FilePicker(on_result=self.on_file_picker_result)
+        self.pending_pdf_data = None  # Store PDF data temporarily
+
+        # Create temp directory for PDFs
+        import tempfile
+        self.temp_dir = tempfile.mkdtemp(prefix="exam_pdfs_")
+
         # Set matplotlib style for better looking charts
         plt.style.use('default')
         plt.rcParams['figure.facecolor'] = 'white'
@@ -27,6 +36,10 @@ class Reports(ft.UserControl):
         
     def did_mount(self):
         super().did_mount()
+        # Add file picker to overlay
+        if self.page and hasattr(self.page, 'overlay'):
+            self.page.overlay.append(self.file_picker)
+            self.page.update()
         # Load data first
         self.load_analytics_data()
         # Generate charts in background
@@ -44,6 +57,41 @@ class Reports(ft.UserControl):
         super().will_unmount()
         self.cleanup_dialogs()
     
+    def on_file_picker_result(self, e: ft.FilePickerResultEvent):
+        """Handle file picker result"""
+        if e.path and self.pending_pdf_data:
+            try:
+                # Save the PDF to the selected location
+                import shutil
+                shutil.move(self.pending_pdf_data['temp_path'], e.path)
+                self.show_message(t('success'), f"{t('file_saved')}: {e.path}")
+            except Exception as ex:
+                self.show_message(t('error'), f"{t('file_save_error')}: {str(ex)}")
+                # Try to clean up temp file on error
+                import os
+                if os.path.exists(self.pending_pdf_data['temp_path']):
+                    try:
+                        os.remove(self.pending_pdf_data['temp_path'])
+                    except:
+                        pass
+            finally:
+                self.pending_pdf_data = None
+
+    def save_pdf_with_picker(self, temp_filepath, suggested_filename):
+        """Show file picker to save PDF"""
+        try:
+            self.pending_pdf_data = {
+                'temp_path': temp_filepath,
+                'suggested_name': suggested_filename
+            }
+            self.file_picker.save_file(
+                dialog_title=t('save_pdf_as'),
+                file_name=suggested_filename,
+                allowed_extensions=["pdf"]
+            )
+        except Exception as ex:
+            self.show_message(t('error'), f"{t('file_save_error')}: {str(ex)}")
+
     def cleanup_dialogs(self):
         """Force cleanup of any open dialogs"""
         try:
@@ -68,7 +116,7 @@ class Reports(ft.UserControl):
         
         # Default actions if none provided
         if actions is None:
-            actions = [ft.TextButton("Close", on_click=self.close_dialog)]
+            actions = [ft.TextButton(t('close'), on_click=self.close_dialog)]
         
         # Wrap content in Container with size - SAME AS OTHER PAGES!
         dialog_content = ft.Container(
@@ -100,23 +148,23 @@ class Reports(ft.UserControl):
             ft.Container(
                 content=ft.Column([
                     ft.Row([
-                        ft.Text("Reports & Analytics", size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('reports'), size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                         ft.Container(expand=True),
                         ft.Row([
                             ft.ElevatedButton(
-                                text="Export PDF",
+                                text=t('export_pdf'),
                                 icon=ft.icons.PICTURE_AS_PDF,
                                 on_click=self.show_export_pdf_dialog,
                                 style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
                             ),
                             ft.ElevatedButton(
-                                text="Export Excel",
+                                text=t('export_excel'),
                                 icon=ft.icons.TABLE_VIEW,
                                 on_click=self.export_excel,
                                 style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
                             ),
                             ft.ElevatedButton(
-                                text="Refresh",
+                                text=t('refresh'),
                                 icon=ft.icons.REFRESH,
                                 on_click=self.refresh_data,
                                 style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -152,23 +200,23 @@ class Reports(ft.UserControl):
         
         return ft.Container(
             content=ft.Column([
-                ft.Text("Key Performance Indicators", size=20, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('statistics'), size=20, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(height=10),
                 ft.ResponsiveRow([
                     ft.Container(
-                        content=self.create_metric_card("Total Exams", str(total_exams), ft.icons.QUIZ, COLORS['primary']),
+                        content=self.create_metric_card(t('total_exams'), str(total_exams), ft.icons.QUIZ, COLORS['primary']),
                         col={"xs": 12, "sm": 6, "md": 3},
                     ),
                     ft.Container(
-                        content=self.create_metric_card("Total Sessions", str(total_sessions), ft.icons.TIMER, COLORS['success']),
+                        content=self.create_metric_card(t('total_score'), str(total_sessions), ft.icons.TIMER, COLORS['success']),
                         col={"xs": 12, "sm": 6, "md": 3},
                     ),
                     ft.Container(
-                        content=self.create_metric_card("Average Score", f"{avg_score}%", ft.icons.TRENDING_UP, COLORS['warning']),
+                        content=self.create_metric_card(t('average_score'), f"{avg_score}%", ft.icons.TRENDING_UP, COLORS['warning']),
                         col={"xs": 12, "sm": 6, "md": 3},
                     ),
                     ft.Container(
-                        content=self.create_metric_card("Pass Rate", f"{pass_rate}%", ft.icons.CHECK_CIRCLE, COLORS['success']),
+                        content=self.create_metric_card(t('pass_rate'), f"{pass_rate}%", ft.icons.CHECK_CIRCLE, COLORS['success']),
                         col={"xs": 12, "sm": 6, "md": 3},
                     )
                 ])
@@ -210,26 +258,26 @@ class Reports(ft.UserControl):
         """Create the charts section"""
         return ft.Container(
             content=ft.Column([
-                ft.Text("Performance Analytics", size=20, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('analytics'), size=20, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(height=10),
                 ft.ResponsiveRow([
                     ft.Container(
-                        content=self.create_chart_container("performance_trend", "Exam Performance Trend"),
+                        content=self.create_chart_container("performance_trend", t('exam_results')),
                         col={"xs": 12, "md": 6}
                     ),
                     ft.Container(
-                        content=self.create_chart_container("score_distribution", "Score Distribution"),
+                        content=self.create_chart_container("score_distribution", t('score_distribution')),
                         col={"xs": 12, "md": 6}
                     )
                 ]),
                 ft.Container(height=15),
                 ft.ResponsiveRow([
                     ft.Container(
-                        content=self.create_chart_container("pass_fail_trend", "Pass/Fail Rate Trend"),
+                        content=self.create_chart_container("pass_fail_trend", t('pass_fail_trend')),
                         col={"xs": 12, "md": 6}
                     ),
                     ft.Container(
-                        content=self.create_chart_container("question_difficulty", "Question Difficulty Analysis"),
+                        content=self.create_chart_container("question_difficulty", t('question_difficulty_analysis')),
                         col={"xs": 12, "md": 6}
                     )
                 ])
@@ -287,19 +335,19 @@ class Reports(ft.UserControl):
         """Create the detailed reports section"""
         return ft.Container(
             content=ft.Column([
-                ft.Text("Detailed Reports", size=20, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('detailed_reports'), size=20, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(height=10),
                 ft.ResponsiveRow([
                     ft.Container(
-                        content=self.create_report_summary_card("Exam Performance", "Detailed analysis of all exams", ft.icons.ASSESSMENT),
+                        content=self.create_report_summary_card(t('exam_performance'), t('detailed_analysis'), ft.icons.ASSESSMENT, 'exam_performance'),
                         col={"xs": 12, "sm": 6, "md": 4}
                     ),
                     ft.Container(
-                        content=self.create_report_summary_card("User Progress", "Individual user performance tracking", ft.icons.PERSON),
+                        content=self.create_report_summary_card(t('user_progress'), t('individual_tracking'), ft.icons.PERSON, 'user_progress'),
                         col={"xs": 12, "sm": 6, "md": 4}
                     ),
                     ft.Container(
-                        content=self.create_report_summary_card("Question Analysis", "Question difficulty and performance", ft.icons.HELP),
+                        content=self.create_report_summary_card(t('question_analysis'), t('difficulty_performance'), ft.icons.HELP, 'question_analysis'),
                         col={"xs": 12, "sm": 6, "md": 4}
                     )
                 ])
@@ -314,7 +362,7 @@ class Reports(ft.UserControl):
             )
         )
     
-    def create_report_summary_card(self, title, description, icon):
+    def create_report_summary_card(self, title, description, icon, report_key=None):
         """Create summary card for report categories"""
         return ft.Container(
             content=ft.Column([
@@ -324,8 +372,8 @@ class Reports(ft.UserControl):
                 ft.Text(description, size=12, color=COLORS['text_secondary'], text_align=ft.TextAlign.CENTER),
                 ft.Container(height=15),
                 ft.ElevatedButton(
-                    text="View Details",
-                    on_click=lambda e, t=title: self.show_detailed_report(t),
+                    text=t('view') + " " + t('details'),
+                    on_click=lambda e, k=report_key: self.show_detailed_report(k),
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
             ], spacing=5, alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -444,9 +492,9 @@ class Reports(ft.UserControl):
             scores = [row['avg_score'] for row in reversed(sessions_data)]
 
             ax.plot(dates, scores, marker='o', linewidth=2, markersize=6, color='#3182ce')
-            ax.set_title('Average Exam Scores Over Time', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Date')
-            ax.set_ylabel('Average Score (%)')
+            ax.set_title(t('avg_exam_scores_over_time'), fontsize=14, fontweight='bold')
+            ax.set_xlabel(t('date'))
+            ax.set_ylabel(t('average_score'))
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 100)
 
@@ -508,9 +556,9 @@ class Reports(ft.UserControl):
             # Create histogram with 10-point bins (0-10, 10-20, 20-30, etc.)
             bins = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
             ax.hist(scores, bins=bins, edgecolor='black', alpha=0.7, color='#38a169')
-            ax.set_title('Score Distribution', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Score (%)')
-            ax.set_ylabel('Number of Exams')
+            ax.set_title(t('score_distribution'), fontsize=14, fontweight='bold')
+            ax.set_xlabel(t('score') + ' (%)')
+            ax.set_ylabel('Number of ' + t('exams'))
             ax.set_xlim(0, 100)
             ax.grid(True, alpha=0.3, axis='y')
 
@@ -576,16 +624,16 @@ class Reports(ft.UserControl):
             pass_rates = [row['pass_rate'] for row in reversed(trend_data)]
 
             # Create area chart with color gradient
-            ax.fill_between(dates, pass_rates, alpha=0.3, color='#38a169', label='Pass Rate')
-            ax.plot(dates, pass_rates, marker='o', linewidth=2.5, markersize=7, color='#2f855a', label='Pass Rate Trend')
+            ax.fill_between(dates, pass_rates, alpha=0.3, color='#38a169', label=t('pass_rate'))
+            ax.plot(dates, pass_rates, marker='o', linewidth=2.5, markersize=7, color='#2f855a', label=t('pass_fail_trend'))
 
             # Add threshold line at 70%
             ax.axhline(y=70, color='#e53e3e', linestyle='--', linewidth=2, alpha=0.7, label='Target (70%)')
 
             # Styling
-            ax.set_title('Pass Rate Trend Over Time', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Date')
-            ax.set_ylabel('Pass Rate (%)')
+            ax.set_title(t('pass_rate_trend_over_time'), fontsize=14, fontweight='bold')
+            ax.set_xlabel(t('date'))
+            ax.set_ylabel(t('pass_rate') + ' (%)')
             ax.set_ylim(0, 100)
             ax.grid(True, alpha=0.3)
             ax.legend(loc='upper left')
@@ -658,9 +706,9 @@ class Reports(ft.UserControl):
             bar_colors = [colors_map.get(d, '#718096') for d in difficulties]
 
             bars = ax.bar(difficulties, success_rates, color=bar_colors, alpha=0.8, edgecolor='black')
-            ax.set_title('Success Rate by Question Difficulty', fontsize=14, fontweight='bold')
-            ax.set_xlabel('Difficulty Level')
-            ax.set_ylabel('Success Rate (%)')
+            ax.set_title(t('success_rate_by_difficulty'), fontsize=14, fontweight='bold')
+            ax.set_xlabel(t('difficulty_level'))
+            ax.set_ylabel(t('success_rate') + ' (%)')
             ax.set_ylim(0, 100)
             ax.grid(True, alpha=0.3, axis='y')
 
@@ -706,13 +754,17 @@ class Reports(ft.UserControl):
             standalone_exams = self.db.execute_query("""
                 SELECT DISTINCT
                     e.id,
-                    e.title || ' (Legacy)' as title,
+                    e.title,
                     e.created_at
                 FROM exams e
                 WHERE e.is_active = 1
                 AND e.id IN (SELECT DISTINCT exam_id FROM exam_sessions WHERE assignment_id IS NULL)
                 ORDER BY e.created_at DESC
             """)
+
+            # Add legacy suffix to standalone exams
+            for exam in standalone_exams:
+                exam['title'] = f"{exam['title']} ({t('legacy')})"
 
             # Combine both lists
             exams = assignments + standalone_exams
@@ -735,19 +787,19 @@ class Reports(ft.UserControl):
                 tabs=[
                     # Tab 1: Export by Exam
                     ft.Tab(
-                        text="Export by Exam",
+                        text=t('export_by_exam'),
                         icon=ft.icons.QUIZ,
                         content=self.create_exam_export_tab(exams)
                     ),
                     # Tab 2: Export by Student
                     ft.Tab(
-                        text="Export by Student",
+                        text=t('export_by_student'),
                         icon=ft.icons.PERSON,
                         content=self.create_student_export_tab(students)
                     ),
                     # Tab 3: Export Student's Specific Exam
                     ft.Tab(
-                        text="Student's Exam",
+                        text=t('student_exam'),
                         icon=ft.icons.ASSIGNMENT,
                         content=self.create_student_exam_export_tab(students, exams)
                     ),
@@ -761,7 +813,7 @@ class Reports(ft.UserControl):
             )
 
             self.safe_show_dialog(
-                title="📄 Export PDF Reports",
+                title="📄 " + t('export_pdf_reports'),
                 content=content,
                 width=900,
                 height=700
@@ -771,13 +823,13 @@ class Reports(ft.UserControl):
             print(f"[ERROR] Error showing export dialog: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to load export options: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load export options: {str(ex)}")
 
     def create_exam_export_tab(self, exams):
         """Create the exam export tab content"""
         if not exams:
             return ft.Container(
-                content=ft.Text("No exams available for report generation.", size=14),
+                content=ft.Text(t('no_exams_for_report'), size=14),
                 padding=20
             )
 
@@ -787,11 +839,11 @@ class Reports(ft.UserControl):
                 ft.ListTile(
                     leading=ft.Icon(ft.icons.QUIZ, color=COLORS['primary']),
                     title=ft.Text(exam['title'], weight=ft.FontWeight.BOLD),
-                    subtitle=ft.Text(f"Created: {exam['created_at'][:10]}"),
+                    subtitle=ft.Text(f"{t('created')}: {exam['created_at'][:10]}"),
                     trailing=ft.IconButton(
                         icon=ft.icons.PICTURE_AS_PDF,
                         icon_color=COLORS['error'],
-                        tooltip="Generate PDF Report",
+                        tooltip=t('generate_pdf_report'),
                         on_click=lambda e, eid=exam['id'], title=exam['title']: self.generate_exam_pdf(eid, title)
                     )
                 )
@@ -799,7 +851,7 @@ class Reports(ft.UserControl):
 
         return ft.Container(
             content=ft.Column([
-                ft.Text("Select an exam to generate detailed PDF report with all student performances:", size=14),
+                ft.Text(t('select_exam_generate_pdf'), size=14),
                 ft.Container(height=10),
                 ft.Container(
                     content=ft.Column(exam_items, scroll=ft.ScrollMode.AUTO),
@@ -816,7 +868,7 @@ class Reports(ft.UserControl):
         """Create the student export tab content"""
         if not students:
             return ft.Container(
-                content=ft.Text("No students with completed exams found.", size=14),
+                content=ft.Text(t('no_students_completed'), size=14),
                 padding=20
             )
 
@@ -829,11 +881,11 @@ class Reports(ft.UserControl):
                 ft.ListTile(
                     leading=ft.Icon(ft.icons.PERSON, color=COLORS['primary']),
                     title=ft.Text(student['full_name'], weight=ft.FontWeight.BOLD),
-                    subtitle=ft.Text(f"{student['username']} • {dept_unit} • {student['exam_count']} exams"),
+                    subtitle=ft.Text(f"{student['username']} • {dept_unit} • {student['exam_count']} {t('exams')}"),
                     trailing=ft.IconButton(
                         icon=ft.icons.PICTURE_AS_PDF,
                         icon_color=COLORS['error'],
-                        tooltip="Generate PDF Report",
+                        tooltip=t('generate_pdf_report'),
                         on_click=lambda e, uid=student['id'], name=student['full_name']: self.generate_student_pdf(uid, name)
                     )
                 )
@@ -841,7 +893,7 @@ class Reports(ft.UserControl):
 
         return ft.Container(
             content=ft.Column([
-                ft.Text("Select a student to generate detailed PDF report with all exam results:", size=14),
+                ft.Text(t('select_student_generate_pdf'), size=14),
                 ft.Container(height=10),
                 ft.Container(
                     content=ft.Column(student_items, scroll=ft.ScrollMode.AUTO),
@@ -858,7 +910,7 @@ class Reports(ft.UserControl):
         """Create the student-exam export tab content"""
         if not students or not exams:
             return ft.Container(
-                content=ft.Text("No data available for student-exam reports.", size=14),
+                content=ft.Text(t('no_data_student_exam'), size=14),
                 padding=20
             )
 
@@ -867,23 +919,23 @@ class Reports(ft.UserControl):
         self.selected_exam_id_for_student = None
 
         student_dropdown = ft.Dropdown(
-            label="Select Student",
-            hint_text="Choose a student",
+            label=t('select_student'),
+            hint_text=t('choose_student'),
             options=[ft.dropdown.Option(str(s['id']), s['full_name']) for s in students],
             on_change=lambda e: self.on_student_select_for_exam(e),
             width=400
         )
 
         exam_dropdown = ft.Dropdown(
-            label="Select Exam",
-            hint_text="Choose an exam",
+            label=t('select_exam'),
+            hint_text=t('choose_exam'),
             options=[ft.dropdown.Option(str(ex['id']), ex['title']) for ex in exams],
             on_change=lambda e: self.on_exam_select_for_student(e),
             width=400
         )
 
         generate_button = ft.ElevatedButton(
-            text="Generate PDF Report",
+            text=t('generate_pdf_report'),
             icon=ft.icons.PICTURE_AS_PDF,
             on_click=self.generate_selected_student_exam_pdf,
             style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE),
@@ -1027,7 +1079,7 @@ class Reports(ft.UserControl):
 
         except Exception as ex:
             print(f"[ERROR] Error showing exam selector: {ex}")
-            self.show_message("Error", f"Failed to load exams: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load exams: {str(ex)}")
 
     def show_student_report_selector(self, e):
         """Show dialog to select student for PDF report"""
@@ -1088,7 +1140,7 @@ class Reports(ft.UserControl):
 
         except Exception as ex:
             print(f"[ERROR] Error showing student selector: {ex}")
-            self.show_message("Error", f"Failed to load students: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load students: {str(ex)}")
 
     def generate_exam_pdf(self, exam_id, exam_title):
         """Generate detailed PDF report for a specific exam"""
@@ -1133,30 +1185,33 @@ class Reports(ft.UserControl):
             import re
             safe_title = re.sub(r'[^\w\s-]', '', exam_title).strip().replace(' ', '_')
             filename = f"exam_report_{safe_title}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            filepath = os.path.join(os.getcwd(), filename)
+            filepath = os.path.join(self.temp_dir, filename)
 
             # Register Unicode font for Azerbaijani characters
             unicode_font_registered = False
             try:
-                # Try Arial Unicode MS first (supports Azerbaijani)
+                # Try Arial first (supports Azerbaijani)
                 from reportlab.pdfbase.ttfonts import TTFont
-                pdfmetrics.registerFont(TTFont('ArialUnicode', '/System/Library/Fonts/Supplemental/Arial Unicode.ttf'))
-                unicode_font = 'ArialUnicode'
-                unicode_font_bold = 'ArialUnicode'
+                pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
+                pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
+                pdfmetrics.registerFont(TTFont('Arial-Italic', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'))
+                pdfmetrics.registerFontFamily('Arial', normal='Arial', bold='Arial-Bold', italic='Arial-Italic')
+                unicode_font = 'Arial'
+                unicode_font_bold = 'Arial-Bold'
                 unicode_font_registered = True
-                print("[INFO] Registered Arial Unicode MS for Azerbaijani text")
+                print("[INFO] Registered Arial fonts for Azerbaijani text")
             except Exception as e:
-                print(f"[WARN] Could not register Arial Unicode: {e}")
+                print(f"[WARN] Could not register Arial: {e}")
                 try:
-                    # Fallback to regular Arial
-                    pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
-                    pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
-                    unicode_font = 'Arial'
-                    unicode_font_bold = 'Arial-Bold'
+                    # Try DejaVu Sans as fallback
+                    pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
+                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
+                    unicode_font = 'DejaVuSans'
+                    unicode_font_bold = 'DejaVuSans-Bold'
                     unicode_font_registered = True
-                    print("[INFO] Registered Arial for text")
+                    print("[INFO] Registered DejaVu Sans for text")
                 except Exception as e2:
-                    print(f"[WARN] Could not register Arial: {e2}")
+                    print(f"[WARN] Could not register DejaVu Sans: {e2}")
                     # Last resort: Helvetica (won't display special characters properly)
                     unicode_font = 'Helvetica'
                     unicode_font_bold = 'Helvetica-Bold'
@@ -1217,24 +1272,30 @@ class Reports(ft.UserControl):
             story = []
             styles = getSampleStyleSheet()
 
+            # Update styles to use Unicode font
+            styles['Normal'].fontName = unicode_font
+            styles['Heading1'].fontName = unicode_font_bold
+            styles['Heading2'].fontName = unicode_font_bold
+            styles['Heading3'].fontName = unicode_font_bold
+
             # Title
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'))
-            story.append(Paragraph(f"Exam Report: {exam_title}", title_style))
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold)
+            story.append(Paragraph(f"{t('exam_report')}: {exam_title}", title_style))
             story.append(Spacer(1, 0.3*inch))
 
             # Date
-            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+            story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
             story.append(Spacer(1, 0.3*inch))
 
-            # Statistics
-            story.append(Paragraph("Performance Summary", styles['Heading2']))
+            # Statistics - Use Paragraphs for table cells
+            story.append(Paragraph(t('performance_summary'), styles['Heading2']))
             stats_data = [
-                ['Metric', 'Value'],
-                ['Total Attempts', str(exam_stats['total_attempts']) if exam_stats else '0'],
-                ['Average Score', f"{exam_stats['avg_score']:.2f}%" if exam_stats and exam_stats['avg_score'] else 'N/A'],
-                ['Highest Score', f"{exam_stats['max_score']:.2f}%" if exam_stats and exam_stats['max_score'] else 'N/A'],
-                ['Lowest Score', f"{exam_stats['min_score']:.2f}%" if exam_stats and exam_stats['min_score'] else 'N/A'],
-                ['Pass Rate', f"{exam_stats['pass_rate']:.2f}%" if exam_stats and exam_stats['pass_rate'] else 'N/A'],
+                [Paragraph(f'<b>{t("metric")}</b>', styles['Normal']), Paragraph(f'<b>{t("value")}</b>', styles['Normal'])],
+                [Paragraph(t('total_attempts'), styles['Normal']), Paragraph(str(exam_stats['total_attempts']) if exam_stats else '0', styles['Normal'])],
+                [Paragraph(t('average_score'), styles['Normal']), Paragraph(f"{exam_stats['avg_score']:.2f}%" if exam_stats and exam_stats['avg_score'] else 'N/A', styles['Normal'])],
+                [Paragraph(t('highest_score'), styles['Normal']), Paragraph(f"{exam_stats['max_score']:.2f}%" if exam_stats and exam_stats['max_score'] else 'N/A', styles['Normal'])],
+                [Paragraph(t('lowest_score'), styles['Normal']), Paragraph(f"{exam_stats['min_score']:.2f}%" if exam_stats and exam_stats['min_score'] else 'N/A', styles['Normal'])],
+                [Paragraph(t('pass_rate'), styles['Normal']), Paragraph(f"{exam_stats['pass_rate']:.2f}%" if exam_stats and exam_stats['pass_rate'] else 'N/A', styles['Normal'])],
             ]
 
             stats_table = Table(stats_data, colWidths=[3*inch, 3*inch])
@@ -1242,7 +1303,6 @@ class Reports(ft.UserControl):
                 ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                 ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
@@ -1252,21 +1312,29 @@ class Reports(ft.UserControl):
             story.append(Spacer(1, 0.5*inch))
 
             # Student attempts
-            story.append(Paragraph("Student Performance", styles['Heading2']))
+            story.append(Paragraph(t('student_performance'), styles['Heading2']))
             story.append(Spacer(1, 0.2*inch))
 
             if attempts:
-                attempts_data = [['Student', 'Department', 'Exam Date', 'Score', 'Correct/Total', 'Duration (min)']]
+                # Use Paragraphs for table cells
+                attempts_data = [[
+                    Paragraph(f'<b>{t("student")}</b>', styles['Normal']),
+                    Paragraph(f'<b>{t("department")}</b>', styles['Normal']),
+                    Paragraph(f'<b>{t("exam_date")}</b>', styles['Normal']),
+                    Paragraph(f'<b>{t("score")}</b>', styles['Normal']),
+                    Paragraph(f'<b>{t("correct_total")}</b>', styles['Normal']),
+                    Paragraph(f'<b>{t("duration_min")}</b>', styles['Normal'])
+                ]]
                 for attempt in attempts:
                     duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
                     exam_date = attempt['start_time'][:10] if attempt['start_time'] else 'N/A'
                     attempts_data.append([
-                        attempt['full_name'],
-                        attempt['department'] or 'N/A',
-                        exam_date,
-                        f"{attempt['score']:.1f}%",
-                        f"{attempt['correct_answers']}/{attempt['total_questions']}",
-                        str(duration_min)
+                        Paragraph(attempt['full_name'], styles['Normal']),
+                        Paragraph(attempt['department'] or 'N/A', styles['Normal']),
+                        Paragraph(exam_date, styles['Normal']),
+                        Paragraph(f"{attempt['score']:.1f}%", styles['Normal']),
+                        Paragraph(f"{attempt['correct_answers']}/{attempt['total_questions']}", styles['Normal']),
+                        Paragraph(str(duration_min), styles['Normal'])
                     ])
 
                 attempts_table = Table(attempts_data, colWidths=[1.5*inch, 1.2*inch, 0.9*inch, 0.8*inch, 1*inch, 0.8*inch])
@@ -1274,7 +1342,6 @@ class Reports(ft.UserControl):
                     ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                     ('FONTSIZE', (0, 0), (-1, 0), 10),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                     ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
@@ -1305,23 +1372,28 @@ class Reports(ft.UserControl):
                         story.append(Paragraph(student_header, styles['Heading3']))
                         story.append(Spacer(1, 0.1*inch))
 
-                        # Create question breakdown table
-                        q_data = [['#', 'Question (preview)', 'Type', 'Points', 'Result']]
+                        # Create question breakdown table with Paragraphs
+                        q_data = [[
+                            Paragraph('<b>#</b>', styles['Normal']),
+                            Paragraph('<b>Question (preview)</b>', styles['Normal']),
+                            Paragraph('<b>Type</b>', styles['Normal']),
+                            Paragraph('<b>Points</b>', styles['Normal']),
+                            Paragraph('<b>Result</b>', styles['Normal'])
+                        ]]
                         for idx, qb in enumerate(question_breakdown, 1):
                             q_text = qb['question_text'][:60] + '...' if len(qb['question_text']) > 60 else qb['question_text']
                             result = '✓' if qb['is_correct'] else '✗'
                             q_data.append([
-                                str(idx),
-                                q_text,
-                                qb['question_type'][:10],
-                                str(qb['points']),
-                                result
+                                Paragraph(str(idx), styles['Normal']),
+                                Paragraph(q_text, styles['Normal']),
+                                Paragraph(qb['question_type'][:10], styles['Normal']),
+                                Paragraph(str(qb['points']), styles['Normal']),
+                                Paragraph(result, styles['Normal'])
                             ])
 
                         q_table = Table(q_data, colWidths=[0.3*inch, 3*inch, 0.8*inch, 0.5*inch, 0.5*inch])
                         q_table.setStyle(TableStyle([
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
-                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                             ('FONTSIZE', (0, 0), (-1, -1), 8),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                             ('ALIGN', (3, 0), (4, -1), 'CENTER'),
@@ -1334,18 +1406,19 @@ class Reports(ft.UserControl):
             # Build PDF with custom header and footer
             doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
 
-            # Close dialog and show success
+            # Close dialog and show file picker
             if self.page and self.page.dialog:
                 self.page.dialog.open = False
                 self.page.update()
 
-            self.show_message("PDF Generated", f"Exam report generated successfully!\nFile: {filename}")
+            # Show file picker to save PDF
+            self.save_pdf_with_picker(filepath, filename)
 
         except Exception as ex:
             print(f"[ERROR] Error generating exam PDF: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to generate exam PDF: {str(ex)}")
+            self.show_message(t('error'), f"Failed to generate exam PDF: {str(ex)}")
 
     def generate_student_pdf(self, user_id, student_name):
         """Generate detailed PDF report for a specific student"""
@@ -1392,30 +1465,33 @@ class Reports(ft.UserControl):
             import re
             safe_name = re.sub(r'[^\w\s-]', '', student_name).strip().replace(' ', '_')
             filename = f"student_report_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            filepath = os.path.join(os.getcwd(), filename)
+            filepath = os.path.join(self.temp_dir, filename)
 
             # Register Unicode font for Azerbaijani characters
             unicode_font_registered = False
             try:
-                # Try Arial Unicode MS first (supports Azerbaijani)
+                # Try Arial first (supports Azerbaijani)
                 from reportlab.pdfbase.ttfonts import TTFont
-                pdfmetrics.registerFont(TTFont('ArialUnicode', '/System/Library/Fonts/Supplemental/Arial Unicode.ttf'))
-                unicode_font = 'ArialUnicode'
-                unicode_font_bold = 'ArialUnicode'
+                pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
+                pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
+                pdfmetrics.registerFont(TTFont('Arial-Italic', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'))
+                pdfmetrics.registerFontFamily('Arial', normal='Arial', bold='Arial-Bold', italic='Arial-Italic')
+                unicode_font = 'Arial'
+                unicode_font_bold = 'Arial-Bold'
                 unicode_font_registered = True
-                print("[INFO] Registered Arial Unicode MS for Azerbaijani text")
+                print("[INFO] Registered Arial fonts for Azerbaijani text")
             except Exception as e:
-                print(f"[WARN] Could not register Arial Unicode: {e}")
+                print(f"[WARN] Could not register Arial: {e}")
                 try:
-                    # Fallback to regular Arial
-                    pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
-                    pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
-                    unicode_font = 'Arial'
-                    unicode_font_bold = 'Arial-Bold'
+                    # Try DejaVu Sans as fallback
+                    pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
+                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
+                    unicode_font = 'DejaVuSans'
+                    unicode_font_bold = 'DejaVuSans-Bold'
                     unicode_font_registered = True
-                    print("[INFO] Registered Arial for text")
+                    print("[INFO] Registered DejaVu Sans for text")
                 except Exception as e2:
-                    print(f"[WARN] Could not register Arial: {e2}")
+                    print(f"[WARN] Could not register DejaVu Sans: {e2}")
                     # Last resort: Helvetica (won't display special characters properly)
                     unicode_font = 'Helvetica'
                     unicode_font_bold = 'Helvetica-Bold'
@@ -1476,8 +1552,14 @@ class Reports(ft.UserControl):
             story = []
             styles = getSampleStyleSheet()
 
+            # Update styles to use Unicode font
+            styles['Normal'].fontName = unicode_font
+            styles['Heading1'].fontName = unicode_font_bold
+            styles['Heading2'].fontName = unicode_font_bold
+            styles['Heading3'].fontName = unicode_font_bold
+
             # Title
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'))
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold)
             story.append(Paragraph(f"Student Report: {student_name}", title_style))
             story.append(Spacer(1, 0.3*inch))
 
@@ -1485,15 +1567,15 @@ class Reports(ft.UserControl):
             story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
             story.append(Spacer(1, 0.3*inch))
 
-            # Student Info
+            # Student Info - Use Paragraphs
             story.append(Paragraph("Student Information", styles['Heading2']))
             info_data = [
-                ['Field', 'Value'],
-                ['Full Name', student_stats['full_name']],
-                ['Username', student_stats['username']],
-                ['Email', student_stats['email'] or 'N/A'],
-                ['Department', student_stats['department'] or 'N/A'],
-                ['Unit', student_stats.get('unit') or 'N/A'],
+                [Paragraph('<b>Field</b>', styles['Normal']), Paragraph('<b>Value</b>', styles['Normal'])],
+                [Paragraph('Full Name', styles['Normal']), Paragraph(student_stats['full_name'], styles['Normal'])],
+                [Paragraph('Username', styles['Normal']), Paragraph(student_stats['username'], styles['Normal'])],
+                [Paragraph('Email', styles['Normal']), Paragraph(student_stats['email'] or 'N/A', styles['Normal'])],
+                [Paragraph('Department', styles['Normal']), Paragraph(student_stats['department'] or 'N/A', styles['Normal'])],
+                [Paragraph('Unit', styles['Normal']), Paragraph(student_stats.get('unit') or 'N/A', styles['Normal'])],
             ]
 
             info_table = Table(info_data, colWidths=[2*inch, 4*inch])
@@ -1501,7 +1583,6 @@ class Reports(ft.UserControl):
                 ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                 ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
@@ -1510,14 +1591,14 @@ class Reports(ft.UserControl):
             story.append(info_table)
             story.append(Spacer(1, 0.5*inch))
 
-            # Performance Summary
+            # Performance Summary - Use Paragraphs
             story.append(Paragraph("Performance Summary", styles['Heading2']))
             summary_data = [
-                ['Metric', 'Value'],
-                ['Total Exams Taken', str(student_stats['total_exams'])],
-                ['Average Score', f"{student_stats['avg_score']:.2f}%" if student_stats['avg_score'] else 'N/A'],
-                ['Highest Score', f"{student_stats['max_score']:.2f}%" if student_stats['max_score'] else 'N/A'],
-                ['Lowest Score', f"{student_stats['min_score']:.2f}%" if student_stats['min_score'] else 'N/A'],
+                [Paragraph('<b>Metric</b>', styles['Normal']), Paragraph('<b>Value</b>', styles['Normal'])],
+                [Paragraph('Total Exams Taken', styles['Normal']), Paragraph(str(student_stats['total_exams']), styles['Normal'])],
+                [Paragraph('Average Score', styles['Normal']), Paragraph(f"{student_stats['avg_score']:.2f}%" if student_stats['avg_score'] else 'N/A', styles['Normal'])],
+                [Paragraph('Highest Score', styles['Normal']), Paragraph(f"{student_stats['max_score']:.2f}%" if student_stats['max_score'] else 'N/A', styles['Normal'])],
+                [Paragraph('Lowest Score', styles['Normal']), Paragraph(f"{student_stats['min_score']:.2f}%" if student_stats['min_score'] else 'N/A', styles['Normal'])],
             ]
 
             summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
@@ -1525,7 +1606,6 @@ class Reports(ft.UserControl):
                 ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 12),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                 ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
@@ -1539,16 +1619,24 @@ class Reports(ft.UserControl):
             story.append(Spacer(1, 0.2*inch))
 
             if attempts:
-                history_data = [['Exam', 'Date', 'Score', 'Correct/Total', 'Duration (min)', 'Status']]
+                # Use Paragraphs for exam history table
+                history_data = [[
+                    Paragraph('<b>Exam</b>', styles['Normal']),
+                    Paragraph('<b>Date</b>', styles['Normal']),
+                    Paragraph('<b>Score</b>', styles['Normal']),
+                    Paragraph('<b>Correct/Total</b>', styles['Normal']),
+                    Paragraph('<b>Duration (min)</b>', styles['Normal']),
+                    Paragraph('<b>Status</b>', styles['Normal'])
+                ]]
                 for attempt in attempts:
                     duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
                     history_data.append([
-                        attempt['exam_title'][:30],
-                        attempt['start_time'][:10],
-                        f"{attempt['score']:.1f}%",
-                        f"{attempt['correct_answers']}/{attempt['total_questions']}",
-                        str(duration_min),
-                        attempt['status']
+                        Paragraph(attempt['exam_title'][:30], styles['Normal']),
+                        Paragraph(attempt['start_time'][:10], styles['Normal']),
+                        Paragraph(f"{attempt['score']:.1f}%", styles['Normal']),
+                        Paragraph(f"{attempt['correct_answers']}/{attempt['total_questions']}", styles['Normal']),
+                        Paragraph(str(duration_min), styles['Normal']),
+                        Paragraph(attempt['status'], styles['Normal'])
                     ])
 
                 history_table = Table(history_data, colWidths=[2.5*inch, 1*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.6*inch])
@@ -1556,7 +1644,6 @@ class Reports(ft.UserControl):
                     ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#9F7AEA')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                     ('FONTSIZE', (0, 0), (-1, 0), 9),
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                     ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
@@ -1591,19 +1678,25 @@ class Reports(ft.UserControl):
                         correct_count = sum(1 for q in question_breakdown if q['is_correct'])
                         total_count = len(question_breakdown)
 
-                        # Create question breakdown table
-                        q_data = [['#', 'Question (preview)', 'Type', 'Points', 'Result']]
+                        # Create question breakdown table with Paragraphs
+                        q_data = [[
+                            Paragraph('<b>#</b>', styles['Normal']),
+                            Paragraph('<b>Question (preview)</b>', styles['Normal']),
+                            Paragraph('<b>Type</b>', styles['Normal']),
+                            Paragraph('<b>Points</b>', styles['Normal']),
+                            Paragraph('<b>Result</b>', styles['Normal'])
+                        ]]
                         for idx, qb in enumerate(question_breakdown, 1):
                             q_text = qb['question_text'][:50] + '...' if len(qb['question_text']) > 50 else qb['question_text']
                             result = '✓ Correct' if qb['is_correct'] else '✗ Wrong'
                             result_color = rl_colors.green if qb['is_correct'] else rl_colors.red
 
                             q_data.append([
-                                str(idx),
-                                q_text,
-                                qb['question_type'][:10],
-                                str(qb['points']),
-                                result
+                                Paragraph(str(idx), styles['Normal']),
+                                Paragraph(q_text, styles['Normal']),
+                                Paragraph(qb['question_type'][:10], styles['Normal']),
+                                Paragraph(str(qb['points']), styles['Normal']),
+                                Paragraph(result, styles['Normal'])
                             ])
 
                         q_table = Table(q_data, colWidths=[0.3*inch, 2.8*inch, 0.8*inch, 0.5*inch, 0.8*inch])
@@ -1611,7 +1704,6 @@ class Reports(ft.UserControl):
                         # Build style with conditional colors for results
                         table_style_commands = [
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
-                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                             ('FONTSIZE', (0, 0), (-1, -1), 8),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                             ('ALIGN', (3, 0), (4, -1), 'CENTER'),
@@ -1639,18 +1731,19 @@ class Reports(ft.UserControl):
             # Build PDF with custom header and footer
             doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
 
-            # Close dialog and show success
+            # Close dialog and show file picker
             if self.page and self.page.dialog:
                 self.page.dialog.open = False
                 self.page.update()
 
-            self.show_message("PDF Generated", f"Student report generated successfully!\nFile: {filename}")
+            # Show file picker to save PDF
+            self.save_pdf_with_picker(filepath, filename)
 
         except Exception as ex:
             print(f"[ERROR] Error generating student PDF: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to generate student PDF: {str(ex)}")
+            self.show_message(t('error'), f"Failed to generate student PDF: {str(ex)}")
 
     def generate_student_exam_pdf(self, user_id, exam_id, student_name, exam_title):
         """Generate detailed PDF report for a specific student's specific exam with question breakdown"""
@@ -1685,7 +1778,7 @@ class Reports(ft.UserControl):
             """, (user_id, exam_id, exam_id))
 
             if not session:
-                self.show_message("No Data", "No completed exam session found for this student and exam.")
+                self.show_message(t('no_data'), t('no_completed_exam_session'))
                 return
 
             # Get detailed question-level data
@@ -1707,7 +1800,37 @@ class Reports(ft.UserControl):
             safe_name = re.sub(r'[^\w\s-]', '', student_name).strip().replace(' ', '_')
             safe_exam = re.sub(r'[^\w\s-]', '', exam_title).strip().replace(' ', '_')
             filename = f"detailed_report_{safe_name}_{safe_exam}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            filepath = os.path.join(os.getcwd(), filename)
+            filepath = os.path.join(self.temp_dir, filename)
+
+            # Register Unicode font for Azerbaijani characters
+            unicode_font_registered = False
+            try:
+                # Try Arial first (supports Azerbaijani)
+                from reportlab.pdfbase.ttfonts import TTFont
+                pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
+                pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
+                pdfmetrics.registerFont(TTFont('Arial-Italic', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'))
+                pdfmetrics.registerFontFamily('Arial', normal='Arial', bold='Arial-Bold', italic='Arial-Italic')
+                unicode_font = 'Arial'
+                unicode_font_bold = 'Arial-Bold'
+                unicode_font_registered = True
+                print("[INFO] Registered Arial fonts for Azerbaijani text")
+            except Exception as e:
+                print(f"[WARN] Could not register Arial: {e}")
+                try:
+                    # Try DejaVu Sans as fallback
+                    pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
+                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
+                    unicode_font = 'DejaVuSans'
+                    unicode_font_bold = 'DejaVuSans-Bold'
+                    unicode_font_registered = True
+                    print("[INFO] Registered DejaVu Sans for text")
+                except Exception as e2:
+                    print(f"[WARN] Could not register DejaVu Sans: {e2}")
+                    # Last resort: Helvetica (won't display special characters properly)
+                    unicode_font = 'Helvetica'
+                    unicode_font_bold = 'Helvetica-Bold'
+                    print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1735,20 +1858,15 @@ class Reports(ft.UserControl):
                     canvas_obj.drawCentredString(page_width / 2, A4[1] - 40, "AZERCOSMOS")
 
                 # Footer - Confidential Warning
-                footer_text = [
-                    "SPECIAL WARNING",
-                    'This document contains confidential information belonging to the Space Agency of the Republic of Azerbaijan (Azercosmos).'
-                ]
-
                 canvas_obj.setFont('Helvetica-Bold', 8)
-                canvas_obj.drawCentredString(A4[0] / 2, 50, footer_text[0])
+                canvas_obj.drawCentredString(A4[0] / 2, 50, t('special_warning'))
 
                 canvas_obj.setFont('Helvetica', 7)
-                canvas_obj.drawCentredString(A4[0] / 2, 35, footer_text[1])
+                canvas_obj.drawCentredString(A4[0] / 2, 35, t('confidential_text'))
 
                 # Page number
                 canvas_obj.setFont('Helvetica', 8)
-                canvas_obj.drawCentredString(A4[0] / 2, 15, f"Page {doc.page}")
+                canvas_obj.drawCentredString(A4[0] / 2, 15, f"{t('page')} {doc.page}")
 
                 canvas_obj.restoreState()
 
@@ -1761,36 +1879,42 @@ class Reports(ft.UserControl):
             story = []
             styles = getSampleStyleSheet()
 
+            # Update styles to use Unicode font
+            styles['Normal'].fontName = unicode_font
+            styles['Heading1'].fontName = unicode_font_bold
+            styles['Heading2'].fontName = unicode_font_bold
+            styles['Heading3'].fontName = unicode_font_bold
+
             # Custom styles
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=20, textColor=rl_colors.HexColor('#2D3748'))
-            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=rl_colors.grey)
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=20, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold)
+            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=rl_colors.grey, fontName=unicode_font)
 
             # Title
-            story.append(Paragraph(f"Detailed Exam Report", title_style))
+            story.append(Paragraph(t('detailed_exam_report'), title_style))
             story.append(Paragraph(f"{exam_title}", styles['Heading2']))
-            story.append(Paragraph(f"Student: {student_name}", subtitle_style))
-            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
+            story.append(Paragraph(f"{t('student')}: {student_name}", subtitle_style))
+            story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
             story.append(Spacer(1, 0.3*inch))
 
-            # Exam Summary
-            story.append(Paragraph("Exam Summary", styles['Heading2']))
+            # Exam Summary - Use Paragraphs
+            story.append(Paragraph(t('exam_summary'), styles['Heading2']))
             duration_min = session['duration_seconds'] // 60 if session['duration_seconds'] else 0
-            status = 'PASS' if session['score'] >= session['passing_score'] else 'FAIL'
-            status_color = rl_colors.green if status == 'PASS' else rl_colors.red
+            status = t('pass') if session['score'] >= session['passing_score'] else t('fail')
+            status_color = rl_colors.green if session['score'] >= session['passing_score'] else rl_colors.red
 
             # Extract exam date from start_time
             exam_date = session['start_time'][:10] if session['start_time'] else 'N/A'
 
             summary_data = [
-                ['Metric', 'Value'],
-                ['Exam Date', exam_date],
-                ['Final Score', f"{session['score']:.2f}%"],
-                ['Correct Answers', f"{session['correct_answers']} / {session['total_questions']}"],
-                ['Passing Score', f"{session['passing_score']}%"],
-                ['Status', status],
-                ['Duration', f"{duration_min} minutes"],
-                ['Start Time', session['start_time'][:19]],
-                ['End Time', session['end_time'][:19] if session['end_time'] else 'N/A'],
+                [Paragraph(f'<b>{t("metric")}</b>', styles['Normal']), Paragraph(f'<b>{t("value")}</b>', styles['Normal'])],
+                [Paragraph(t('exam_date'), styles['Normal']), Paragraph(exam_date, styles['Normal'])],
+                [Paragraph(t('final_score'), styles['Normal']), Paragraph(f"{session['score']:.2f}%", styles['Normal'])],
+                [Paragraph(t('correct_answers_count'), styles['Normal']), Paragraph(f"{session['correct_answers']} / {session['total_questions']}", styles['Normal'])],
+                [Paragraph(t('passing_score'), styles['Normal']), Paragraph(f"{session['passing_score']}%", styles['Normal'])],
+                [Paragraph(t('status'), styles['Normal']), Paragraph(status, styles['Normal'])],
+                [Paragraph(t('duration'), styles['Normal']), Paragraph(f"{duration_min} {t('minutes_label')}", styles['Normal'])],
+                [Paragraph(t('start_time'), styles['Normal']), Paragraph(session['start_time'][:19], styles['Normal'])],
+                [Paragraph(t('end_time'), styles['Normal']), Paragraph(session['end_time'][:19] if session['end_time'] else 'N/A', styles['Normal'])],
             ]
 
             summary_table = Table(summary_data, colWidths=[2.5*inch, 3.5*inch])
@@ -1798,19 +1922,17 @@ class Reports(ft.UserControl):
                 ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 11),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                 ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
                 ('GRID', (0, 0), (-1, -1), 1, rl_colors.black),
-                ('TEXTCOLOR', (1, 4), (1, 4), status_color),  # Status color
-                ('FONTNAME', (1, 4), (1, 4), 'Helvetica-Bold'),
+                ('TEXTCOLOR', (1, 5), (1, 5), status_color),  # Status color (row index adjusted)
             ]))
             story.append(summary_table)
             story.append(Spacer(1, 0.4*inch))
 
             # Question-by-Question Breakdown
-            story.append(Paragraph("Question-by-Question Breakdown", styles['Heading2']))
+            story.append(Paragraph(t('question_by_question_breakdown'), styles['Heading2']))
             story.append(Spacer(1, 0.2*inch))
 
             if question_details:
@@ -1827,7 +1949,7 @@ class Reports(ft.UserControl):
                         spaceAfter=6
                     )
 
-                    story.append(Paragraph(f"{result_icon} Question {idx}: {q['question_type'].upper()} ({q['points']} pts)", q_header_style))
+                    story.append(Paragraph(f"{result_icon} {t('question')} {idx}: {q['question_type'].upper()} ({q['points']} {t('pts')})", q_header_style))
 
                     # Question text
                     question_text = q['question_text'][:500]  # Limit length
@@ -1836,10 +1958,14 @@ class Reports(ft.UserControl):
 
                     # Handle different question types
                     if q['question_type'] in ['multiple_choice', 'true_false']:
-                        # Parse options
+                        # Parse options - Use Paragraphs
                         if q['options']:
                             options_list = q['options'].split(';;;')
-                            options_data = [['Option', 'Correct Answer', 'Student Selected']]
+                            options_data = [[
+                                Paragraph(f'<b>{t("option")}</b>', styles['Normal']),
+                                Paragraph(f'<b>{t("correct_answer_label")}</b>', styles['Normal']),
+                                Paragraph(f'<b>{t("student_selected")}</b>', styles['Normal'])
+                            ]]
 
                             for opt in options_list:
                                 if '|' in opt:
@@ -1853,16 +1979,15 @@ class Reports(ft.UserControl):
                                         was_selected = '✓' if is_correct_bool and q['is_correct'] else ''
 
                                     options_data.append([
-                                        opt_text[:60],
-                                        '✓' if is_correct_bool else '',
-                                        '✓' if q['answer_text'] and opt_text in q['answer_text'] else ''
+                                        Paragraph(opt_text[:60], styles['Normal']),
+                                        Paragraph('✓' if is_correct_bool else '', styles['Normal']),
+                                        Paragraph('✓' if q['answer_text'] and opt_text in q['answer_text'] else '', styles['Normal'])
                                     ])
 
                             if len(options_data) > 1:
                                 opts_table = Table(options_data, colWidths=[3*inch, 1*inch, 1*inch])
                                 opts_table.setStyle(TableStyle([
                                     ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
-                                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                                     ('FONTSIZE', (0, 0), (-1, -1), 9),
                                     ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
                                     ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
@@ -1871,15 +1996,15 @@ class Reports(ft.UserControl):
                                 story.append(opts_table)
 
                     elif q['question_type'] in ['short_answer', 'essay']:
-                        # Show student's answer
+                        # Show student's answer - Use Paragraphs
                         answer_data = [
-                            ['Student Answer', q['answer_text'][:200] if q['answer_text'] else 'No answer provided'],
+                            [Paragraph(f'<b>{t("student_answer")}</b>', styles['Normal']),
+                             Paragraph(q['answer_text'][:200] if q['answer_text'] else t('no_answer_provided'), styles['Normal'])],
                         ]
 
                         answer_table = Table(answer_data, colWidths=[1.5*inch, 4.5*inch])
                         answer_table.setStyle(TableStyle([
                             ('BACKGROUND', (0, 0), (0, -1), rl_colors.HexColor('#E2E8F0')),
-                            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
                             ('FONTSIZE', (0, 0), (-1, -1), 9),
                             ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
                             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -1888,7 +2013,8 @@ class Reports(ft.UserControl):
                         story.append(answer_table)
 
                     # Result
-                    result_text = f"<b>Result:</b> <font color=\"{'green' if q['is_correct'] else 'red'}\">{'CORRECT' if q['is_correct'] else 'INCORRECT'}</font>"
+                    result_status = t('correct_uppercase') if q['is_correct'] else t('incorrect_uppercase')
+                    result_text = f"<b>{t('result')}:</b> <font color=\"{'green' if q['is_correct'] else 'red'}\">{result_status}</font>"
                     story.append(Spacer(1, 0.05*inch))
                     story.append(Paragraph(result_text, styles['Normal']))
                     story.append(Spacer(1, 0.2*inch))
@@ -1900,18 +2026,19 @@ class Reports(ft.UserControl):
             # Build PDF with custom header and footer
             doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
 
-            # Close dialog and show success
+            # Close dialog and show file picker
             if self.page and self.page.dialog:
                 self.page.dialog.open = False
                 self.page.update()
 
-            self.show_message("PDF Generated", f"Detailed exam report generated successfully!\nFile: {filename}")
+            # Show file picker to save PDF
+            self.save_pdf_with_picker(filepath, filename)
 
         except Exception as ex:
             print(f"[ERROR] Error generating student-exam PDF: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to generate detailed exam PDF: {str(ex)}")
+            self.show_message(t('error'), f"Failed to generate detailed exam PDF: {str(ex)}")
 
     def export_pdf(self, e):
         """Export reports as PDF"""
@@ -1923,7 +2050,7 @@ class Reports(ft.UserControl):
             # Create PDF with basic report in current directory
             import os
             filename = f"exam_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            filepath = os.path.join(os.getcwd(), filename)
+            filepath = os.path.join(self.temp_dir, filename)
             
             c = canvas.Canvas(filepath, pagesize=letter)
             width, height = letter
@@ -1990,7 +2117,7 @@ class Reports(ft.UserControl):
                 
                 import os
                 filename = f"exam_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                filepath = os.path.join(os.getcwd(), filename)
+                filepath = os.path.join(self.temp_dir, filename)
                 
                 df.to_excel(filepath, index=False)
                 
@@ -2086,7 +2213,7 @@ class Reports(ft.UserControl):
         """)
 
         # Create dropdown options
-        options = [ft.dropdown.Option("all", "All Topics")]
+        options = [ft.dropdown.Option("all", t('all_topics'))]
         if topics_data:
             options.extend([
                 ft.dropdown.Option(topic['title'], topic['title'])
@@ -2101,14 +2228,14 @@ class Reports(ft.UserControl):
         try:
             print(f"[DEBUG] show_detailed_report called for: {report_type}")
 
-            if report_type == "Exam Performance":
+            if report_type == "exam_performance":
                 content = self.create_exam_performance_details()
-            elif report_type == "User Progress":
+            elif report_type == "user_progress":
                 content = self.create_user_progress_details()
-            elif report_type == "Question Analysis":
+            elif report_type == "question_analysis":
                 content = self.create_question_analysis_details()
             else:
-                content = ft.Text("Report details coming soon...")
+                content = ft.Text(t('loading') + "...")
 
             # Use safe dialog creation with MUCH bigger size
             success = self.safe_show_dialog(
@@ -2139,7 +2266,7 @@ class Reports(ft.UserControl):
 
             # Create filter dropdown
             topic_filter = ft.Dropdown(
-                label="Filter by Topic",
+                label=t('filter_by_topic'),
                 options=filter_options,
                 value=selected_topic if selected_topic else "all",
                 width=350,
@@ -2189,12 +2316,12 @@ class Reports(ft.UserControl):
                 # Create table
                 table = ft.DataTable(
                     columns=[
-                        ft.DataColumn(ft.Text("Exam Title", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Sessions", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Avg Score", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Min Score", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Max Score", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Avg Duration (min)", weight=ft.FontWeight.BOLD))
+                        ft.DataColumn(ft.Text(t('exam_title'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('sessions'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('average_score'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('min_score'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('max_score'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('avg_duration_min'), weight=ft.FontWeight.BOLD))
                     ],
                     rows=[],
                     width=float("inf"),
@@ -2374,7 +2501,7 @@ class Reports(ft.UserControl):
                     ft.Container(
                         content=ft.Column([
                             ft.Text(f"{avg_score:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['warning']),
-                            ft.Text("Avg Score", size=12, color=COLORS['text_secondary'])
+                            ft.Text(t('average_score'), size=12, color=COLORS['text_secondary'])
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                         width=100,
                         height=70,
@@ -2388,16 +2515,16 @@ class Reports(ft.UserControl):
                 # Create comprehensive progress table
                 progress_table = ft.DataTable(
                     columns=[
-                        ft.DataColumn(ft.Text("User", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Department", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Exams", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Attempts", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Avg Score", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Best Score", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Pass Rate", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Avg Duration", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Last Activity", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Actions", weight=ft.FontWeight.BOLD))
+                        ft.DataColumn(ft.Text(t('username'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('department'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('exams'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('attempts_count'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('average_score'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('best_score'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('pass_rate'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('avg_duration'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('last_activity'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('actions'), weight=ft.FontWeight.BOLD))
                     ],
                     rows=[],
                     width=float("inf"),
@@ -2823,7 +2950,7 @@ class Reports(ft.UserControl):
             print(f"[ERROR] Error showing activity logs: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to load activity logs: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load activity logs: {str(ex)}")
 
     def show_suspicious_activity(self, e):
         """Show detected suspicious exam behavior"""
@@ -2914,10 +3041,10 @@ class Reports(ft.UserControl):
                     ft.DataColumn(ft.Text("Session ID", weight=ft.FontWeight.BOLD)),
                     ft.DataColumn(ft.Text("Student", weight=ft.FontWeight.BOLD)),
                     ft.DataColumn(ft.Text("Exam", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Score", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('score'), weight=ft.FontWeight.BOLD)),
                     ft.DataColumn(ft.Text("Suspicion", weight=ft.FontWeight.BOLD)),
                     ft.DataColumn(ft.Text("Issues Detected", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Actions", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('actions'), weight=ft.FontWeight.BOLD)),
                 ],
                 rows=table_rows,
                 border=ft.border.all(1, ft.colors.GREY_300),
@@ -2964,7 +3091,7 @@ class Reports(ft.UserControl):
             print(f"[ERROR] Error showing suspicious activity: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to load suspicious activity: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load suspicious activity: {str(ex)}")
 
     def show_pattern_details(self, session_id):
         """Show detailed pattern analysis for a specific session"""
@@ -3029,7 +3156,7 @@ class Reports(ft.UserControl):
             print(f"[ERROR] Error showing pattern details: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to load pattern details: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load pattern details: {str(ex)}")
 
     def close_dialog(self, e=None):
         """Close the current dialog - SIMPLE VERSION like other pages"""
@@ -3061,7 +3188,7 @@ class Reports(ft.UserControl):
             """, (user_id,))
 
             if not user_info:
-                self.show_message("Error", "User not found.")
+                self.show_message(t('error'), "User not found.")
                 return
 
             # === PART A: OVERALL SUMMARY ===
@@ -3144,7 +3271,7 @@ class Reports(ft.UserControl):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text(f"{summary_stats['avg_score']:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['success']),
-                                ft.Text("Avg Score", size=12, color=COLORS['text_secondary'])
+                                ft.Text(t('average_score'), size=12, color=COLORS['text_secondary'])
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                             col={"xs": 6, "sm": 3},
                             padding=ft.padding.all(10),
@@ -3154,7 +3281,7 @@ class Reports(ft.UserControl):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text(f"{pass_rate:.1f}%", size=24, weight=ft.FontWeight.BOLD, color=COLORS['warning']),
-                                ft.Text("Pass Rate", size=12, color=COLORS['text_secondary'])
+                                ft.Text(t('pass_rate'), size=12, color=COLORS['text_secondary'])
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                             col={"xs": 6, "sm": 3},
                             padding=ft.padding.all(10),
@@ -3164,7 +3291,7 @@ class Reports(ft.UserControl):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text(f"{summary_stats['avg_duration_minutes']:.0f}m", size=24, weight=ft.FontWeight.BOLD, color=COLORS['error']),
-                                ft.Text("Avg Duration", size=12, color=COLORS['text_secondary'])
+                                ft.Text(t('avg_duration'), size=12, color=COLORS['text_secondary'])
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                             col={"xs": 6, "sm": 3},
                             padding=ft.padding.all(10),
@@ -3193,9 +3320,9 @@ class Reports(ft.UserControl):
                                    size=13, color=COLORS['text_secondary']),
                             ft.Container(height=5),
                             ft.Row([
-                                ft.Text("Best Score:", size=14, weight=ft.FontWeight.BOLD),
+                                ft.Text(t('best_score') + ":", size=14, weight=ft.FontWeight.BOLD),
                                 ft.Text(f"{summary_stats['best_score']:.1f}%", size=14, color=COLORS['success']),
-                                ft.Text(" | Worst Score:", size=14),
+                                ft.Text(" | " + t('worst_score') + ":", size=14),
                                 ft.Text(f"{summary_stats['worst_score']:.1f}%", size=14, color=COLORS['error'])
                             ], spacing=5)
                         ], spacing=5),
@@ -3231,11 +3358,11 @@ class Reports(ft.UserControl):
             details_table = ft.DataTable(
                 columns=[
                     ft.DataColumn(ft.Text("Exam", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Score", weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('score'), weight=ft.FontWeight.BOLD)),
                     ft.DataColumn(ft.Text("Result", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Duration", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Date", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Actions", weight=ft.FontWeight.BOLD))
+                    ft.DataColumn(ft.Text(t('duration'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('date'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('actions'), weight=ft.FontWeight.BOLD))
                 ],
                 rows=[],
                 width=float("inf"),
@@ -3321,7 +3448,7 @@ class Reports(ft.UserControl):
             print(f"[ERROR] Error showing individual user details: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to load user details: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load user details: {str(ex)}")
     
     def show_question_breakdown(self, session_id, exam_title, user_name):
         """Show question-by-question breakdown for a specific exam session"""
@@ -3388,7 +3515,7 @@ class Reports(ft.UserControl):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text(str(total_questions), size=20, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-                                ft.Text("Questions", size=11)
+                                ft.Text(t('questions'), size=11)
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
                             col={"xs": 6, "sm": 3},
                             padding=ft.padding.all(8),
@@ -3436,14 +3563,14 @@ class Reports(ft.UserControl):
             breakdown_table = ft.DataTable(
                 columns=[
                     ft.DataColumn(ft.Text("#", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Question", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Difficulty", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("User Answer", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Correct Answer", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Result", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Points", weight=ft.FontWeight.BOLD)),
-                    ft.DataColumn(ft.Text("Time", weight=ft.FontWeight.BOLD))
+                    ft.DataColumn(ft.Text(t('question'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('type'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('difficulty'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('user_answer'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('correct_answer'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('result'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('points'), weight=ft.FontWeight.BOLD)),
+                    ft.DataColumn(ft.Text(t('time'), weight=ft.FontWeight.BOLD))
                 ],
                 rows=[],
                 width=float("inf"),
@@ -3518,7 +3645,7 @@ class Reports(ft.UserControl):
             print(f"[ERROR] Error showing question breakdown: {ex}")
             import traceback
             traceback.print_exc()
-            self.show_message("Error", f"Failed to load question breakdown: {str(ex)}")
+            self.show_message(t('error'), f"Failed to load question breakdown: {str(ex)}")
 
     def create_question_analysis_details(self, selected_topic=None):
         """Create detailed question analysis report with topic filter and toggle"""
@@ -3534,7 +3661,7 @@ class Reports(ft.UserControl):
 
             # Create filter dropdown
             topic_filter = ft.Dropdown(
-                label="Filter by Topic",
+                label=t('filter_by_topic'),
                 options=filter_options,
                 value=selected_topic if selected_topic else "all",
                 width=350,
@@ -3543,7 +3670,7 @@ class Reports(ft.UserControl):
 
             # Create toggle for showing all questions
             show_all_toggle = ft.Checkbox(
-                label="Show all questions (including low-sample)",
+                label=t('showing_all_questions_including'),
                 value=False,
                 on_change=None  # Will set below
             )
@@ -3655,13 +3782,13 @@ class Reports(ft.UserControl):
                 # Create analysis table
                 analysis_table = ft.DataTable(
                     columns=[
-                        ft.DataColumn(ft.Text("Question", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Topic", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Difficulty", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Total Answers", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Correct", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Success Rate", weight=ft.FontWeight.BOLD))
+                        ft.DataColumn(ft.Text(t('question'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('exam_title'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('type'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('difficulty'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('total_answers'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('correct'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text(t('success_rate'), weight=ft.FontWeight.BOLD))
                     ],
                     rows=[],
                     width=float("inf"),
@@ -3692,7 +3819,7 @@ class Reports(ft.UserControl):
                     )
             
                 # Create info text based on filter state
-                info_text = "Showing questions with at least 3 answers for statistical reliability" if not show_all else "Showing all questions (including those with less than 3 answers)"
+                info_text = t('showing_questions_min_answers') if not show_all else t('showing_all_questions')
 
                 # Return the data container
                 return ft.Column([
@@ -3705,7 +3832,7 @@ class Reports(ft.UserControl):
                     ft.Container(
                         content=ft.Column([
                             ft.Text(info_text, size=13, color=COLORS['text_secondary'], italic=True),
-                            ft.Text("Questions with less than 60% success rate may need review",
+                            ft.Text(t('questions_low_success_review'),
                                   size=13, color=COLORS['warning'], weight=ft.FontWeight.BOLD)
                         ], spacing=5),
                         padding=ft.padding.only(bottom=15)
@@ -3788,7 +3915,7 @@ class Reports(ft.UserControl):
             # Create a more accessible file path (current directory)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"user_progress_report_{timestamp}.csv"
-            filepath = os.path.join(os.getcwd(), filename)
+            filepath = os.path.join(self.temp_dir, filename)
             
             # Prepare CSV content
             csv_content = "Username,Full Name,Department,Role,Exams Taken,Total Attempts,Average Score,Best Score,Pass Rate,Last Activity\n"

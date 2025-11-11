@@ -8,6 +8,7 @@ from quiz_app.views.admin.reports import Reports
 from quiz_app.views.admin.settings import Settings
 from quiz_app.database.database import Database
 from quiz_app.config import COLORS
+from quiz_app.utils.localization import t
 
 class AdminDashboard(BaseAdminLayout):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -48,16 +49,16 @@ class AdminDashboard(BaseAdminLayout):
 
         # Create dashboard cards
         cards = ft.Row([
-            self.create_stat_card("Total Users", str(stats['total_users']), ft.icons.PEOPLE, COLORS['primary']),
-            self.create_stat_card("Total Exams", str(stats['total_exams']), ft.icons.QUIZ, COLORS['success']),
-            self.create_stat_card("Active Sessions", str(stats['active_sessions']), ft.icons.TIMER, COLORS['warning']),
-            self.create_stat_card("Completed Exams", str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success'])
+            self.create_stat_card(t("total_users"), str(stats['total_users']), ft.icons.PEOPLE, COLORS['primary']),
+            self.create_stat_card(t("total_exams"), str(stats['total_exams']), ft.icons.QUIZ, COLORS['success']),
+            self.create_stat_card(t("active_sessions"), str(stats['active_sessions']), ft.icons.TIMER, COLORS['warning']),
+            self.create_stat_card(t("completed_exams"), str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success'])
         ], spacing=20, wrap=True)
 
         # Recent activity
         recent_activity = self.get_recent_activity()
         activity_list = ft.Column([
-            ft.Text("Recent Activity", size=18, weight=ft.FontWeight.BOLD),
+            ft.Text(t("recent_activity"), size=18, weight=ft.FontWeight.BOLD),
             ft.Divider(),
             *[ft.ListTile(
                 leading=ft.Icon(ft.icons.CIRCLE, size=8, color=COLORS['primary']),
@@ -68,7 +69,7 @@ class AdminDashboard(BaseAdminLayout):
 
         # Build content
         content = ft.Column([
-            ft.Text("Dashboard Overview", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+            ft.Text(t("overview"), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
             cards,
             ft.Container(height=20),
@@ -150,7 +151,51 @@ class AdminDashboard(BaseAdminLayout):
         self.set_content(reports)
     
     def show_settings(self):
-        settings_view = Settings(self.db, self.user_data)
+        def on_language_change():
+            """Reload the entire dashboard after language change"""
+            if hasattr(self, 'page') and self.page:
+                # Re-initialize navigation with new translations
+                from quiz_app.utils.localization import t
+                self.nav_items = [
+                    {"title": t("dashboard"), "icon": ft.icons.DASHBOARD, "route": "dashboard"},
+                    {"title": t("user_management"), "icon": ft.icons.PEOPLE, "route": "users"},
+                    {"title": t("exam_management"), "icon": ft.icons.QUIZ, "route": "exams"},
+                    {"title": t("question_bank"), "icon": ft.icons.HELP, "route": "questions"},
+                    {"title": t("grading"), "icon": ft.icons.GRADING, "route": "grading"},
+                    {"title": t("reports"), "icon": ft.icons.ANALYTICS, "route": "reports"},
+                    {"title": t("settings"), "icon": ft.icons.SETTINGS, "route": "settings"}
+                ]
+
+                # Rebuild navigation rail
+                self.nav_rail.destinations = [
+                    ft.NavigationRailDestination(
+                        icon=ft.Stack([
+                            ft.Icon(item["icon"]),
+                            ft.Container(
+                                content=self.grading_badge if item["route"] == "grading" else None,
+                                alignment=ft.alignment.top_right,
+                                offset=ft.Offset(0.3, -0.3),
+                            ) if item["route"] == "grading" else ft.Icon(item["icon"])
+                        ]) if item["route"] == "grading" else item["icon"],
+                        label=item["title"]
+                    ) for item in self.nav_items
+                ]
+
+                # Rebuild top bar
+                self.top_bar = self.create_top_bar()
+
+                # Rebuild dashboard
+                self.show_dashboard()
+
+                # Force update
+                self.page.update()
+
+        settings_view = Settings(
+            self.db,
+            self.user_data,
+            session_manager=self.session_manager,
+            on_language_change=on_language_change
+        )
         self.set_content(settings_view)
     
     def get_dashboard_stats(self):

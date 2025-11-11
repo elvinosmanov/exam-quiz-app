@@ -5,17 +5,42 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 
-from quiz_app.database.database import init_database
+from quiz_app.database.database import init_database, Database
 from quiz_app.views.auth.login_view import LoginView
 from quiz_app.utils.session import SessionManager
+from quiz_app.utils.localization import set_language
 
 class QuizApp:
     def __init__(self):
         self.session_manager = SessionManager()
+        self.db = None  # Will be initialized in main()
         self.current_view = None
         self.expert_view_mode = 'expert'  # 'expert' or 'examinee' for expert users
         self.current_user_data = None  # Store current user for view switching
-        
+
+    def load_system_language(self):
+        """Load system-wide language setting from database"""
+        try:
+            # Query system settings for language
+            result = self.db.execute_single(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'language'"
+            )
+
+            if result:
+                language_value = result['setting_value']
+                # Map from display name to language code
+                language_code = 'en' if language_value == 'English' else 'az'
+                set_language(language_code)
+                print(f"[DEBUG] System language loaded: {language_code} ({language_value})")
+            else:
+                # Default to English if no setting found
+                set_language('en')
+                print("[DEBUG] No system language setting found, defaulting to English")
+        except Exception as e:
+            print(f"[WARNING] Failed to load system language: {e}")
+            # Default to English on error
+            set_language('en')
+
     def main(self, page: ft.Page):
         page.title = "Quiz Examination System"
         page.theme_mode = ft.ThemeMode.LIGHT
@@ -25,9 +50,16 @@ class QuizApp:
         page.window.min_height = 600
         page.padding = 0  # Remove default padding for full height containers
         page.spacing = 0  # Remove default spacing for full height containers
-        
+
         # Initialize database
         init_database()
+
+        # Create database instance and connect it to session manager
+        self.db = Database()
+        self.session_manager.set_database(self.db)
+
+        # Load system language setting from database
+        self.load_system_language()
         
         # Set up theme
         page.theme = ft.Theme(

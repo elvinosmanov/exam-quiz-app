@@ -2,6 +2,7 @@ import flet as ft
 import os
 import uuid
 from quiz_app.config import COLORS, UPLOAD_FOLDER, MAX_FILE_SIZE, ALLOWED_EXTENSIONS
+from quiz_app.utils.localization import t
 from quiz_app.utils.bulk_import import BulkImporter
 from quiz_app.utils.question_selector import QuestionSelector
 from quiz_app.utils.permissions import UnitPermissionManager
@@ -24,7 +25,7 @@ class QuestionManagement(ft.UserControl):
         
         # Question pool statistics container
         self.question_pool_stats = ft.Container(
-            content=ft.Text("Select an exam to view question pool statistics", 
+            content=ft.Text(t('select_exam'),
                           color=COLORS['text_secondary'], italic=True),
             visible=False
         )
@@ -36,7 +37,7 @@ class QuestionManagement(ft.UserControl):
         
         # Topic selector
         self.exam_selector = ft.Dropdown(
-            label="Select Topic",
+            label=t('select_topic'),
             options=[ft.dropdown.Option(str(exam['id']), exam['title']) for exam in self.exams_data],
             on_change=self.exam_selected,
             expand=True
@@ -44,7 +45,7 @@ class QuestionManagement(ft.UserControl):
 
         # Search control
         self.search_field = ft.TextField(
-            label="Search questions...",
+            label=t('search_questions'),
             prefix_icon=ft.icons.SEARCH,
             on_change=self.apply_filters,
             expand=True
@@ -52,14 +53,14 @@ class QuestionManagement(ft.UserControl):
 
         # Question type filter
         self.type_filter = ft.Dropdown(
-            label="Filter by Type",
+            label=t('filter_by_type'),
             options=[
-                ft.dropdown.Option("all", "All Types"),
-                ft.dropdown.Option("single_choice", "Single Choice"),
-                ft.dropdown.Option("multiple_choice", "Multiple Choice"),
-                ft.dropdown.Option("true_false", "True/False"),
-                ft.dropdown.Option("short_answer", "Short Answer"),
-                ft.dropdown.Option("essay", "Essay")
+                ft.dropdown.Option("all", t('all_types')),
+                ft.dropdown.Option("single_choice", t('single_choice')),
+                ft.dropdown.Option("multiple_choice", t('multiple_choice')),
+                ft.dropdown.Option("true_false", t('true_false')),
+                ft.dropdown.Option("short_answer", t('short_answer')),
+                ft.dropdown.Option("essay", t('essay'))
             ],
             value="all",
             on_change=self.apply_filters,
@@ -70,13 +71,13 @@ class QuestionManagement(ft.UserControl):
         self.questions_table = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("#")),
-                ft.DataColumn(ft.Text("Question")),
-                ft.DataColumn(ft.Text("Type")),
-                ft.DataColumn(ft.Text("Image")),
-                ft.DataColumn(ft.Text("Difficulty")),
-                ft.DataColumn(ft.Text("Points")),
-                ft.DataColumn(ft.Text("Status")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('question'))),
+                ft.DataColumn(ft.Text(t('type'))),
+                ft.DataColumn(ft.Text(t('image'))),
+                ft.DataColumn(ft.Text(t('difficulty'))),
+                ft.DataColumn(ft.Text(t('points'))),
+                ft.DataColumn(ft.Text(t('status'))),
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf"),
@@ -85,35 +86,35 @@ class QuestionManagement(ft.UserControl):
         
         # Action buttons
         self.add_question_btn = ft.ElevatedButton(
-            text="Add Question",
+            text=t('add_question'),
             icon=ft.icons.ADD,
             on_click=self.show_add_question_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
         )
         
         self.bulk_import_btn = ft.ElevatedButton(
-            text="Bulk Import",
+            text=t('bulk_import'),
             icon=ft.icons.UPLOAD_FILE,
             on_click=self.show_bulk_import_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
         )
         
         self.download_template_btn = ft.ElevatedButton(
-            text="Download Template",
+            text=t('download_template'),
             icon=ft.icons.DOWNLOAD,
             on_click=self.download_template,
             style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
         )
         
         self.export_questions_btn = ft.ElevatedButton(
-            text="Export Questions",
+            text=t('export_questions'),
             icon=ft.icons.FILE_DOWNLOAD,
             on_click=self.export_questions,
             style=ft.ButtonStyle(bgcolor=COLORS['warning'], color=ft.colors.WHITE)
         )
 
         self.create_exam_btn = ft.ElevatedButton(
-            text="New Topic",
+            text=t('new_topic'),
             icon=ft.icons.LIBRARY_ADD,
             on_click=self.show_create_exam_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -144,7 +145,7 @@ class QuestionManagement(ft.UserControl):
         return ft.Column([
             # Header
             ft.Row([
-                ft.Text("Question Bank", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('question_bank'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
                 ft.Row([self.create_exam_btn, self.download_template_btn, self.bulk_import_btn, self.export_questions_btn, self.add_question_btn], spacing=10)
             ]),
@@ -241,8 +242,8 @@ class QuestionManagement(ft.UserControl):
         if not self.selected_exam_id:
             self.questions_table.rows.append(
                 ft.DataRow(cells=[
-                    ft.DataCell(ft.Text("Please select an exam to view questions", 
-                                      color=COLORS['text_secondary'], 
+                    ft.DataCell(ft.Text(t('please_select_exam_questions'),
+                                      color=COLORS['text_secondary'],
                                       size=16)),
                     ft.DataCell(ft.Text("")),
                     ft.DataCell(ft.Text("")),
@@ -260,8 +261,8 @@ class QuestionManagement(ft.UserControl):
         if not self.questions_data:
             self.questions_table.rows.append(
                 ft.DataRow(cells=[
-                    ft.DataCell(ft.Text("No questions found for this exam. Click 'Add Question' to create one.", 
-                                      color=COLORS['text_secondary'], 
+                    ft.DataCell(ft.Text(t('no_questions_found'),
+                                      color=COLORS['text_secondary'],
                                       size=16)),
                     ft.DataCell(ft.Text("")),
                     ft.DataCell(ft.Text("")),
@@ -285,7 +286,7 @@ class QuestionManagement(ft.UserControl):
             if len(question_text) > 50:
                 question_text = question_text[:47] + "..."
 
-            status = "Active" if question['is_active'] else "Inactive"
+            status = t('active') if question['is_active'] else t('inactive')
             status_color = COLORS['success'] if question['is_active'] else COLORS['error']
 
             # Create image indicator
@@ -304,7 +305,7 @@ class QuestionManagement(ft.UserControl):
             action_buttons = [
                 ft.IconButton(
                     icon=ft.icons.VISIBILITY,
-                    tooltip="View Question",
+                    tooltip=t('view_question'),
                     on_click=lambda e, q=question: self.view_question(q)
                 )
             ]
@@ -313,12 +314,12 @@ class QuestionManagement(ft.UserControl):
                 action_buttons.extend([
                     ft.IconButton(
                         icon=ft.icons.EDIT,
-                        tooltip="Edit Question",
+                        tooltip=t('edit_question_tooltip'),
                         on_click=lambda e, q=question: self.show_edit_question_dialog(q)
                     ),
                     ft.IconButton(
                         icon=ft.icons.DELETE,
-                        tooltip="Delete Question",
+                        tooltip=t('delete_question_tooltip'),
                         on_click=lambda e, q=question: self.delete_question(q),
                         icon_color=COLORS['error']
                     )
@@ -374,21 +375,21 @@ class QuestionManagement(ft.UserControl):
             is_valid, error_msg = selector.validate_question_pool_config(exam_data)
             
             # Create status badges for each difficulty
-            easy_status = self._create_difficulty_badge("Easy", stats['easy'], easy_requested)
-            medium_status = self._create_difficulty_badge("Medium", stats['medium'], medium_requested)
-            hard_status = self._create_difficulty_badge("Hard", stats['hard'], hard_requested)
+            easy_status = self._create_difficulty_badge(t('easy'), stats['easy'], easy_requested)
+            medium_status = self._create_difficulty_badge(t('medium'), stats['medium'], medium_requested)
+            hard_status = self._create_difficulty_badge(t('hard'), stats['hard'], hard_requested)
             
             # Overall status
             if is_valid:
                 overall_status = ft.Container(
-                    content=ft.Text("✓ Question Pool Ready", color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
+                    content=ft.Text(t('pool_ready'), color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
                     bgcolor=COLORS['success'],
                     padding=ft.padding.symmetric(horizontal=12, vertical=6),
                     border_radius=6
                 )
             else:
                 overall_status = ft.Container(
-                    content=ft.Text("⚠ Pool Configuration Issue", color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
+                    content=ft.Text(t('pool_issue'), color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
                     bgcolor=COLORS['error'],
                     padding=ft.padding.symmetric(horizontal=12, vertical=6),
                     border_radius=6
@@ -397,13 +398,13 @@ class QuestionManagement(ft.UserControl):
             content = ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.SHUFFLE, color=COLORS['primary']),
-                    ft.Text("Question Pool Configuration", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Text(t('question_pool_config'), size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
                     ft.Container(expand=True),
                     overall_status
                 ], spacing=8),
                 ft.Container(height=5),
                 ft.Row([
-                    ft.Text(f"Will select {total_requested} questions from {stats['total']} available", 
+                    ft.Text(t('will_select_questions').format(total_requested, stats['total']),
                            size=14, color=COLORS['text_secondary'])
                 ]),
                 ft.Container(height=10),
@@ -419,14 +420,14 @@ class QuestionManagement(ft.UserControl):
             content = ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.LIST_ALT, color=COLORS['text_secondary']),
-                    ft.Text("Question Bank Overview", size=16, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
+                    ft.Text(t('question_bank_overview'), size=16, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
                 ], spacing=8),
                 ft.Container(height=5),
                 ft.Row([
-                    ft.Text(f"Total: {stats['total']} questions", size=14, color=COLORS['text_secondary']),
-                    ft.Text(f"Easy: {stats['easy']}", size=14, color=COLORS['text_secondary']),
-                    ft.Text(f"Medium: {stats['medium']}", size=14, color=COLORS['text_secondary']),
-                    ft.Text(f"Hard: {stats['hard']}", size=14, color=COLORS['text_secondary'])
+                    ft.Text(t('total_questions').format(stats['total']), size=14, color=COLORS['text_secondary']),
+                    ft.Text(f"{t('easy')}: {stats['easy']}", size=14, color=COLORS['text_secondary']),
+                    ft.Text(f"{t('medium')}: {stats['medium']}", size=14, color=COLORS['text_secondary']),
+                    ft.Text(f"{t('hard')}: {stats['hard']}", size=14, color=COLORS['text_secondary'])
                 ], spacing=20)
             ], spacing=5)
         
@@ -448,8 +449,8 @@ class QuestionManagement(ft.UserControl):
             return ft.Container(
                 content=ft.Column([
                     ft.Text(label, size=12, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-                    ft.Text(f"{available} available", size=11, text_align=ft.TextAlign.CENTER),
-                    ft.Text("Not used", size=10, color=COLORS['text_secondary'], text_align=ft.TextAlign.CENTER)
+                    ft.Text(t('available_count').format(available), size=11, text_align=ft.TextAlign.CENTER),
+                    ft.Text(t('not_used'), size=10, color=COLORS['text_secondary'], text_align=ft.TextAlign.CENTER)
                 ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 bgcolor=ft.colors.with_opacity(0.1, COLORS['text_secondary']),
                 padding=ft.padding.all(8),
@@ -464,8 +465,8 @@ class QuestionManagement(ft.UserControl):
         return ft.Container(
             content=ft.Column([
                 ft.Text(label, size=12, weight=ft.FontWeight.BOLD, color=ft.colors.WHITE, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"{requested}/{available}", size=11, color=ft.colors.WHITE, text_align=ft.TextAlign.CENTER),
-                ft.Text("✓ OK" if has_enough else "✗ Not enough", size=10, color=ft.colors.WHITE, text_align=ft.TextAlign.CENTER)
+                ft.Text(t('requested_available').format(requested, available), size=11, color=ft.colors.WHITE, text_align=ft.TextAlign.CENTER),
+                ft.Text(t('ok') if has_enough else t('not_enough'), size=10, color=ft.colors.WHITE, text_align=ft.TextAlign.CENTER)
             ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=bg_color,
             padding=ft.padding.all(8),
@@ -509,7 +510,7 @@ class QuestionManagement(ft.UserControl):
         print(f"DEBUG: show_add_question_dialog called, selected_exam_id={self.selected_exam_id}")
         if not self.selected_exam_id:
             print("DEBUG: No exam selected, showing error dialog")
-            self.show_error_dialog("Please select an exam first")
+            self.show_error_dialog(t('please_select_exam'))
             return
         
         print("DEBUG: Exam is selected, calling show_question_dialog")
@@ -529,7 +530,7 @@ class QuestionManagement(ft.UserControl):
                 title=ft.Text("Test Dialog"),
                 content=ft.Text("This is a test dialog to verify dialog creation works"),
                 actions=[
-                    ft.TextButton("Close", on_click=lambda e: self.close_test_dialog())
+                    ft.TextButton(t('close'), on_click=lambda e: self.close_test_dialog())
                 ]
             )
             
@@ -555,7 +556,7 @@ class QuestionManagement(ft.UserControl):
     def show_question_dialog(self, question=None):
         print(f"DEBUG: show_question_dialog called, is_edit={question is not None}")
         is_edit = question is not None
-        title = "Edit Question" if is_edit else "Add New Question"
+        title = t('edit_question') if is_edit else t('add_new_question')
         print(f"DEBUG: Dialog title: {title}")
         
         # Check if page is available
@@ -566,49 +567,49 @@ class QuestionManagement(ft.UserControl):
         try:
             # Create a simple question dialog for now
             question_text_field = ft.TextField(
-                label="Question Text",
+                label=t('question_text'),
                 value=question['question_text'] if is_edit else "",
                 multiline=True,
                 min_lines=3,
                 max_lines=8,
                 content_padding=8
             )
-            
+
             question_type_dropdown = ft.Dropdown(
-                label="Question Type",
+                label=t('question_type'),
                 options=[
-                    ft.dropdown.Option("single_choice", "Single Choice"),
-                    ft.dropdown.Option("multiple_choice", "Multiple Choice"),
-                    ft.dropdown.Option("true_false", "True/False"),
-                    ft.dropdown.Option("short_answer", "Short Answer"),
-                    ft.dropdown.Option("essay", "Essay")
+                    ft.dropdown.Option("single_choice", t('single_choice')),
+                    ft.dropdown.Option("multiple_choice", t('multiple_choice')),
+                    ft.dropdown.Option("true_false", t('true_false')),
+                    ft.dropdown.Option("short_answer", t('short_answer')),
+                    ft.dropdown.Option("essay", t('essay'))
                 ],
                 value=question['question_type'] if is_edit else "single_choice",
                 on_change=self.question_type_changed,
                 content_padding=8
             )
-            
+
             difficulty_dropdown = ft.Dropdown(
-                label="Difficulty Level",
+                label=t('difficulty_level'),
                 options=[
-                    ft.dropdown.Option("easy", "Easy"),
-                    ft.dropdown.Option("medium", "Medium"),
-                    ft.dropdown.Option("hard", "Hard")
+                    ft.dropdown.Option("easy", t('easy')),
+                    ft.dropdown.Option("medium", t('medium')),
+                    ft.dropdown.Option("hard", t('hard'))
                 ],
                 value=question['difficulty_level'] if is_edit else "medium",
                 content_padding=8
             )
-            
+
             points_field = ft.TextField(
-                label="Points",
+                label=t('points'),
                 value=str(question['points']) if is_edit else "1",
                 keyboard_type=ft.KeyboardType.NUMBER,
                 content_padding=8
             )
-            
-            
+
+
             explanation_field = ft.TextField(
-                label="Explanation (optional)",
+                label=t('explanation_optional'),
                 value=question['explanation'] if is_edit else "",
                 multiline=True,
                 min_lines=2,
@@ -681,14 +682,14 @@ class QuestionManagement(ft.UserControl):
             def save_question(e):
                 try:
                     if not question_text_field.value.strip():
-                        error_text.value = "Question text is required"
+                        error_text.value = t('question_text_required')
                         error_text.visible = True
                         self.question_dialog.update()
                         return
-                    
+
                     points = float(points_field.value)
                     if points <= 0:
-                        error_text.value = "Points must be greater than 0"
+                        error_text.value = t('points_greater_zero')
                         error_text.visible = True
                         self.question_dialog.update()
                         return
@@ -767,11 +768,11 @@ class QuestionManagement(ft.UserControl):
                     self.load_questions()
                     
                 except ValueError:
-                    error_text.value = "Please enter valid numeric values"
+                    error_text.value = t('valid_numeric')
                     error_text.visible = True
                     self.question_dialog.update()
                 except Exception as ex:
-                    error_text.value = f"Error saving question: {str(ex)}"
+                    error_text.value = t('error_saving_question').format(str(ex))
                     error_text.visible = True
                     self.question_dialog.update()
             
@@ -797,9 +798,9 @@ class QuestionManagement(ft.UserControl):
                     height=700
                 ),
                 actions=[
-                    ft.TextButton("Cancel", on_click=close_dialog),
+                    ft.TextButton(t('cancel'), on_click=close_dialog),
                     ft.ElevatedButton(
-                        "Save" if is_edit else "Create",
+                        t('save') if is_edit else t('create'),
                         on_click=save_question,
                         style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                     )
@@ -837,7 +838,7 @@ class QuestionManagement(ft.UserControl):
             # Show fallback error dialog
             error_dialog = ft.AlertDialog(
                 modal=True,
-                title=ft.Text("Error"),
+                title=ft.Text(t('error')),
                 content=ft.Text(f"Failed to create question dialog: {str(e)}"),
                 actions=[ft.TextButton("OK", on_click=lambda e: self.close_error_dialog())]
             )
@@ -878,12 +879,12 @@ class QuestionManagement(ft.UserControl):
             
             if question_type == 'single_choice':
                 self.options_container.controls.append(
-                    ft.Text("Answer Options (Select ONE correct answer):", 
+                    ft.Text(t('answer_options_single'),
                            weight=ft.FontWeight.BOLD, size=16, color=COLORS['primary'])
                 )
             else:  # multiple_choice
                 self.options_container.controls.append(
-                    ft.Text("Answer Options (Select ALL correct answers):", 
+                    ft.Text(t('answer_options_multiple'),
                            weight=ft.FontWeight.BOLD, size=16, color=COLORS['success'])
                 )
             
@@ -891,21 +892,21 @@ class QuestionManagement(ft.UserControl):
                 if question_type == 'single_choice':
                     # Use checkbox for single choice but with single-selection logic
                     correct_control = ft.Checkbox(
-                        label="Correct",
+                        label=t('correct'),
                         value=option['is_correct'],
                         on_change=lambda e, idx=i: self.update_single_choice_correct(idx, e.control.value)
                     )
                 else:  # multiple_choice
                     # Checkbox behavior for multiple choice
                     correct_control = ft.Checkbox(
-                        label="Correct",
+                        label=t('correct'),
                         value=option['is_correct'],
                         on_change=lambda e, idx=i: self.update_multiple_choice_correct(idx, e.control.value)
                     )
                 
                 option_row = ft.Row([
                     ft.TextField(
-                        label=f"Option {i+1}",
+                        label=t('option_number').format(i+1),
                         value=option['text'],
                         on_change=lambda e, idx=i: self.update_option_text(idx, e.control.value),
                         expand=True,
@@ -923,7 +924,7 @@ class QuestionManagement(ft.UserControl):
             
             # Add Option button (no limit)
             add_option_btn = ft.ElevatedButton(
-                text="Add Option",
+                text=t('add_option_text'),
                 icon=ft.icons.ADD,
                 on_click=self.add_option,
                 style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
@@ -941,26 +942,26 @@ class QuestionManagement(ft.UserControl):
         
         # Create true/false options
         self.options_data = [
-            {'text': 'True', 'is_correct': True},
-            {'text': 'False', 'is_correct': False}
+            {'text': t('true'), 'is_correct': True},
+            {'text': t('false'), 'is_correct': False}
         ]
-        
+
         # Add header
         self.options_container.controls.append(
-            ft.Text("Select the correct answer:", 
+            ft.Text(t('select_correct_answer'),
                    weight=ft.FontWeight.BOLD, size=16, color=COLORS['primary'])
         )
-        
+
         # Create radio buttons for True/False
         def update_true_false_answer(e):
             is_true_selected = e.control.value == "true"
             self.options_data[0]['is_correct'] = is_true_selected  # True option
             self.options_data[1]['is_correct'] = not is_true_selected  # False option
-        
+
         correct_answer_group = ft.RadioGroup(
             content=ft.Column([
-                ft.Radio(value="true", label="True"),
-                ft.Radio(value="false", label="False")
+                ft.Radio(value="true", label=t('true')),
+                ft.Radio(value="false", label=t('false'))
             ]),
             value="true" if self.options_data[0]['is_correct'] else "false",
             on_change=update_true_false_answer
@@ -981,11 +982,11 @@ class QuestionManagement(ft.UserControl):
         self.options_data = []
         
         if question_type == 'short_answer':
-            header_text = "Short Answer Question"
-            help_text = "Students will type a brief text response. You can provide sample answers or keywords for grading reference."
+            header_text = t('short_answer_question')
+            help_text = t('short_answer_help')
         else:  # essay
-            header_text = "Essay Question"
-            help_text = "Students will write a longer text response. This will require manual grading."
+            header_text = t('essay_question')
+            help_text = t('essay_help')
         
         # Add header
         self.options_container.controls.append(
@@ -1002,8 +1003,8 @@ class QuestionManagement(ft.UserControl):
         
         # Add sample answer field (optional)
         sample_answer_field = ft.TextField(
-            label="Sample Answer / Keywords (Optional)",
-            hint_text="Provide sample answers or keywords for grading reference",
+            label=t('sample_answer_label'),
+            hint_text=t('sample_answers'),
             multiline=True,
             min_lines=2,
             max_lines=4 if question_type == 'short_answer' else 6,
@@ -1102,7 +1103,7 @@ class QuestionManagement(ft.UserControl):
             header_content.append(
                 ft.Container(
                     content=ft.Column([
-                        ft.Text("Question Image:", size=14, weight=ft.FontWeight.BOLD),
+                        ft.Text(t('question_image_label'), size=14, weight=ft.FontWeight.BOLD),
                         ft.Container(
                             content=ft.Image(
                                 src=question['image_path'],
@@ -1117,7 +1118,7 @@ class QuestionManagement(ft.UserControl):
                             padding=ft.padding.all(5),
                             on_click=lambda e: self.show_fullscreen_image(question['image_path'])
                         ),
-                        ft.Text("Click image to view full size", size=12, italic=True, color=COLORS['text_secondary'])
+                        ft.Text(t('click_to_view'), size=12, italic=True, color=COLORS['text_secondary'])
                     ], spacing=8),
                     margin=ft.margin.only(top=12)
                 )
@@ -1161,9 +1162,9 @@ class QuestionManagement(ft.UserControl):
             
             options_card = ft.Container(
                 content=ft.Column([
-                    ft.Text("Answer Options", 
-                           size=16, 
-                           weight=ft.FontWeight.BOLD, 
+                    ft.Text(t('answer_options'),
+                           size=16,
+                           weight=ft.FontWeight.BOLD,
                            color=COLORS['text_primary']),
                     ft.Column(options_items, spacing=8)
                 ], spacing=12),
@@ -1178,12 +1179,12 @@ class QuestionManagement(ft.UserControl):
         elif question['question_type'] in ['short_answer', 'essay'] and question.get('correct_answer'):
             answer_card = ft.Container(
                 content=ft.Column([
-                    ft.Text("Sample Answer / Keywords", 
-                           size=16, 
-                           weight=ft.FontWeight.BOLD, 
+                    ft.Text(t('sample_answer_keywords'),
+                           size=16,
+                           weight=ft.FontWeight.BOLD,
                            color=COLORS['text_primary']),
-                    ft.Text(question['correct_answer'], 
-                           size=14, 
+                    ft.Text(question['correct_answer'],
+                           size=14,
                            color=COLORS['text_secondary'])
                 ], spacing=8),
                 padding=ft.padding.all(16),
@@ -1197,12 +1198,12 @@ class QuestionManagement(ft.UserControl):
         if question.get('explanation'):
             explanation_card = ft.Container(
                 content=ft.Column([
-                    ft.Text("Explanation", 
-                           size=16, 
-                           weight=ft.FontWeight.BOLD, 
+                    ft.Text(t('explanation'),
+                           size=16,
+                           weight=ft.FontWeight.BOLD,
                            color=COLORS['text_primary']),
-                    ft.Text(question['explanation'], 
-                           size=14, 
+                    ft.Text(question['explanation'],
+                           size=14,
                            color=COLORS['text_secondary'])
                 ], spacing=8),
                 padding=ft.padding.all(16),
@@ -1218,7 +1219,7 @@ class QuestionManagement(ft.UserControl):
         
         preview_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Question Preview", size=20, weight=ft.FontWeight.BOLD),
+            title=ft.Text(t('question_preview'), size=20, weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 content=ft.Column(content_sections, spacing=16, scroll=ft.ScrollMode.AUTO),
                 width=800,
@@ -1226,7 +1227,7 @@ class QuestionManagement(ft.UserControl):
             ),
             actions=[
                 ft.TextButton(
-                    "Close", 
+                    t('close'),
                     on_click=close_preview,
                     style=ft.ButtonStyle(color=COLORS['primary'])
                 )
@@ -1272,12 +1273,12 @@ class QuestionManagement(ft.UserControl):
         
         confirm_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Confirm Delete"),
-            content=ft.Text("Are you sure you want to delete this question? This action cannot be undone."),
+            title=ft.Text(t('confirm_delete_title')),
+            content=ft.Text(t('confirm_delete_question')),
             actions=[
-                ft.TextButton("Cancel", on_click=cancel_delete),
+                ft.TextButton(t('cancel'), on_click=cancel_delete),
                 ft.ElevatedButton(
-                    "Delete",
+                    t('delete'),
                     on_click=confirm_delete,
                     style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
                 )
@@ -1290,9 +1291,9 @@ class QuestionManagement(ft.UserControl):
     
     def show_bulk_import_dialog(self, e):
         if not self.selected_exam_id:
-            self.show_error_dialog("Please select an exam first")
+            self.show_error_dialog(t('please_select_exam'))
             return
-        
+
         # File picker for upload
         file_picker = ft.FilePicker(
             on_result=self.process_bulk_import
@@ -1300,7 +1301,7 @@ class QuestionManagement(ft.UserControl):
         self.page.overlay.append(file_picker)
         self.page.update()
         file_picker.pick_files(
-            dialog_title="Select Questions File",
+            dialog_title=t('select_questions_file'),
             allowed_extensions=["csv", "xlsx", "xls"]
         )
     
@@ -1309,11 +1310,11 @@ class QuestionManagement(ft.UserControl):
         # Check if user cancelled file selection
         if not e.files:
             return
-        
+
         # Get the selected file
         file_path = e.files[0].path
         if not file_path:
-            self.show_error_dialog("No file selected")
+            self.show_error_dialog(t('no_file_selected'))
             return
         
         # Show loading dialog
@@ -1354,8 +1355,8 @@ class QuestionManagement(ft.UserControl):
             # Show success message
             success_dialog = ft.AlertDialog(
                 modal=True,
-                title=ft.Text("Template Downloaded"),
-                content=ft.Text(f"Template file saved to:\n{template_path}"),
+                title=ft.Text(t('template_downloaded')),
+                content=ft.Text(t('template_saved_to').format(template_path)),
                 actions=[ft.TextButton("OK", on_click=lambda e: self.close_success_dialog())]
             )
             self.page.dialog = success_dialog
@@ -1363,11 +1364,11 @@ class QuestionManagement(ft.UserControl):
             self.page.update()
             
         except Exception as ex:
-            self.show_error_dialog(f"Error downloading template: {str(ex)}")
+            self.show_error_dialog(t('error_downloading_template').format(str(ex)))
     
     def export_questions(self, e):
         if not self.selected_exam_id:
-            self.show_error_dialog("Please select an exam first")
+            self.show_error_dialog(t('please_select_exam'))
             return
         
         try:
@@ -1387,7 +1388,7 @@ class QuestionManagement(ft.UserControl):
             """, (self.selected_exam_id,))
             
             if not questions:
-                self.show_error_dialog("No questions found in this exam")
+                self.show_error_dialog(t('no_questions_found_exam'))
                 return
             
             # Convert to template format
@@ -1448,8 +1449,8 @@ class QuestionManagement(ft.UserControl):
             # Show success message
             success_dialog = ft.AlertDialog(
                 modal=True,
-                title=ft.Text("Questions Exported"),
-                content=ft.Text(f"Exported {len(questions)} questions to:\n{file_path}"),
+                title=ft.Text(t('questions_exported_title')),
+                content=ft.Text(t('questions_exported_message').format(len(questions), file_path)),
                 actions=[ft.TextButton("OK", on_click=lambda e: self.close_success_dialog())]
             )
             self.page.dialog = success_dialog
@@ -1457,7 +1458,7 @@ class QuestionManagement(ft.UserControl):
             self.page.update()
             
         except Exception as ex:
-            self.show_error_dialog(f"Error exporting questions: {str(ex)}")
+            self.show_error_dialog(t('error_exporting_questions').format(str(ex)))
     
     def close_success_dialog(self):
         self.page.dialog.open = False
@@ -1466,7 +1467,7 @@ class QuestionManagement(ft.UserControl):
     def show_error_dialog(self, message):
         error_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Error"),
+            title=ft.Text(t('error')),
             content=ft.Text(message),
             actions=[ft.TextButton("OK", on_click=lambda e: self.close_error_dialog())]
         )
@@ -1482,10 +1483,10 @@ class QuestionManagement(ft.UserControl):
         """Show progress dialog during import"""
         progress_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Importing Questions"),
+            title=ft.Text(t('importing_questions')),
             content=ft.Column([
                 ft.ProgressRing(),
-                ft.Text("Processing your file, please wait...", text_align=ft.TextAlign.CENTER)
+                ft.Text(t('processing_file'), text_align=ft.TextAlign.CENTER)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, height=100),
         )
         self.page.dialog = progress_dialog
@@ -1500,21 +1501,21 @@ class QuestionManagement(ft.UserControl):
     
     def show_import_success_dialog(self, result):
         """Show success dialog with import results"""
-        success_text = f"Import completed successfully!\n\n"
-        success_text += f"✅ Imported: {result['imported_count']} questions\n"
+        success_text = t('import_completed') + "\n\n"
+        success_text += t('imported_count').format(result['imported_count']) + "\n"
         if result.get('skipped_count', 0) > 0:
-            success_text += f"⚠️ Skipped: {result['skipped_count']} questions\n"
+            success_text += t('skipped_count').format(result['skipped_count']) + "\n"
         if result.get('error_count', 0) > 0:
-            success_text += f"❌ Errors: {result['error_count']} questions\n"
-        success_text += f"📝 Total processed: {result.get('total', result['imported_count'] + result.get('skipped_count', 0))}"
-        
+            success_text += t('error_count').format(result['error_count']) + "\n"
+        success_text += t('total_processed').format(result.get('total', result['imported_count'] + result.get('skipped_count', 0)))
+
         success_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Import Successful", color=COLORS['success']),
+            title=ft.Text(t('import_successful'), color=COLORS['success']),
             content=ft.Text(success_text),
             actions=[
                 ft.TextButton(
-                    "OK", 
+                    "OK",
                     on_click=lambda e: self.close_import_success_dialog(),
                     style=ft.ButtonStyle(color=COLORS['primary'])
                 )
@@ -1533,10 +1534,10 @@ class QuestionManagement(ft.UserControl):
         """Show detailed error dialog for import failures"""
         error_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Import Failed", color=COLORS['error']),
+            title=ft.Text(t('import_failed_title'), color=COLORS['error']),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("The import failed with the following error:"),
+                    ft.Text(t('import_failed_message')),
                     ft.Container(height=10),
                     ft.Container(
                         content=ft.Text(
@@ -1551,11 +1552,7 @@ class QuestionManagement(ft.UserControl):
                     ),
                     ft.Container(height=10),
                     ft.Text(
-                        "💡 Tips:\n"
-                        "• Download the template to see the correct format\n"
-                        "• Ensure all required columns are present\n"
-                        "• Check that question types are valid\n"
-                        "• Verify choice questions have at least 2 options",
+                        t('import_tips'),
                         size=12,
                         color=COLORS['text_secondary']
                     )
@@ -1565,12 +1562,12 @@ class QuestionManagement(ft.UserControl):
             ),
             actions=[
                 ft.TextButton(
-                    "Download Template", 
+                    t('download_template'),
                     on_click=lambda e: [self.close_import_error_dialog(), self.download_template(e)],
                     style=ft.ButtonStyle(color=COLORS['primary'])
                 ),
                 ft.TextButton(
-                    "Close", 
+                    t('close'),
                     on_click=lambda e: self.close_import_error_dialog(),
                     style=ft.ButtonStyle(color=COLORS['text_secondary'])
                 )
@@ -1588,7 +1585,7 @@ class QuestionManagement(ft.UserControl):
     def build_image_upload_ui(self):
         """Build the image upload interface"""
         # Image preview and upload controls with horizontal layout
-        header = ft.Text("Question Image (Optional):", size=14, weight=ft.FontWeight.BOLD)
+        header = ft.Text(t('question_image_title'), size=14, weight=ft.FontWeight.BOLD)
         
         if self.current_image_full_path:
             # State 1: Image on left, action buttons on right
@@ -1608,13 +1605,13 @@ class QuestionManagement(ft.UserControl):
             
             buttons = ft.Column([
                 ft.ElevatedButton(
-                    "Change Image",
+                    t('change_image'),
                     icon=ft.icons.EDIT,
                     on_click=self.select_image,
                     style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
                 ),
                 ft.ElevatedButton(
-                    "Remove Image",
+                    t('remove_image'),
                     icon=ft.icons.DELETE,
                     on_click=self.remove_image,
                     style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
@@ -1627,7 +1624,7 @@ class QuestionManagement(ft.UserControl):
             placeholder_container = ft.Container(
                 content=ft.Column([
                     ft.Icon(ft.icons.IMAGE, size=32, color=ft.colors.OUTLINE),
-                    ft.Text("No image selected", size=12, color=ft.colors.OUTLINE)
+                    ft.Text(t('no_image_selected'), size=12, color=ft.colors.OUTLINE)
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
                 width=200,
                 height=120,
@@ -1637,9 +1634,9 @@ class QuestionManagement(ft.UserControl):
                 padding=ft.padding.all(15),
                 alignment=ft.alignment.center
             )
-            
+
             upload_button = ft.ElevatedButton(
-                "Upload Image",
+                t('upload_image_btn'),
                 icon=ft.icons.UPLOAD,
                 on_click=self.select_image,
                 style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -1653,7 +1650,7 @@ class QuestionManagement(ft.UserControl):
         """Open file picker to select an image"""
         if self.image_file_picker:
             self.image_file_picker.pick_files(
-                dialog_title="Select Question Image",
+                dialog_title=t('select_question_image'),
                 allowed_extensions=list(ALLOWED_EXTENSIONS),
                 allow_multiple=False
             )
@@ -1665,13 +1662,13 @@ class QuestionManagement(ft.UserControl):
             
             # Validate file size
             if file.size > MAX_FILE_SIZE:
-                self.show_error_dialog(f"File size too large. Maximum allowed: {MAX_FILE_SIZE // (1024*1024)}MB")
+                self.show_error_dialog(t('file_size_too_large').format(MAX_FILE_SIZE // (1024*1024)))
                 return
-            
+
             # Validate file extension
             file_ext = file.name.split('.')[-1].lower()
             if file_ext not in ALLOWED_EXTENSIONS:
-                self.show_error_dialog(f"Invalid file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+                self.show_error_dialog(t('invalid_file_type').format(', '.join(ALLOWED_EXTENSIONS)))
                 return
             
             try:
@@ -1697,7 +1694,7 @@ class QuestionManagement(ft.UserControl):
                 self.update_image_upload_ui()
                 
             except Exception as ex:
-                self.show_error_dialog(f"Error uploading image: {str(ex)}")
+                self.show_error_dialog(t('error_uploading_image').format(str(ex)))
     
     def remove_image(self, e):
         """Remove the current image"""
@@ -1735,7 +1732,7 @@ class QuestionManagement(ft.UserControl):
         
         image_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Question Image", size=18, weight=ft.FontWeight.BOLD),
+            title=ft.Text(t('question_image_title'), size=18, weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 content=ft.Image(
                     src=image_path,
@@ -1749,7 +1746,7 @@ class QuestionManagement(ft.UserControl):
             ),
             actions=[
                 ft.TextButton(
-                    "Close",
+                    t('close'),
                     on_click=close_image_dialog,
                     style=ft.ButtonStyle(color=COLORS['primary'])
                 )
@@ -1767,25 +1764,25 @@ class QuestionManagement(ft.UserControl):
     def show_exam_dialog(self, exam=None):
         """Create or edit exam template dialog"""
         is_edit = exam is not None
-        title = "Edit Topic" if is_edit else "Create Topic"
+        title = t('edit_topic') if is_edit else t('create_exam')
 
         # Form fields - Only basic topic information
         exam_title_field = ft.TextField(
-            label="Topic Title *",
+            label=t('title') + " *",
             value=exam['title'] if is_edit else "",
             content_padding=8,
-            hint_text="Enter a descriptive exam title",
+            hint_text=t('enter_descriptive_title'),
             width=600
         )
 
         description_field = ft.TextField(
-            label="Description (optional)",
+            label=t('description'),
             value=exam['description'] if is_edit else "",
             multiline=True,
             min_lines=3,
             max_lines=6,
             content_padding=8,
-            hint_text="Provide exam instructions or description",
+            hint_text=t('provide_instructions'),
             width=600
         )
 
@@ -1794,7 +1791,7 @@ class QuestionManagement(ft.UserControl):
         def save_exam(e):
             # Validate required fields
             if not exam_title_field.value.strip():
-                error_text.value = "Exam title is required"
+                error_text.value = t('exam_title_required')
                 error_text.visible = True
                 self.exam_dialog.update()
                 return
@@ -1841,7 +1838,7 @@ class QuestionManagement(ft.UserControl):
                     self.update()
 
             except Exception as ex:
-                error_text.value = f"Error saving exam: {str(ex)}"
+                error_text.value = t('error_saving_exam').format(str(ex))
                 error_text.visible = True
                 self.exam_dialog.update()
 
@@ -1863,9 +1860,9 @@ class QuestionManagement(ft.UserControl):
                 height=300
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
-                    "Save" if is_edit else "Create",
+                    t('save') if is_edit else t('create'),
                     on_click=save_exam,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )

@@ -1,6 +1,7 @@
 import flet as ft
 from quiz_app.utils.auth import AuthManager
 from quiz_app.config import COLORS
+from quiz_app.utils.localization import t
 
 class LoginView(ft.UserControl):
     def __init__(self, session_manager, on_login_success):
@@ -9,10 +10,10 @@ class LoginView(ft.UserControl):
         self.session_manager = session_manager
         self.on_login_success = on_login_success
         self.auth_manager = AuthManager()
-        
+
         # Form controls
         self.username_field = ft.TextField(
-            label="Username or Email",
+            label=t('username_or_email'),
             prefix_icon=ft.icons.PERSON,
             border_radius=8,
             filled=True,
@@ -22,7 +23,7 @@ class LoginView(ft.UserControl):
         )
 
         self.password_field = ft.TextField(
-            label="Password",
+            label=t('password'),
             prefix_icon=ft.icons.LOCK,
             password=True,
             can_reveal_password=True,
@@ -34,7 +35,7 @@ class LoginView(ft.UserControl):
         )
 
         self.login_button = ft.ElevatedButton(
-            text="Login",
+            text=t('login'),
             width=300,
             height=45,
             style=ft.ButtonStyle(
@@ -45,14 +46,14 @@ class LoginView(ft.UserControl):
             ),
             on_click=self.login_clicked
         )
-        
+
         self.error_text = ft.Text(
             "",
             color=COLORS['error'],
             size=14,
             visible=False
         )
-        
+
         self.loading_ring = ft.ProgressRing(
             width=16,
             height=16,
@@ -81,7 +82,7 @@ class LoginView(ft.UserControl):
                         ),
                         ft.Container(height=15),
                         ft.Text(
-                            "Quiz Examination System",
+                            t('app_name'),
                             size=28,
                             weight=ft.FontWeight.BOLD,
                             color=COLORS['text_primary'],
@@ -89,7 +90,7 @@ class LoginView(ft.UserControl):
                         ),
                         ft.Container(height=5),
                         ft.Text(
-                            "Please sign in to continue",
+                            t('please_sign_in'),
                             size=14,
                             color=COLORS['text_secondary'],
                             text_align=ft.TextAlign.CENTER
@@ -141,7 +142,7 @@ class LoginView(ft.UserControl):
         password = self.password_field.value
 
         if not username or not password:
-            self.show_error("Please enter both username and password")
+            self.show_error(t('enter_credentials'))
             self.show_loading(False)
             return
 
@@ -153,26 +154,26 @@ class LoginView(ft.UserControl):
             if self.session_manager.create_session(user_data):
                 self.on_login_success(self.page, user_data)
             else:
-                self.show_error("Failed to create session")
+                self.show_error(t('session_failed'))
                 self.show_loading(False)
         else:
-            self.show_error("Invalid username or password")
+            self.show_error(t('invalid_credentials'))
             self.show_loading(False)
-    
+
     def show_error(self, message: str):
         self.error_text.value = message
         self.error_text.visible = True
         self.update()
-    
+
     def hide_error(self):
         self.error_text.visible = False
         self.update()
-    
+
     def show_loading(self, show: bool):
         self.loading_ring.visible = show
         self.login_button.disabled = show
         if show:
-            self.login_button.text = "Signing in..."
+            self.login_button.text = t('signing_in')
         else:
-            self.login_button.text = "Login"
+            self.login_button.text = t('login')
         self.update()

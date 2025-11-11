@@ -1,9 +1,11 @@
 import flet as ft
 import random
 import json
+import os
 from datetime import datetime, timedelta, date
 from quiz_app.config import COLORS
 from quiz_app.utils.permissions import UnitPermissionManager
+from quiz_app.utils.localization import t
 
 class QuizManagement(ft.UserControl):
     def __init__(self, db, user_data):
@@ -14,13 +16,22 @@ class QuizManagement(ft.UserControl):
         self.all_exams_data = []  # Keep original data for filtering
         self.selected_exam = None
 
+        # Initialize file picker for PDF downloads
+        self.file_picker = ft.FilePicker(on_result=self.on_file_picker_result)
+        self.pending_pdf_data = None  # Store PDF data temporarily
+        self.pending_exam_pdfs = []  # Queue for multiple exam PDFs
+
+        # Create temp directory for PDFs
+        import tempfile
+        self.temp_dir = tempfile.mkdtemp(prefix="exam_exports_")
+
         # Load default settings
         self.default_passing_score = self.get_setting('passing_score', '70')
         self.default_exam_duration = self.get_setting('default_exam_duration', '60')
 
         # Search control
         self.search_field = ft.TextField(
-            label="Search exams...",
+            label=t('search_exams'),
             prefix_icon=ft.icons.SEARCH,
             on_change=self.apply_filters,
             expand=True
@@ -28,12 +39,12 @@ class QuizManagement(ft.UserControl):
 
         # Status filter
         self.status_filter = ft.Dropdown(
-            label="Filter by Status",
+            label=t('filter_by_status'),
             options=[
-                ft.dropdown.Option("all", "All Status"),
-                ft.dropdown.Option("active", "Active"),
-                ft.dropdown.Option("inactive", "Inactive"),
-                ft.dropdown.Option("scheduled", "Scheduled")
+                ft.dropdown.Option("all", t('all')),
+                ft.dropdown.Option("active", t('active')),
+                ft.dropdown.Option("inactive", t('inactive')),
+                ft.dropdown.Option("scheduled", t('scheduled'))
             ],
             value="all",
             on_change=self.apply_filters,
@@ -44,14 +55,14 @@ class QuizManagement(ft.UserControl):
         self.exams_table = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("#")),
-                ft.DataColumn(ft.Text("Assignment (Exam)")),
-                ft.DataColumn(ft.Text("Duration")),
+                ft.DataColumn(ft.Text(t('assignment'))),
+                ft.DataColumn(ft.Text(t('duration'))),
                 ft.DataColumn(ft.Text("Passing Score")),
-                ft.DataColumn(ft.Text("Type")),
-                ft.DataColumn(ft.Text("Questions")),
-                ft.DataColumn(ft.Text("Completion")),
+                ft.DataColumn(ft.Text(t('type'))),
+                ft.DataColumn(ft.Text(t('questions'))),
+                ft.DataColumn(ft.Text(t('completion'))),
                 ft.DataColumn(ft.Text("Deadline")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf"),
@@ -60,7 +71,7 @@ class QuizManagement(ft.UserControl):
 
         # Action buttons
         self.add_exam_btn = ft.ElevatedButton(
-            text="Create Topic",
+            text=t('create_exam'),
             icon=ft.icons.ADD,
             on_click=self.show_add_exam_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -85,12 +96,72 @@ class QuizManagement(ft.UserControl):
     def did_mount(self):
         """Called after the control is added to the page"""
         super().did_mount()
+        # Add file picker to overlay
+        if self.page and hasattr(self.page, 'overlay'):
+            self.page.overlay.append(self.file_picker)
+            self.page.update()
         self.load_exams()
+
+    def will_unmount(self):
+        """Called before the control is removed from the page"""
+        super().will_unmount()
+        # Clean up temp directory
+        if hasattr(self, 'temp_dir') and os.path.exists(self.temp_dir):
+            try:
+                import shutil
+                shutil.rmtree(self.temp_dir)
+            except Exception as ex:
+                print(f"Error cleaning up temp directory: {ex}")
+
+    def on_file_picker_result(self, e: ft.FilePickerResultEvent):
+        """Handle file picker result"""
+        if e.path and self.pending_pdf_data:
+            try:
+                # Save the PDF to the selected location
+                import shutil
+                shutil.move(self.pending_pdf_data['temp_path'], e.path)
+                self.show_message(t('success'), f"{t('file_saved')}: {e.path}")
+            except Exception as ex:
+                self.show_message(t('error'), f"{t('file_save_error')}: {str(ex)}")
+                # Try to clean up temp file on error
+                if os.path.exists(self.pending_pdf_data['temp_path']):
+                    try:
+                        os.remove(self.pending_pdf_data['temp_path'])
+                    except:
+                        pass
+            finally:
+                self.pending_pdf_data = None
+                # Check if there are more exam PDFs to save
+                if hasattr(self, 'pending_exam_pdfs') and self.pending_exam_pdfs:
+                    self.save_next_exam_pdf()
+
+    def save_pdf_with_picker(self, temp_filepath, suggested_filename):
+        """Show file picker to save PDF"""
+        try:
+            self.pending_pdf_data = {
+                'temp_path': temp_filepath,
+                'suggested_name': suggested_filename
+            }
+            self.file_picker.save_file(
+                dialog_title=t('save_pdf_as'),
+                file_name=suggested_filename,
+                allowed_extensions=["pdf"]
+            )
+        except Exception as ex:
+            self.show_message(t('error'), f"{t('file_save_error')}: {str(ex)}")
+
+    def save_next_exam_pdf(self):
+        """Save the next PDF in the queue"""
+        if not hasattr(self, 'pending_exam_pdfs') or not self.pending_exam_pdfs:
+            return
+
+        # Get the next PDF to save
+        pdf_info = self.pending_exam_pdfs.pop(0)
+        self.save_pdf_with_picker(pdf_info['path'], pdf_info['default_name'])
 
     def export_assignment_as_pdf(self, assignment):
         """Show dialog to export assignment as PDF using configured variant count"""
         from quiz_app.utils.pdf_generator import ExamPDFGenerator
-        import os
 
         # Check if assignment has randomization enabled
         has_randomize = bool(assignment.get('randomize_questions'))
@@ -105,7 +176,7 @@ class QuizManagement(ft.UserControl):
             content=ft.Row([
                 ft.Icon(ft.icons.WARNING, color=COLORS['warning'], size=16),
                 ft.Text(
-                    "Randomization is disabled. All variants will be identical.",
+                    t('randomization_disabled'),
                     size=11,
                     color=COLORS['warning']
                 )
@@ -122,15 +193,12 @@ class QuizManagement(ft.UserControl):
                 export_dialog.content = ft.Container(
                     content=ft.Column([
                         ft.ProgressRing(),
-                        ft.Text(f"Generating {num_variants} variant(s)...", size=14)
+                        ft.Text(t('generating_variants').format(num_variants), size=14)
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                     padding=20
                 )
                 export_dialog.actions = []
                 self.page.update()
-
-                # Ensure export folder exists
-                os.makedirs("exam_exports", exist_ok=True)
 
                 pdf_gen = ExamPDFGenerator(self.db)
                 generated_files = []
@@ -181,8 +249,8 @@ class QuizManagement(ft.UserControl):
 
                     # Generate file paths
                     exam_id = pdf_gen.generate_instance_id(assignment['id'], variant)
-                    paper_path = f"exam_exports/{exam_id}_paper.pdf"
-                    answers_path = f"exam_exports/{exam_id}_answers.pdf"
+                    paper_path = os.path.join(self.temp_dir, f"{exam_id}_paper.pdf")
+                    answers_path = os.path.join(self.temp_dir, f"{exam_id}_answers.pdf")
 
                     # Generate PDFs
                     pdf_gen.generate_exam_paper(assignment, variant_snapshot, variant, paper_path)
@@ -214,48 +282,48 @@ class QuizManagement(ft.UserControl):
                 export_dialog.content = ft.Container(
                     content=ft.Column([
                         ft.Icon(ft.icons.ERROR, color=COLORS['error'], size=48),
-                        ft.Text("Error generating PDFs", size=16, weight=ft.FontWeight.BOLD),
+                        ft.Text(t('error_generating_pdfs'), size=16, weight=ft.FontWeight.BOLD),
                         ft.Text(str(ex), size=12, color=COLORS['error'])
                     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                     padding=20
                 )
-                export_dialog.actions = [ft.TextButton("Close", on_click=lambda e: self.close_export_dialog(export_dialog))]
+                export_dialog.actions = [ft.TextButton(t('close'), on_click=lambda e: self.close_export_dialog(export_dialog))]
                 self.page.update()
 
         export_dialog = ft.AlertDialog(
-            title=ft.Text("Export Assignment as PDF"),
+            title=ft.Text(t('export_assignment_as_pdf')),
             content=ft.Column([
-                ft.Text(f"Assignment: {assignment['assignment_name']}", weight=ft.FontWeight.BOLD),
+                ft.Text(f"{t('assignment')}: {assignment['assignment_name']}", weight=ft.FontWeight.BOLD),
                 ft.Text(
-                    "Questions: "
+                    f"{t('questions')}: "
                     + (
                         f"{assignment['question_count']} "
                         if not assignment.get('question_bank_count')
                         or assignment['question_bank_count'] == assignment['question_count']
-                        else f"{assignment['question_count']} (of {assignment['question_bank_count']})"
+                        else f"{assignment['question_count']} ({t('of')} {assignment['question_bank_count']})"
                     ),
                     size=12,
                     color=COLORS['text_secondary']
                 ),
                 ft.Divider(),
                 ft.Text(
-                    f"Variants configured: {num_variants}",
+                    f"{t('variants_configured')}: {num_variants}",
                     size=12,
                     weight=ft.FontWeight.BOLD
                 ),
                 warning,
                 ft.Container(height=10),
-                ft.Text("This will generate:", size=13, weight=ft.FontWeight.BOLD),
-                ft.Text("• Exam paper for each variant", size=12),
-                ft.Text("• Answer key for each variant", size=12),
+                ft.Text(t('this_will_generate'), size=13, weight=ft.FontWeight.BOLD),
+                ft.Text("• " + t('exam_paper_each_variant'), size=12),
+                ft.Text("• " + t('answer_key_each_variant'), size=12),
                 ft.Container(height=5),
-                ft.Text("📁 Files: EXAM-XXXXXX-VX_paper.pdf, etc.",
+                ft.Text(f"📁 {t('files')}: EXAM-XXXXXX-VX_paper.pdf, etc.",
                        size=11, italic=True, color=COLORS['text_secondary'])
             ], tight=True, spacing=5, scroll=ft.ScrollMode.AUTO),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: self.close_export_dialog(export_dialog)),
+                ft.TextButton(t('cancel'), on_click=lambda e: self.close_export_dialog(export_dialog)),
                 ft.ElevatedButton(
-                    "Generate PDFs",
+                    t('generate_pdfs'),
                     on_click=generate_pdfs,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
@@ -272,52 +340,27 @@ class QuizManagement(ft.UserControl):
         self.page.update()
 
     def show_pdf_success_dialog(self, generated_files):
-        """Show success dialog after PDF generation"""
-        import os
-
-        files_list = ft.Column([], spacing=5, scroll=ft.ScrollMode.AUTO)
-
+        """Queue PDFs for saving via file picker"""
+        # Store all generated files for sequential saving
+        self.pending_exam_pdfs = []
         for file_info in generated_files:
             variant_num = file_info['exam_id'].split('-V')[1]
-            files_list.controls.append(
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(f"Variant {variant_num}", weight=ft.FontWeight.BOLD, size=13),
-                        ft.Text(f"• {file_info['paper']}", size=11),
-                        ft.Text(f"• {file_info['answers']}", size=11)
-                    ], spacing=3),
-                    padding=10,
-                    bgcolor=ft.colors.with_opacity(0.05, COLORS['success']),
-                    border_radius=6
-                )
-            )
+            self.pending_exam_pdfs.append({
+                'path': file_info['paper'],
+                'default_name': f"exam_paper_variant_{variant_num}.pdf"
+            })
+            self.pending_exam_pdfs.append({
+                'path': file_info['answers'],
+                'default_name': f"answer_key_variant_{variant_num}.pdf"
+            })
 
-        success_dialog = ft.AlertDialog(
-            title=ft.Row([
-                ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success']),
-                ft.Text("PDFs Generated Successfully!")
-            ]),
-            content=ft.Column([
-                ft.Text(f"{len(generated_files)} variant(s) generated", weight=ft.FontWeight.BOLD),
-                ft.Divider(),
-                files_list,
-                ft.Container(height=10),
-                ft.Text("Location: exam_exports/", size=12, color=COLORS['text_secondary'])
-            ], tight=True),
-            actions=[
-                ft.TextButton("Open Folder", on_click=lambda e: os.system("open exam_exports")),
-                ft.ElevatedButton("Close", on_click=lambda e: self.close_export_dialog(success_dialog))
-            ]
-        )
-
-        self.page.dialog = success_dialog
-        success_dialog.open = True
-        self.page.update()
+        # Start saving the first PDF
+        self.save_next_exam_pdf()
 
     def build(self):
         # Create Assignment button
         self.add_assignment_btn = ft.ElevatedButton(
-            "Create Assignment",
+            t('create_assignment'),
             icon=ft.icons.ASSIGNMENT_ADD,
             on_click=self.show_add_assignment_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -325,7 +368,7 @@ class QuizManagement(ft.UserControl):
 
         # Create Preset Template button
         self.add_preset_btn = ft.ElevatedButton(
-            "Create Preset Template",
+            t('create_preset_template'),
             icon=ft.icons.BOOKMARK_ADD,
             on_click=self.show_create_preset_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
@@ -333,14 +376,14 @@ class QuizManagement(ft.UserControl):
 
         # Manage Presets button
         self.manage_presets_btn = ft.OutlinedButton(
-            "Manage Presets",
+            t('manage_presets'),
             icon=ft.icons.BOOKMARKS,
             on_click=self.show_manage_presets_dialog,
         )
 
         # View Archived button
         self.view_archived_btn = ft.OutlinedButton(
-            "View Archived",
+            t('view_archived'),
             icon=ft.icons.ARCHIVE,
             on_click=self.show_archived_assignments_dialog,
         )
@@ -348,7 +391,7 @@ class QuizManagement(ft.UserControl):
         return ft.Column([
             # Header
             ft.Row([
-                ft.Text("Assignment Management", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('assignment_management'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
                 self.view_archived_btn,
                 ft.Container(width=10),
@@ -498,7 +541,7 @@ class QuizManagement(ft.UserControl):
                 action_buttons.append(
                     ft.IconButton(
                         icon=ft.icons.EDIT,
-                        tooltip="Edit Assignment",
+                        tooltip=t('edit'),
                         on_click=lambda e, ex=assignment: self.show_edit_assignment_dialog(ex)
                     )
                 )
@@ -507,7 +550,7 @@ class QuizManagement(ft.UserControl):
             action_buttons.append(
                 ft.IconButton(
                     icon=ft.icons.PICTURE_AS_PDF,
-                    tooltip="Export as PDF",
+                    tooltip=t('export_pdf'),
                     on_click=lambda e, ex=assignment: self.export_assignment_as_pdf(ex),
                     icon_color=ft.colors.RED_400
                 )
@@ -518,7 +561,7 @@ class QuizManagement(ft.UserControl):
                 action_buttons.append(
                     ft.IconButton(
                         icon=ft.icons.TOGGLE_ON if assignment['is_active'] else ft.icons.TOGGLE_OFF,
-                        tooltip="Deactivate" if assignment['is_active'] else "Activate",
+                        tooltip=t('inactive') if assignment['is_active'] else t('active'),
                         on_click=lambda e, ex=assignment: self.toggle_assignment_status(ex),
                         icon_color=COLORS['success'] if assignment['is_active'] else COLORS['error']
                     )
@@ -529,7 +572,7 @@ class QuizManagement(ft.UserControl):
                 action_buttons.append(
                     ft.IconButton(
                         icon=ft.icons.DELETE,
-                        tooltip="Delete Assignment",
+                        tooltip=t('delete'),
                         on_click=lambda e, ex=assignment: self.delete_assignment(ex),
                         icon_color=COLORS['error']
                     )
@@ -603,11 +646,11 @@ class QuizManagement(ft.UserControl):
     
     def show_exam_dialog(self, exam=None):
         is_edit = exam is not None
-        title = "Edit Topic" if is_edit else "Create Topic"
+        title = "Edit Topic" if is_edit else t('create_exam')
 
         # Form fields - Only basic topic information
         exam_title_field = ft.TextField(
-            label="Topic Title *",
+            label=t('title') + " *",
             value=exam['title'] if is_edit else "",
             content_padding=8,
             hint_text="e.g., Python Programming, Safety Training",
@@ -615,7 +658,7 @@ class QuizManagement(ft.UserControl):
         )
 
         description_field = ft.TextField(
-            label="Description (optional)",
+            label=t('description'),
             value=exam['description'] if is_edit else "",
             multiline=True,
             min_lines=3,
@@ -697,9 +740,9 @@ class QuizManagement(ft.UserControl):
                 height=self.page.height - 500 if self.page.height > 500 else 300
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
-                    "Save" if is_edit else "Create",
+                    t('save') if is_edit else t('create'),
                     on_click=save_exam,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
@@ -741,7 +784,6 @@ class QuizManagement(ft.UserControl):
     def delete_exam(self, exam):
         def confirm_delete(e):
             # Delete all associated image files from questions in this exam
-            import os
             questions_with_images = self.db.execute_query(
                 "SELECT image_path FROM questions WHERE exam_id = ? AND image_path IS NOT NULL",
                 (exam['id'],)
@@ -783,9 +825,9 @@ class QuizManagement(ft.UserControl):
             title=ft.Text("Confirm Delete"),
             content=ft.Text(f"Are you sure you want to delete the exam '{exam['title']}'? This action cannot be undone."),
             actions=[
-                ft.TextButton("Cancel", on_click=cancel_delete),
+                ft.TextButton(t('cancel'), on_click=cancel_delete),
                 ft.ElevatedButton(
-                    "Delete",
+                    t('delete'),
                     on_click=confirm_delete,
                     style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
                 )
@@ -828,8 +870,8 @@ class QuizManagement(ft.UserControl):
         # Track selection mode
         self.assignment_mode = ft.RadioGroup(
             content=ft.Column([
-                ft.Radio(value="preset", label="Use Preset Template"),
-                ft.Radio(value="manual", label="Select Exam Templates Manually")
+                ft.Radio(value="preset", label=t('use_preset_template')),
+                ft.Radio(value="manual", label=t('select_exam_templates_manually'))
             ]),
             value="manual" if not preset_templates else "preset"
         )
@@ -840,7 +882,7 @@ class QuizManagement(ft.UserControl):
 
         # Preset template dropdown
         preset_dropdown = ft.Dropdown(
-            label="Select Preset Template",
+            label=t('select_preset'),
             hint_text="Choose a preset template",
             options=[
                 ft.dropdown.Option(
@@ -856,7 +898,7 @@ class QuizManagement(ft.UserControl):
 
         # Available exams dropdown (manual selection)
         exam_dropdown = ft.Dropdown(
-            label="Select Exam Templates",
+            label=t('select_exam_templates'),
             hint_text="Choose exams to combine into one assignment",
             options=[
                 ft.dropdown.Option(
@@ -1190,7 +1232,7 @@ class QuizManagement(ft.UserControl):
                 height=self.page.height - 200 if self.page.height > 200 else 500
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
                     "Continue",
                     on_click=on_create_assignment,
@@ -1233,21 +1275,21 @@ class QuizManagement(ft.UserControl):
                 for exam in exams:
                     pool_configs[exam['id']] = {
                         'easy': ft.TextField(
-                            label="Easy",
+                            label=t('easy'),
                             value=str(exam.get('easy_count', 0) or 0),
                             keyboard_type=ft.KeyboardType.NUMBER,
                             width=80,
                             content_padding=8
                         ),
                         'medium': ft.TextField(
-                            label="Medium",
+                            label=t('medium'),
                             value=str(exam.get('medium_count', 0) or 0),
                             keyboard_type=ft.KeyboardType.NUMBER,
                             width=80,
                             content_padding=8
                         ),
                         'hard': ft.TextField(
-                            label="Hard",
+                            label=t('hard'),
                             value=str(exam.get('hard_count', 0) or 0),
                             keyboard_type=ft.KeyboardType.NUMBER,
                             width=80,
@@ -1269,7 +1311,7 @@ class QuizManagement(ft.UserControl):
 
         # Assignment name
         assignment_name_field = ft.TextField(
-            label="Assignment Name *",
+            label=t('assignment_name') + " *",
             value=assignment['assignment_name'] if is_edit else f"Combined Exam - {datetime.now().strftime('%Y-%m-%d')}",
             content_padding=5,
             hint_text="e.g., Midterm Exam - All Subjects",
@@ -1338,7 +1380,7 @@ class QuizManagement(ft.UserControl):
 
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
-            label="Duration (minutes)",
+            label=t('duration'),
             value=str(assignment['duration_minutes']) if is_edit else self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -1347,7 +1389,7 @@ class QuizManagement(ft.UserControl):
         )
 
         passing_score_field = ft.TextField(
-            label="Passing Score (%)",
+            label=t('passing_score'),
             value=str(assignment['passing_score']) if is_edit else self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -1356,7 +1398,7 @@ class QuizManagement(ft.UserControl):
         )
 
         max_attempts_field = ft.TextField(
-            label="Max Attempts",
+            label=t('max_attempts'),
             value=str(assignment['max_attempts']) if is_edit else "1",
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -1366,25 +1408,25 @@ class QuizManagement(ft.UserControl):
 
         # Security Settings
         randomize_questions = ft.Checkbox(
-            label="Randomize Questions (within each exam/topic)",
+            label=t('randomize_questions'),
             value=bool(assignment['randomize_questions']) if is_edit else False
         )
 
         show_results = ft.Checkbox(
-            label="Show Results to Students",
+            label=t('show_results'),
             value=bool(assignment['show_results']) if is_edit else True
         )
 
         enable_fullscreen = ft.Checkbox(
-            label="Enable Full Window Mode",
+            label=t('enable_fullscreen'),
             value=bool(assignment['enable_fullscreen']) if is_edit else False
         )
 
         # Delivery Method
         delivery_method = ft.RadioGroup(
             content=ft.Column([
-                ft.Radio(value="online", label="Online Exam (students take on computer)"),
-                ft.Radio(value="pdf_export", label="PDF Export (print for paper exam)")
+                ft.Radio(value="online", label=t('online_exam')),
+                ft.Radio(value="pdf_export", label=t('pdf_export'))
             ]),
             value=assignment.get('delivery_method', 'online') if is_edit else "online"
         )
@@ -1392,7 +1434,7 @@ class QuizManagement(ft.UserControl):
         # Variant count dropdown
         existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
         variant_count = ft.Dropdown(
-            label="Number of Variants",
+            label=t('pdf_variants'),
             options=[
                 ft.dropdown.Option("1", "1 Variant"),
                 ft.dropdown.Option("2", "2 Variants"),
@@ -1473,7 +1515,7 @@ class QuizManagement(ft.UserControl):
         )
 
         deadline_field = ft.TextField(
-            label="Deadline (optional)",
+            label=t('deadline'),
             value=self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else "",
             read_only=True,
             content_padding=5,
@@ -1940,7 +1982,7 @@ class QuizManagement(ft.UserControl):
         dialog_content_controls.append(error_text)
 
         dialog_title = f"Edit Multi-Template Assignment ({len(exams)} exams)" if is_edit else f"Create Multi-Template Assignment ({len(exams)} exams)"
-        button_text = "Update Assignment" if is_edit else "Create Assignment"
+        button_text = t('update') + " " + t('assignment') if is_edit else t('create_assignment')
 
         assignment_dialog = ft.AlertDialog(
             modal=True,
@@ -1951,7 +1993,7 @@ class QuizManagement(ft.UserControl):
                 height=self.page.height - 150 if self.page.height > 150 else 650
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
                     button_text,
                     on_click=save_assignment,
@@ -1974,7 +2016,7 @@ class QuizManagement(ft.UserControl):
 
         # Assignment name (auto-filled with preset name)
         assignment_name_field = ft.TextField(
-            label="Assignment Name *",
+            label=t('assignment_name') + " *",
             value=f"{preset_name} - {datetime.now().strftime('%Y-%m-%d')}",
             content_padding=5,
             hint_text="e.g., SOC Interview - John Doe",
@@ -2021,7 +2063,7 @@ class QuizManagement(ft.UserControl):
 
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
-            label="Duration (minutes)",
+            label=t('duration'),
             value=self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2030,7 +2072,7 @@ class QuizManagement(ft.UserControl):
         )
 
         passing_score_field = ft.TextField(
-            label="Passing Score (%)",
+            label=t('passing_score'),
             value=self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2039,7 +2081,7 @@ class QuizManagement(ft.UserControl):
         )
 
         max_attempts_field = ft.TextField(
-            label="Max Attempts",
+            label=t('max_attempts'),
             value="1",
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2049,32 +2091,32 @@ class QuizManagement(ft.UserControl):
 
         # Security Settings
         randomize_questions = ft.Checkbox(
-            label="Randomize Questions",
+            label=t('randomize_questions'),
             value=True
         )
 
         show_results = ft.Checkbox(
-            label="Show Results to Students",
+            label=t('show_results'),
             value=True
         )
 
         enable_fullscreen = ft.Checkbox(
-            label="Enable Full Window Mode",
+            label=t('enable_fullscreen'),
             value=False
         )
 
         # Delivery Method
         delivery_method = ft.RadioGroup(
             content=ft.Column([
-                ft.Radio(value="online", label="Online Exam (students take on computer)"),
-                ft.Radio(value="pdf_export", label="PDF Export (print for paper exam)")
+                ft.Radio(value="online", label=t('online_exam')),
+                ft.Radio(value="pdf_export", label=t('pdf_export'))
             ]),
             value="online"
         )
 
         # Variant count dropdown
         variant_count = ft.Dropdown(
-            label="Number of Variants",
+            label=t('pdf_variants'),
             options=[
                 ft.dropdown.Option("1", "1 Variant"),
                 ft.dropdown.Option("2", "2 Variants"),
@@ -2140,7 +2182,7 @@ class QuizManagement(ft.UserControl):
         )
 
         deadline_field = ft.TextField(
-            label="Deadline (optional)",
+            label=t('deadline'),
             value="",
             read_only=True,
             content_padding=5,
@@ -2182,7 +2224,7 @@ class QuizManagement(ft.UserControl):
 
         # Filters for narrowing user list
         user_search_field = ft.TextField(
-            label="Search Users",
+            label=t('search_users'),
             hint_text="Type a name or username",
             width=420,
             height=56,
@@ -2192,7 +2234,7 @@ class QuizManagement(ft.UserControl):
         user_results_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
 
         department_assign_dropdown = ft.Dropdown(
-            label="Assign Entire Department",
+            label=t('assign_department'),
             hint_text="Select department",
             options=[ft.dropdown.Option(dept, dept) for dept in department_values],
             width=240,
@@ -2201,7 +2243,7 @@ class QuizManagement(ft.UserControl):
         )
 
         unit_assign_dropdown = ft.Dropdown(
-            label="Assign Entire Unit",
+            label=t('assign_unit'),
             hint_text="Select unit",
             options=[
                 ft.dropdown.Option(f"{dept}|||{unit}", f"{dept} / {unit}")
@@ -2590,9 +2632,9 @@ class QuizManagement(ft.UserControl):
                 height=self.page.height - 150 if self.page.height > 150 else 650
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
-                    "Create Assignment",
+                    t('create_assignment'),
                     on_click=save_assignment,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
@@ -2612,7 +2654,7 @@ class QuizManagement(ft.UserControl):
 
         # Assignment name
         assignment_name_field = ft.TextField(
-            label="Assignment Name *",
+            label=t('assignment_name') + " *",
             value=assignment['assignment_name'] if is_edit else f"{exam['title']} - Assignment",
             content_padding=5,
             hint_text="e.g., Midterm Exam - Section A",
@@ -2621,7 +2663,7 @@ class QuizManagement(ft.UserControl):
 
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
-            label="Duration (minutes)",
+            label=t('duration'),
             value=str(assignment['duration_minutes']) if is_edit else self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2630,7 +2672,7 @@ class QuizManagement(ft.UserControl):
         )
 
         passing_score_field = ft.TextField(
-            label="Passing Score (%)",
+            label=t('passing_score'),
             value=str(assignment['passing_score']) if is_edit else self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2639,7 +2681,7 @@ class QuizManagement(ft.UserControl):
         )
 
         max_attempts_field = ft.TextField(
-            label="Max Attempts",
+            label=t('max_attempts'),
             value=str(assignment['max_attempts']) if is_edit else "1",
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2649,25 +2691,25 @@ class QuizManagement(ft.UserControl):
 
         # Security Settings
         randomize_questions = ft.Checkbox(
-            label="Randomize Questions (within topics)",
+            label=t('randomize_questions'),
             value=bool(assignment['randomize_questions']) if is_edit else False
         )
 
         show_results = ft.Checkbox(
-            label="Show Results to Students",
+            label=t('show_results'),
             value=bool(assignment['show_results']) if is_edit else True
         )
 
         enable_fullscreen = ft.Checkbox(
-            label="Enable Full Window Mode",
+            label=t('enable_fullscreen'),
             value=bool(assignment['enable_fullscreen']) if is_edit else False
         )
 
         # Delivery Method
         delivery_method = ft.RadioGroup(
             content=ft.Column([
-                ft.Radio(value="online", label="Online Exam (students take on computer)"),
-                ft.Radio(value="pdf_export", label="PDF Export (print for paper exam)")
+                ft.Radio(value="online", label=t('online_exam')),
+                ft.Radio(value="pdf_export", label=t('pdf_export'))
             ]),
             value=assignment.get('delivery_method', 'online') if is_edit else "online"
         )
@@ -2675,7 +2717,7 @@ class QuizManagement(ft.UserControl):
         # Variant count dropdown
         existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
         variant_count = ft.Dropdown(
-            label="Number of Variants",
+            label=t('pdf_variants'),
             options=[
                 ft.dropdown.Option("1", "1 Variant"),
                 ft.dropdown.Option("2", "2 Variants"),
@@ -2894,7 +2936,7 @@ class QuizManagement(ft.UserControl):
         )
 
         deadline_field = ft.TextField(
-            label="Deadline (optional)",
+            label=t('deadline'),
             value=self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else "",
             read_only=True,
             content_padding=5,
@@ -2935,7 +2977,7 @@ class QuizManagement(ft.UserControl):
         """)
 
         user_dropdown = ft.Dropdown(
-            label="Select Users",
+            label=t('select_users'),
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
             width=250,
@@ -2944,7 +2986,7 @@ class QuizManagement(ft.UserControl):
         )
 
         department_dropdown = ft.Dropdown(
-            label="Select Departments",
+            label=t('select_departments'),
             hint_text="Choose departments to assign",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
             width=250,
@@ -3332,7 +3374,7 @@ class QuizManagement(ft.UserControl):
         dialog_content_controls.append(error_text)
 
         dialog_title = f"{'Edit' if is_edit else 'Create'} Assignment - {exam['title']}"
-        button_text = "Save Changes" if is_edit else "Create Assignment"
+        button_text = t('save') + " " + t('changes') if is_edit else t('create_assignment')
 
         assignment_dialog = ft.AlertDialog(
             modal=True,
@@ -3343,7 +3385,7 @@ class QuizManagement(ft.UserControl):
                 height=self.page.height - 150 if self.page.height > 150 else 650
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
                     button_text,
                     on_click=save_assignment,
@@ -3500,7 +3542,7 @@ class QuizManagement(ft.UserControl):
                 height=self.page.height - 200 if self.page.height > 200 else 500
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_assignment_dialog),
+                ft.TextButton(t('cancel'), on_click=close_assignment_dialog),
                 ft.ElevatedButton(
                     "Save Assignments",
                     on_click=save_assignments,
@@ -3925,7 +3967,7 @@ class QuizManagement(ft.UserControl):
                 
                 if now < start_date:
                     badges.append(ft.Container(
-                        content=ft.Text("Scheduled", size=10, color=ft.colors.BLACK, weight=ft.FontWeight.BOLD),
+                        content=ft.Text(t('scheduled'), size=10, color=ft.colors.BLACK, weight=ft.FontWeight.BOLD),
                         bgcolor=COLORS['warning'],
                         padding=ft.padding.symmetric(horizontal=6, vertical=2),
                         border_radius=3
@@ -4293,7 +4335,7 @@ class QuizManagement(ft.UserControl):
         )
 
         preset_description_field = ft.TextField(
-            label="Description (optional)",
+            label=t('description'),
             value=preset['description'] if is_edit else "",
             multiline=True,
             min_lines=2,
@@ -4668,7 +4710,7 @@ class QuizManagement(ft.UserControl):
                 height=dialog_height
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
                     "Save Preset",
                     on_click=save_preset,
@@ -4769,9 +4811,9 @@ class QuizManagement(ft.UserControl):
                                 title=ft.Text("Confirm Delete"),
                                 content=ft.Text(f"Are you sure you want to delete preset '{p['name']}'?"),
                                 actions=[
-                                    ft.TextButton("Cancel", on_click=cancel_delete),
+                                    ft.TextButton(t('cancel'), on_click=cancel_delete),
                                     ft.ElevatedButton(
-                                        "Delete",
+                                        t('delete'),
                                         on_click=confirm_delete,
                                         style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
                                     )
@@ -4790,13 +4832,13 @@ class QuizManagement(ft.UserControl):
                                 ft.Container(expand=True),
                                 ft.IconButton(
                                     icon=ft.icons.EDIT,
-                                    tooltip="Edit",
+                                    tooltip=t('edit'),
                                     on_click=make_edit_preset(preset),
                                     icon_color=COLORS['primary']
                                 ),
                                 ft.IconButton(
                                     icon=ft.icons.DELETE,
-                                    tooltip="Delete",
+                                    tooltip=t('delete'),
                                     on_click=make_delete_preset(preset),
                                     icon_color=COLORS['error']
                                 )
@@ -4840,7 +4882,7 @@ class QuizManagement(ft.UserControl):
             ),
             actions=[
                 ft.ElevatedButton(
-                    "Close",
+                    t('close'),
                     on_click=close_dialog,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
@@ -4881,11 +4923,11 @@ class QuizManagement(ft.UserControl):
         archived_table = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("#")),
-                ft.DataColumn(ft.Text("Assignment (Exam)")),
+                ft.DataColumn(ft.Text(t('assignment'))),
                 ft.DataColumn(ft.Text("Created By")),
-                ft.DataColumn(ft.Text("Completion")),
+                ft.DataColumn(ft.Text(t('completion'))),
                 ft.DataColumn(ft.Text("Deadline")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf")
@@ -5002,7 +5044,7 @@ class QuizManagement(ft.UserControl):
                 height=500
             ),
             actions=[
-                ft.TextButton("Close", on_click=lambda e: self.close_dialog())
+                ft.TextButton(t('close'), on_click=lambda e: self.close_dialog())
             ]
         )
 

@@ -5,6 +5,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from quiz_app.database.database import Database
+from quiz_app.utils.localization import t
 
 
 class ExamInterfaceWrapper(ft.UserControl):
@@ -64,7 +65,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
     if not questions:
         return ft.Container(
-            content=ft.Text("No questions found for this exam", size=18),
+            content=ft.Text(t('no_questions_found'), size=18),
             padding=ft.padding.all(50)
         )
     
@@ -293,16 +294,16 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             modal=True,
             title=ft.Row([
                 ft.Icon(ft.icons.WARNING, color=EXAM_COLORS['error'], size=24),
-                ft.Text("Exit Exam?", color=EXAM_COLORS['error'], weight=ft.FontWeight.BOLD)
+                ft.Text(t('confirm_submit'), color=EXAM_COLORS['error'], weight=ft.FontWeight.BOLD)
             ], spacing=8),
             content=ft.Text(
-                "Exiting now will submit and finish your exam. Are you sure you want to exit?",
+                t('confirm_submit_message'),
                 size=15
             ),
             actions=[
-                ft.TextButton("Stay in Exam", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
-                    "Exit & Submit",
+                    t('submit_exam'),
                     on_click=confirm_exit,
                     style=ft.ButtonStyle(bgcolor=EXAM_COLORS['error'], color=ft.colors.WHITE)
                 )
@@ -455,9 +456,9 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 ),
                 ft.Container(height=8),  # Small spacing between image and hint text
                 ft.Text(
-                    "Click image to view full size", 
-                    size=12, 
-                    color=EXAM_COLORS['text_secondary'], 
+                    t('click_to_view'),
+                    size=12,
+                    color=EXAM_COLORS['text_secondary'],
                     italic=True
                 )
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -484,7 +485,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 
                 image_dialog = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Question Image", size=18, weight=ft.FontWeight.BOLD),
+                    title=ft.Text(t('question_image'), size=18, weight=ft.FontWeight.BOLD),
                     content=ft.Container(
                         content=ft.Image(
                             src=image_path,
@@ -498,7 +499,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     ),
                     actions=[
                         ft.TextButton(
-                            "Close",
+                            t('close'),
                             on_click=close_image_dialog,
                             style=ft.ButtonStyle(color=EXAM_COLORS['primary'])
                         )
@@ -846,7 +847,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 print("[KEYBOARD] TextField blurred - shortcuts enabled")
 
             answer_section = ft.TextField(
-                label="Your answer",
+                label=t('your_answer'),
                 value=selected_answer,
                 on_change=on_text_change,
                 on_focus=on_text_focus,
@@ -871,7 +872,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 print("[KEYBOARD] TextField blurred - shortcuts enabled")
 
             answer_section = ft.TextField(
-                label="Your essay response",
+                label=t('your_answer'),
                 value=selected_answer,
                 on_change=on_essay_change,
                 on_focus=on_essay_focus,
@@ -934,7 +935,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 )
             
             answer_section = ft.Column([
-                ft.Text("Choose all the correct answers:", size=14, color=EXAM_COLORS['text_secondary'], italic=True),
+                ft.Text(t('select_answer'), size=14, color=EXAM_COLORS['text_secondary'], italic=True),
                 ft.Container(height=8),
                 ft.Column(checkbox_options, spacing=8)
             ], spacing=0)
@@ -955,7 +956,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             exam_state['main_container'].page.update()
         
         mark_review_checkbox = ft.Checkbox(
-            label="Mark for review",
+            label=t('mark_for_review'),
             value=current_question['id'] in exam_state['marked_for_review'],
             on_change=toggle_mark_for_review
         )
@@ -983,9 +984,9 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         
         progress_header = ft.Container(
             content=ft.Row([
-                ft.Text(f"Question {current_q} of {total_q}", size=18, weight=ft.FontWeight.BOLD),
+                ft.Text(f"{t('question')} {current_q} {t('of')} {total_q}", size=18, weight=ft.FontWeight.BOLD),
                 ft.Container(expand=True),
-                ft.Text(f"Points: {question_points}", size=14, color=EXAM_COLORS['text_secondary'], weight=ft.FontWeight.W_500)
+                ft.Text(f"{t('points')}: {question_points}", size=14, color=EXAM_COLORS['text_secondary'], weight=ft.FontWeight.W_500)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.padding.only(bottom=20)
         )
@@ -1077,7 +1078,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     content=ft.Text(content_text, size=16),
                     actions=[
                         ft.TextButton(
-                            "Cancel",
+                            t('cancel'),
                             on_click=lambda e: close_submit_dialog()
                         ),
                         ft.ElevatedButton(
@@ -1601,13 +1602,13 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         
         navigation = ft.Row([
             ft.ElevatedButton(
-                "← Previous",
+                f"← {t('previous')}",
                 disabled=exam_state['current_question_index'] == 0,
                 on_click=go_previous
             ),
             ft.Container(expand=True),
             ft.ElevatedButton(
-                "Next →",
+                f"{t('next')} →",
                 disabled=exam_state['current_question_index'] >= len(questions) - 1,
                 on_click=go_next
             )
@@ -1654,7 +1655,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     ft.Icon(ft.icons.TIMER, size=24),
                     timer_display
                 ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
-                ft.Text("Time Remaining", size=12)
+                ft.Text(t('time_remaining'), size=12)
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
             padding=ft.padding.all(16),
             bgcolor=EXAM_COLORS['surface'],
@@ -1706,7 +1707,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         progress_items = [
             # Header row with Progress Overview title and Timer
             ft.Row([
-                ft.Text("Progress Overview", size=14, weight=ft.FontWeight.BOLD),
+                ft.Text(t('overview'), size=14, weight=ft.FontWeight.BOLD),
                 ft.Container(expand=True),
                 ft.Row([
                     ft.Icon(ft.icons.TIMER, size=18, color=EXAM_COLORS['primary']),
@@ -1714,7 +1715,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 ], spacing=6)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Container(height=8),
-            ft.Text(f"{answered_count} of {total_q} answered", size=16, weight=ft.FontWeight.W_500),
+            ft.Text(f"{answered_count} {t('of')} {total_q} {t('answered')}", size=16, weight=ft.FontWeight.W_500),
             ft.Container(height=8),
             ft.ProgressBar(
                 value=answered_count/total_q if total_q > 0 else 0,
@@ -1870,7 +1871,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
         question_navigator = ft.Container(
             content=ft.Column([
-                ft.Text("Question Navigator", size=14, weight=ft.FontWeight.BOLD),
+                ft.Text(t('navigation'), size=14, weight=ft.FontWeight.BOLD),
                 ft.Container(height=8),
                 ft.Container(
                     content=ft.Column(navigator_sections, spacing=4, scroll=ft.ScrollMode.AUTO),
@@ -1888,24 +1889,24 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 # Color Legend Column
                 ft.Container(
                     content=ft.Column([
-                        ft.Text("Color Legend", size=13, weight=ft.FontWeight.BOLD),
+                        ft.Text(t('status'), size=13, weight=ft.FontWeight.BOLD),
                         ft.Container(height=8),
                         ft.Column([
                             ft.Row([
                                 ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['current'], border_radius=2),
-                                ft.Text("Current", size=11)
+                                ft.Text(t('active'), size=11)
                             ], spacing=6),
                             ft.Row([
                                 ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['answered'], border_radius=2),
-                                ft.Text("Answered", size=11)
+                                ft.Text(t('answered'), size=11)
                             ], spacing=6),
                             ft.Row([
                                 ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['marked'], border_radius=2),
-                                ft.Text("Marked", size=11)
+                                ft.Text(t('marked_for_review'), size=11)
                             ], spacing=6),
                             ft.Row([
                                 ft.Container(width=14, height=14, bgcolor=EXAM_COLORS['unanswered'], border_radius=2),
-                                ft.Text("Unanswered", size=11)
+                                ft.Text(t('unanswered'), size=11)
                             ], spacing=6)
                         ], spacing=5)
                     ]),
@@ -1944,12 +1945,12 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         # Submit Exam button for sidebar
         submit_exam_button = ft.Container(
             content=ft.ElevatedButton(
-                "Submit Exam",
+                t('submit_exam'),
                 width=200,
                 height=45,
                 on_click=submit_exam,
                 style=ft.ButtonStyle(
-                    bgcolor=EXAM_COLORS['error'], 
+                    bgcolor=EXAM_COLORS['error'],
                     color=ft.colors.WHITE,
                     text_style=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD)
                 )

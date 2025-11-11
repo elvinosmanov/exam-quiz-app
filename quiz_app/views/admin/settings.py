@@ -2,6 +2,7 @@ import flet as ft
 from quiz_app.database.database import Database
 from quiz_app.utils.email_templates import EmailTemplateManager
 from quiz_app.utils.email_handler import EmailHandler
+from quiz_app.utils.localization import t, set_language, get_language_name
 
 # Define COLORS to match other admin pages
 COLORS = {
@@ -17,10 +18,12 @@ COLORS = {
 }
 
 class Settings(ft.UserControl):
-    def __init__(self, db, user_data=None):
+    def __init__(self, db, user_data=None, session_manager=None, on_language_change=None):
         super().__init__()
         self.db = db
         self.user_data = user_data or {}
+        self.session_manager = session_manager
+        self.on_language_change = on_language_change  # Callback to reload UI when language changes
         self.current_settings = {}
 
         # Ensure settings table exists
@@ -119,11 +122,11 @@ class Settings(ft.UserControl):
 
         # State variables
         template_type_dropdown = ft.Dropdown(
-            label="Template Type",
+            label=t('template_type'),
             options=[
-                ft.dropdown.Option("passed", "Passed Results"),
-                ft.dropdown.Option("failed", "Failed Results"),
-                ft.dropdown.Option("pending", "Pending Grading")
+                ft.dropdown.Option("passed", t('passed_results')),
+                ft.dropdown.Option("failed", t('failed_results')),
+                ft.dropdown.Option("pending", t('pending_grading'))
             ],
             value="passed",
             width=250
@@ -141,7 +144,7 @@ class Settings(ft.UserControl):
         initial_template = template_manager.get_template('passed', 'en')
 
         subject_field = ft.TextField(
-            label="Email Subject",
+            label=t('email_subject'),
             multiline=False,
             width=600,
             hint_text="e.g., 🎉 Exam Results - {{exam_name}}",
@@ -149,7 +152,7 @@ class Settings(ft.UserControl):
         )
 
         body_field = ft.TextField(
-            label="Email Body",
+            label=t('email_body'),
             multiline=True,
             min_lines=10,
             max_lines=20,
@@ -159,7 +162,7 @@ class Settings(ft.UserControl):
         )
 
         placeholders_text = ft.Text(
-            "Available Placeholders: " + ", ".join(template_manager.get_available_placeholders()),
+            t('available_placeholders') + ": " + ", ".join(template_manager.get_available_placeholders()),
             size=11,
             color=COLORS['text_secondary'],
             italic=True
@@ -193,7 +196,7 @@ class Settings(ft.UserControl):
             language = 'en' if language_tabs.selected_index == 0 else 'az'
 
             if not subject_field.value or not body_field.value:
-                self.show_error_message("Subject and body cannot be empty")
+                self.show_error_message(t('subject_body_required'))
                 return
 
             success = template_manager.save_template(
@@ -204,9 +207,9 @@ class Settings(ft.UserControl):
             )
 
             if success:
-                self.show_success_message(f"Template saved successfully ({template_type} - {language})")
+                self.show_success_message(t('template_saved'))
             else:
-                self.show_error_message("Failed to save template")
+                self.show_error_message(t('settings_failed'))
 
         def reset_to_default(e):
             """Reset template to default"""
@@ -225,9 +228,9 @@ class Settings(ft.UserControl):
                 body_field.value = default['body_template']
                 subject_field.update()
                 body_field.update()
-                self.show_success_message("Template reset to default")
+                self.show_success_message(t('template_reset'))
             else:
-                self.show_error_message("Default template not found")
+                self.show_error_message(t('template_not_found'))
 
         def test_email(e):
             """Generate test email with sample data"""
@@ -240,7 +243,7 @@ class Settings(ft.UserControl):
             body = body_field.value
 
             if not subject or not body:
-                self.show_error_message("Please enter both subject and body before testing")
+                self.show_error_message(t('enter_subject_body'))
                 return
 
             # Get current user's email
@@ -277,9 +280,9 @@ class Settings(ft.UserControl):
             )
 
             if success:
-                self.show_success_message(f"Test email opened for {current_user_email}")
+                self.show_success_message(t('test_email_opened', email=current_user_email))
             else:
-                self.show_error_message("Failed to open email client")
+                self.show_error_message(t('email_failed'))
 
         # Hook up change events
         template_type_dropdown.on_change = load_template
@@ -294,8 +297,8 @@ class Settings(ft.UserControl):
                 ft.Row([
                     ft.Icon(ft.icons.EMAIL, size=32, color='#9C27B0'),
                     ft.Column([
-                        ft.Text("Email Templates", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-                        ft.Text("Customize email notifications for exam results", size=13, color=COLORS['text_secondary'])
+                        ft.Text(t('email_templates'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('customize_email'), size=13, color=COLORS['text_secondary'])
                     ], spacing=2, expand=True)
                 ], spacing=15),
 
@@ -328,7 +331,7 @@ class Settings(ft.UserControl):
                 # Action buttons
                 ft.Row([
                     ft.ElevatedButton(
-                        text="Save Template",
+                        text=t('save_template'),
                         icon=ft.icons.SAVE,
                         on_click=save_template,
                         style=ft.ButtonStyle(
@@ -337,13 +340,13 @@ class Settings(ft.UserControl):
                         )
                     ),
                     ft.OutlinedButton(
-                        text="Reset to Default",
+                        text=t('reset_to_default'),
                         icon=ft.icons.RESTORE,
                         on_click=reset_to_default
                     ),
                     ft.Container(expand=True),
                     ft.TextButton(
-                        text="Test Email",
+                        text=t('test_email'),
                         icon=ft.icons.SEND,
                         on_click=test_email
                     )
@@ -363,29 +366,29 @@ class Settings(ft.UserControl):
 
         # Passing Score TextField
         passing_score_field = ft.TextField(
-            label="Passing Score (%)",
+            label=t('passing_score_percent'),
             value=passing_score,
-            hint_text="Enter percentage (0-100)",
+            hint_text=t('passing_score_range'),
             width=300,
             keyboard_type=ft.KeyboardType.NUMBER,
             prefix_icon=ft.icons.GRADE,
-            helper_text="Students need this score to pass exams"
+            helper_text=t('students_need_score')
         )
 
         # Exam Duration TextField
         exam_duration_field = ft.TextField(
-            label="Exam Duration (minutes)",
+            label=t('default_duration_minutes'),
             value=exam_duration,
-            hint_text="Enter duration in minutes",
+            hint_text=t('duration_positive'),
             width=300,
             keyboard_type=ft.KeyboardType.NUMBER,
             prefix_icon=ft.icons.TIMER,
-            helper_text="Default time limit for exams"
+            helper_text=t('default_time_limit')
         )
 
         # Language Dropdown
         language_dropdown = ft.Dropdown(
-            label="System Language",
+            label=t('system_language'),
             value=language,
             width=300,
             options=[
@@ -393,7 +396,7 @@ class Settings(ft.UserControl):
                 ft.dropdown.Option("Azerbaijani", "Azərbaycan dili"),
             ],
             prefix_icon=ft.icons.LANGUAGE,
-            hint_text="Select system language"
+            hint_text=t('select_language')
         )
 
         def save_passing_score(e):
@@ -401,38 +404,57 @@ class Settings(ft.UserControl):
             try:
                 value = int(passing_score_field.value)
                 if value < 0 or value > 100:
-                    self.show_error_message("Passing score must be between 0 and 100")
+                    self.show_error_message(t('passing_score_range'))
                     return
 
                 if self.save_setting('passing_score', value):
-                    self.show_success_message(f"Passing score updated to {value}%")
+                    self.show_success_message(t('passing_score_updated', value=value))
                 else:
-                    self.show_error_message("Failed to save passing score")
+                    self.show_error_message(t('settings_failed'))
             except ValueError:
-                self.show_error_message("Please enter a valid number")
+                self.show_error_message(t('enter_valid_number'))
 
         def save_exam_duration(e):
             """Save exam duration setting"""
             try:
                 value = int(exam_duration_field.value)
                 if value <= 0:
-                    self.show_error_message("Exam duration must be greater than 0")
+                    self.show_error_message(t('duration_positive'))
                     return
 
                 if self.save_setting('default_exam_duration', value):
-                    self.show_success_message(f"Exam duration updated to {value} minutes")
+                    self.show_success_message(t('exam_duration_updated', value=value))
                 else:
-                    self.show_error_message("Failed to save exam duration")
+                    self.show_error_message(t('settings_failed'))
             except ValueError:
-                self.show_error_message("Please enter a valid number")
+                self.show_error_message(t('enter_valid_number'))
 
         def save_language(e):
-            """Save language setting"""
+            """Save language setting and apply changes"""
             value = language_dropdown.value
+
+            # Map dropdown value to language code
+            language_code = 'en' if value == 'English' else 'az'
+
+            # Update system setting
             if self.save_setting('language', value):
-                self.show_success_message(f"Language changed to {value}")
+                # Update user's language preference if session manager available
+                if self.session_manager:
+                    self.session_manager.set_user_language(language_code)
+
+                # Update current language immediately
+                set_language(language_code)
+
+                # Show success message
+                self.show_success_message(t('language_changed') + " - " + t('please_sign_in'))
+
+                # Trigger page reload to apply translations
+                if self.on_language_change:
+                    import time
+                    time.sleep(1)  # Give time for message to show
+                    self.on_language_change()
             else:
-                self.show_error_message("Failed to save language")
+                self.show_error_message(t('settings_failed'))
 
         # Setting Cards (bigger with icons)
         passing_score_card = ft.Container(
@@ -440,15 +462,15 @@ class Settings(ft.UserControl):
                 ft.Row([
                     ft.Icon(ft.icons.SCHOOL, size=32, color=COLORS['primary']),
                     ft.Column([
-                        ft.Text("Passing Score", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-                        ft.Text("Set the minimum score required to pass exams", size=13, color=COLORS['text_secondary'])
+                        ft.Text(t('passing_score'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('set_passing_score'), size=13, color=COLORS['text_secondary'])
                     ], spacing=2, expand=True)
                 ], spacing=15),
                 ft.Container(height=15),
                 passing_score_field,
                 ft.Container(height=10),
                 ft.ElevatedButton(
-                    text="Save Passing Score",
+                    text=t('save_passing_score'),
                     icon=ft.icons.SAVE,
                     on_click=save_passing_score,
                     style=ft.ButtonStyle(
@@ -468,15 +490,15 @@ class Settings(ft.UserControl):
                 ft.Row([
                     ft.Icon(ft.icons.ACCESS_TIME, size=32, color=COLORS['warning']),
                     ft.Column([
-                        ft.Text("Exam Duration", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-                        ft.Text("Set the default time limit for exams", size=13, color=COLORS['text_secondary'])
+                        ft.Text(t('default_exam_duration'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('set_exam_duration'), size=13, color=COLORS['text_secondary'])
                     ], spacing=2, expand=True)
                 ], spacing=15),
                 ft.Container(height=15),
                 exam_duration_field,
                 ft.Container(height=10),
                 ft.ElevatedButton(
-                    text="Save Exam Duration",
+                    text=t('save_exam_duration'),
                     icon=ft.icons.SAVE,
                     on_click=save_exam_duration,
                     style=ft.ButtonStyle(
@@ -496,15 +518,15 @@ class Settings(ft.UserControl):
                 ft.Row([
                     ft.Icon(ft.icons.TRANSLATE, size=32, color=COLORS['success']),
                     ft.Column([
-                        ft.Text("System Language", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-                        ft.Text("Change the language used throughout the system", size=13, color=COLORS['text_secondary'])
+                        ft.Text(t('system_language'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('change_language'), size=13, color=COLORS['text_secondary'])
                     ], spacing=2, expand=True)
                 ], spacing=15),
                 ft.Container(height=15),
                 language_dropdown,
                 ft.Container(height=10),
                 ft.ElevatedButton(
-                    text="Save Language",
+                    text=t('save_language'),
                     icon=ft.icons.SAVE,
                     on_click=save_language,
                     style=ft.ButtonStyle(
@@ -527,7 +549,7 @@ class Settings(ft.UserControl):
             # Header
             ft.Container(
                 content=ft.Row([
-                    ft.Text("System Settings", size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                    ft.Text(t('system_settings'), size=28, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                     ft.Container(expand=True),
                     ft.Icon(ft.icons.SETTINGS, size=32, color=COLORS['primary'])
                 ]),

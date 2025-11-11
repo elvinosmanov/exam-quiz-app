@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import datetime
 from quiz_app.config import COLORS
+from quiz_app.utils.localization import t
 from quiz_app.utils.permissions import UnitPermissionManager
 from quiz_app.utils.email_ui_components import create_email_button
 
@@ -23,12 +24,12 @@ class Grading(ft.UserControl):
         # Main content - Ungraded table
         self.answers_list = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Assignment (Topic)")),
-                ft.DataColumn(ft.Text("Student")),
-                ft.DataColumn(ft.Text("Questions")),
-                ft.DataColumn(ft.Text("Submitted")),
-                ft.DataColumn(ft.Text("Status")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('assignment'))),
+                ft.DataColumn(ft.Text(t('student_answer'))),
+                ft.DataColumn(ft.Text(t('questions'))),
+                ft.DataColumn(ft.Text(t('exam_date'))),
+                ft.DataColumn(ft.Text(t('status'))),
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf"),
@@ -38,12 +39,12 @@ class Grading(ft.UserControl):
         # Completed sessions table
         self.completed_list = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Assignment (Topic)")),
-                ft.DataColumn(ft.Text("Student")),
-                ft.DataColumn(ft.Text("Score")),
-                ft.DataColumn(ft.Text("Status")),
-                ft.DataColumn(ft.Text("Completed")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('assignment'))),
+                ft.DataColumn(ft.Text(t('student_answer'))),
+                ft.DataColumn(ft.Text(t('score'))),
+                ft.DataColumn(ft.Text(t('status'))),
+                ft.DataColumn(ft.Text(t('exam_date'))),
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf"),
@@ -167,7 +168,7 @@ class Grading(ft.UserControl):
             passed = score >= passing_score
 
             # Status indicator
-            status_text = "Passed ✅" if passed else "Failed ❌"
+            status_text = t('passed') + " ✅" if passed else t('failed') + " ❌"
             status_color = COLORS['success'] if passed else COLORS['error']
 
             # Display assignment name (with topic in tooltip)
@@ -188,7 +189,7 @@ class Grading(ft.UserControl):
                 ft.DataRow([
                     ft.DataCell(ft.Column([
                         ft.Text(assignment_display, weight=ft.FontWeight.BOLD, size=13),
-                        ft.Text(f"Topic: {session['exam_title']}", size=11, color=COLORS['text_secondary'])
+                        ft.Text(f"{t('exam_title')}: {session['exam_title']}", size=11, color=COLORS['text_secondary'])
                     ], spacing=2)),
                     ft.DataCell(ft.Text(session['student_name'])),
                     ft.DataCell(ft.Text(f"{score}%", weight=ft.FontWeight.BOLD)),
@@ -199,7 +200,7 @@ class Grading(ft.UserControl):
                             email_btn if email_btn else ft.Container(),
                             ft.IconButton(
                                 icon=ft.icons.VISIBILITY,
-                                tooltip="View Details",
+                                tooltip=t('view_results'),
                                 icon_color=COLORS['secondary'],
                                 on_click=lambda e, s=session: self.show_session_details(s)
                             )
@@ -212,7 +213,7 @@ class Grading(ft.UserControl):
         if not self.completed_sessions:
             self.completed_list.rows.append(
                 ft.DataRow([
-                    ft.DataCell(ft.Text("No completed exam sessions found")),
+                    ft.DataCell(ft.Text(t('no_results'))),
                     ft.DataCell(ft.Text("")),
                     ft.DataCell(ft.Text("")),
                     ft.DataCell(ft.Text("")),
@@ -225,7 +226,7 @@ class Grading(ft.UserControl):
         """Callback after email is sent"""
         if self.page:
             self.page.snack_bar = ft.SnackBar(
-                content=ft.Text("Email draft opened successfully"),
+                content=ft.Text(t('email_failed')),
                 bgcolor=COLORS['success']
             )
             self.page.snack_bar.open = True
@@ -253,23 +254,23 @@ class Grading(ft.UserControl):
             question_summary = f"{session['ungraded_count']} essay/short answer questions"
 
             # Display assignment name (with topic in subtitle)
-            assignment_display = session.get('assignment_name') or session.get('exam_title', 'Unknown')
+            assignment_display = session.get('assignment_name') or session.get('exam_title', t('no_data'))
             if assignment_display and len(assignment_display) > 35:
                 assignment_display = assignment_display[:32] + "..."
 
             self.answers_list.rows.append(
                 ft.DataRow([
                     ft.DataCell(ft.Column([
-                        ft.Text(assignment_display or "Unknown Assignment", weight=ft.FontWeight.BOLD, size=13),
-                        ft.Text(f"Topic: {session.get('exam_title', 'N/A')}", size=11, color=COLORS['text_secondary'])
+                        ft.Text(assignment_display or t('assignment'), weight=ft.FontWeight.BOLD, size=13),
+                        ft.Text(f"{t('exam_title')}: {session.get('exam_title', 'N/A')}", size=11, color=COLORS['text_secondary'])
                     ], spacing=2)),
-                    ft.DataCell(ft.Text(session.get('student_name', 'Unknown'))),
+                    ft.DataCell(ft.Text(session.get('student_name', t('no_data')))),
                     ft.DataCell(ft.Text(question_summary)),
                     ft.DataCell(ft.Text(self.format_date(session.get('end_time')))),
-                    ft.DataCell(ft.Text("Needs Grading", color=COLORS['warning'])),
+                    ft.DataCell(ft.Text(t('pending_grading'), color=COLORS['warning'])),
                     ft.DataCell(
                         ft.ElevatedButton(
-                            "Grade Exam",
+                            t('grade_exam'),
                             on_click=lambda e, session_data=session: self.show_session_grading_dialog(session_data),
                             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                         )
@@ -283,7 +284,7 @@ class Grading(ft.UserControl):
         if not self.ungraded_answers:
             self.answers_list.rows.append(
                 ft.DataRow([
-                    ft.DataCell(ft.Text("No exam sessions with ungraded essay/short answer questions found")),
+                    ft.DataCell(ft.Text(t('no_questions_found'))),
                     ft.DataCell(ft.Text("")),
                     ft.DataCell(ft.Text("")),
                     ft.DataCell(ft.Text("")),
@@ -334,7 +335,7 @@ class Grading(ft.UserControl):
                 print(f"  - Answer {a['id']}: type={a['question_type']}, points_earned={a['points_earned']}, has_answer={bool(a['answer_text'])}")
 
             if self.page:
-                self.page.snack_bar = ft.SnackBar(content=ft.Text("No ungraded questions found for this session"))
+                self.page.snack_bar = ft.SnackBar(content=ft.Text(t('no_questions_found')))
                 self.page.snack_bar.open = True
                 self.page.update()
             return
@@ -358,22 +359,22 @@ class Grading(ft.UserControl):
                 content=ft.Column([
                     # Question header
                     ft.Row([
-                        ft.Text(f"Question {i+1}:", size=16, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"{t('question')} {i+1}:", size=16, weight=ft.FontWeight.BOLD),
                         ft.Container(expand=True),
-                        ft.Text(f"Type: {question['question_type'].replace('_', ' ').title()}", 
+                        ft.Text(f"{t('question_type')}: {question['question_type'].replace('_', ' ').title()}",
                                size=12, color=COLORS['text_secondary'])
                     ]),
                     ft.Container(height=5),
-                    
+
                     # Question text
                     ft.Text(question['question_text'], size=14, weight=ft.FontWeight.W_500),
                     ft.Container(height=10),
-                    
+
                     # Student answer
-                    ft.Text("Student Answer:", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Text(t('student_answer') + ":", size=14, weight=ft.FontWeight.BOLD),
                     ft.Container(
                         content=ft.Text(
-                            question['answer_text'] or "No answer provided",
+                            question['answer_text'] or t('no_data'),
                             size=14,
                             selectable=True
                         ),
@@ -388,7 +389,7 @@ class Grading(ft.UserControl):
                     # Points input
                     ft.Row([
                         points_input,
-                        ft.Text(f"Max: {question['max_points']}", size=12, color=COLORS['text_secondary'])
+                        ft.Text(f"{t('points')}: {question['max_points']}", size=12, color=COLORS['text_secondary'])
                     ], spacing=10)
                 ], spacing=5),
                 padding=ft.padding.all(15),
@@ -403,16 +404,16 @@ class Grading(ft.UserControl):
             modal=True,
             title=ft.Row([
                 ft.Icon(ft.icons.GRADING, color=COLORS['primary']),
-                ft.Text("Grade Exam Session", color=COLORS['primary'], weight=ft.FontWeight.BOLD)
+                ft.Text(t('grade_exam'), color=COLORS['primary'], weight=ft.FontWeight.BOLD)
             ], spacing=8),
             content=ft.Container(
                 content=ft.Column([
                     # Session info header (fixed)
                     ft.Container(
                         content=ft.Column([
-                            ft.Text(f"Exam: {session_data['exam_title']}", size=16, weight=ft.FontWeight.BOLD),
-                            ft.Text(f"Student: {session_data['student_name']}", size=14, weight=ft.FontWeight.W_500),
-                            ft.Text(f"Submitted: {self.format_date(session_data['end_time'])}", size=12, color=COLORS['text_secondary']),
+                            ft.Text(f"{t('exam_title')}: {session_data['exam_title']}", size=16, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"{t('student_answer')}: {session_data['student_name']}", size=14, weight=ft.FontWeight.W_500),
+                            ft.Text(f"{t('exam_date')}: {self.format_date(session_data['end_time'])}", size=12, color=COLORS['text_secondary']),
                         ], spacing=5),
                         padding=ft.padding.only(bottom=15)
                     ),
@@ -432,11 +433,11 @@ class Grading(ft.UserControl):
             ),
             actions=[
                 ft.TextButton(
-                    "Cancel",
+                    t('cancel'),
                     on_click=self.close_session_grading_dialog
                 ),
                 ft.ElevatedButton(
-                    "Save All Grades",
+                    t('save'),
                     on_click=lambda e: self.save_session_grades(session_questions),
                     style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
                 )
@@ -526,7 +527,7 @@ class Grading(ft.UserControl):
             print(f"Error saving session grades: {ex}")
             if self.page:
                 self.page.show_snack_bar(
-                    ft.SnackBar(content=ft.Text("Error saving grades"))
+                    ft.SnackBar(content=ft.Text(t('operation_failed')))
                 )
     
     def close_session_grading_dialog(self, e):
@@ -635,10 +636,10 @@ class Grading(ft.UserControl):
                 # Header
                 ft.Container(
                     content=ft.Row([
-                        ft.Text("Grading Center", size=24, weight=ft.FontWeight.BOLD),
+                        ft.Text(t('grading'), size=24, weight=ft.FontWeight.BOLD),
                         ft.Container(expand=True),
                         ft.ElevatedButton(
-                            "Refresh",
+                            t('refresh'),
                             icon=ft.icons.REFRESH,
                             on_click=self.refresh_data,
                             style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
@@ -653,12 +654,12 @@ class Grading(ft.UserControl):
                     tabs=[
                         # Ungraded tab
                         ft.Tab(
-                            text=f"Pending Grading ({len(self.ungraded_answers)})",
+                            text=f"{t('pending_grading')} ({len(self.ungraded_answers)})",
                             icon=ft.icons.PENDING_ACTIONS,
                             content=ft.Container(
                                 content=ft.Column([
                                     ft.Text(
-                                        "Exam sessions with ungraded essay/short answer questions",
+                                        t('manual_grading_required'),
                                         size=14,
                                         color=COLORS['text_secondary']
                                     ),
@@ -682,20 +683,20 @@ class Grading(ft.UserControl):
 
                         # Completed tab
                         ft.Tab(
-                            text=f"Completed ({len(self.completed_sessions)})",
+                            text=f"{t('exam_completed')} ({len(self.completed_sessions)})",
                             icon=ft.icons.CHECK_CIRCLE,
                             content=ft.Container(
                                 content=ft.Column([
                                     ft.Row([
                                         ft.Text(
-                                            "Completed exam sessions - send result notifications",
+                                            t('grading_completed'),
                                             size=14,
                                             color=COLORS['text_secondary']
                                         ),
                                         ft.Container(expand=True),
                                         ft.Icon(ft.icons.EMAIL_OUTLINED, color=COLORS['primary'], size=20),
                                         ft.Text(
-                                            "Click email icon to notify examinees",
+                                            t('send'),
                                             size=12,
                                             color=COLORS['primary'],
                                             italic=True

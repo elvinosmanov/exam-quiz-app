@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import datetime
 from quiz_app.config import COLORS
+from quiz_app.utils.localization import t
 
 class ExamineeDashboard(ft.UserControl):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -18,10 +19,10 @@ class ExamineeDashboard(ft.UserControl):
         # Navigation state
         self.selected_nav_index = 0
         self.nav_items = [
-            {"title": "Dashboard", "icon": ft.icons.DASHBOARD},
-            {"title": "Available Exams", "icon": ft.icons.QUIZ},
-            {"title": "My Results", "icon": ft.icons.ASSESSMENT},
-            {"title": "Profile", "icon": ft.icons.PERSON}
+            {"title": t('dashboard'), "icon": ft.icons.DASHBOARD},
+            {"title": t('available_exams'), "icon": ft.icons.QUIZ},
+            {"title": t('my_results'), "icon": ft.icons.ASSESSMENT},
+            {"title": t('profile'), "icon": ft.icons.PERSON}
         ]
         
         # Dynamic height properties
@@ -83,12 +84,12 @@ class ExamineeDashboard(ft.UserControl):
         right_controls.extend([
             ft.Icon(ft.icons.PERSON, color=COLORS['text_secondary']),
             ft.Text(
-                f"Welcome, {self.user_data['full_name']}",
+                f"{t('welcome')}, {self.user_data['full_name']}",
                 color=COLORS['text_secondary']
             ),
             ft.IconButton(
                 icon=ft.icons.LOGOUT,
-                tooltip="Logout",
+                tooltip=t('logout'),
                 on_click=self.logout_clicked,
                 icon_color=COLORS['error']
             )
@@ -97,7 +98,7 @@ class ExamineeDashboard(ft.UserControl):
         return ft.Container(
             content=ft.Row([
                 ft.Text(
-                    "Quiz Examination System",
+                    t('app_name'),
                     size=20,
                     weight=ft.FontWeight.BOLD,
                     color=COLORS['text_primary']
@@ -169,17 +170,17 @@ class ExamineeDashboard(ft.UserControl):
         
         # Create dashboard cards
         cards = ft.Row([
-            self.create_stat_card("Total Exams", str(stats['total_exams']), ft.icons.ASSIGNMENT, COLORS['primary']),
-            self.create_stat_card("Completed Exams", str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success']),
-            self.create_stat_card("Average Score", f"{stats['average_score']:.1f}%", ft.icons.GRADE, COLORS['warning']),
-            self.create_stat_card("Available Exams", str(stats['available_exams']), ft.icons.QUIZ, COLORS['error'])
+            self.create_stat_card(t('total_exams'), str(stats['total_exams']), ft.icons.ASSIGNMENT, COLORS['primary']),
+            self.create_stat_card(t('exam_completed'), str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success']),
+            self.create_stat_card(t('average_score'), f"{stats['average_score']:.1f}%", ft.icons.GRADE, COLORS['warning']),
+            self.create_stat_card(t('available_exams'), str(stats['available_exams']), ft.icons.QUIZ, COLORS['error'])
         ], spacing=20, wrap=True)
         
         # Recent activity
         recent_exams = self.get_recent_exam_sessions()
         
         recent_activity = ft.Column([
-            ft.Text("Recent Exam Activity", size=18, weight=ft.FontWeight.BOLD),
+            ft.Text(t('recent_activity'), size=18, weight=ft.FontWeight.BOLD),
             ft.Divider(),
             *[ft.ListTile(
                 leading=ft.Icon(
@@ -191,13 +192,13 @@ class ExamineeDashboard(ft.UserControl):
                     self.get_exam_score_display(exam)
                 ),
                 trailing=ft.Text(
-                    "Completed" if exam['is_completed'] else "In Progress"
+                    t('exam_completed') if exam['is_completed'] else t('exam_in_progress')
                 )
             ) for exam in recent_exams[:5]]
         ], spacing=5)
         
         content = ft.Column([
-            ft.Text("Dashboard", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+            ft.Text(t('dashboard'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
             cards,
             ft.Container(height=20),
@@ -265,33 +266,33 @@ class ExamineeDashboard(ft.UserControl):
 
             if start_date and end_date:
                 if now < start_date:
-                    status = "Scheduled"
+                    status = t('scheduled')
                     status_color = COLORS['warning']
                 elif now > end_date:
-                    status = "Expired"
+                    status = t('not_passed')
                     status_color = COLORS['error']
                     can_take = False
                 else:
-                    status = "Available"
+                    status = t('active')
                     status_color = COLORS['success']
             elif start_date:
                 if now < start_date:
-                    status = "Scheduled"
+                    status = t('scheduled')
                     status_color = COLORS['warning']
                     can_take = False
                 else:
-                    status = "Available"
+                    status = t('active')
                     status_color = COLORS['success']
             elif end_date:
                 if now > end_date:
-                    status = "Expired"
+                    status = t('not_passed')
                     status_color = COLORS['error']
                     can_take = False
                 else:
-                    status = "Available"
+                    status = t('active')
                     status_color = COLORS['success']
             else:
-                status = "Available"
+                status = t('active')
                 status_color = COLORS['success']
 
             # Hide exams that are not currently open or have no attempts left
@@ -333,20 +334,20 @@ class ExamineeDashboard(ft.UserControl):
                     # Second row: Duration + Pass score + Attempts
                     ft.Row([
                         ft.Text(
-                            f"Duration: {exam['duration_minutes']} min",
+                            f"{t('duration')}: {exam['duration_minutes']} {t('minutes')}",
                             size=12,
                             color=COLORS['text_secondary'],
                             weight=ft.FontWeight.W_500
                         ),
                         ft.Text("|", size=12, color=COLORS['text_secondary']),
                         ft.Text(
-                            f"Pass: {exam['passing_score']}%",
+                            f"{t('passing_score')}: {exam['passing_score']}%",
                             size=12,
                             color=COLORS['text_secondary']
                         ),
                         ft.Text("|", size=12, color=COLORS['text_secondary']),
                         ft.Text(
-                            f"Attempts: {exam['max_attempts'] - attempt_count}/{exam['max_attempts']} left",
+                            f"{t('attempts_left')}: {exam['max_attempts'] - attempt_count}/{exam['max_attempts']}",
                             size=12,
                             color=COLORS['success'] if user_has_attempts_left else COLORS['error']
                         )
@@ -354,7 +355,7 @@ class ExamineeDashboard(ft.UserControl):
                     
                     # Third row: Description (expanded to fill center space)
                     ft.Text(
-                        exam['description'] or "No description available",
+                        exam['description'] or t('no_data'),
                         size=14,
                         color=COLORS['text_secondary'],
                         max_lines=4,
@@ -366,14 +367,14 @@ class ExamineeDashboard(ft.UserControl):
                         ft.Row([
                             ft.Icon(ft.icons.CALENDAR_TODAY, size=14, color=COLORS['text_secondary']),
                             ft.Text(
-                                f"Deadline: {exam['deadline'][:10] if exam.get('deadline') else 'No Deadline'}" if status != "Scheduled"
-                                else f"Starts {exam['start_date'][:10] if exam.get('start_date') else 'TBD'}",
+                                f"{t('deadline')}: {exam['deadline'][:10] if exam.get('deadline') else t('no_data')}" if status != t('scheduled')
+                                else f"{t('start_date')}: {exam['start_date'][:10] if exam.get('start_date') else 'TBD'}",
                                 size=12,
                                 color=COLORS['text_secondary']
                             )
                         ], spacing=4, expand=True),
                         ft.ElevatedButton(
-                            text="Take Exam" if not has_completed else "Retake",
+                            text=t('take_exam') if not has_completed else t('resume_exam'),
                             icon=ft.icons.PLAY_ARROW if can_take else ft.icons.BLOCK,
                             on_click=lambda e, assignment_id=exam['assignment_id']: self.start_exam(assignment_id),
                             disabled=not can_take,
@@ -402,11 +403,11 @@ class ExamineeDashboard(ft.UserControl):
             exam_cards.append(exam_card)
         
         content = ft.Column([
-            ft.Text("Available Exams", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+            ft.Text(t('available_exams'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
             ft.Container(
                 content=ft.Column(exam_cards, spacing=20, scroll=ft.ScrollMode.AUTO) if exam_cards else ft.Text(
-                    "No exams available at the moment.",
+                    t('no_exams_found'),
                     size=16,
                     color=COLORS['text_secondary']
                 ),
@@ -429,9 +430,9 @@ class ExamineeDashboard(ft.UserControl):
         
         if not results:
             content = ft.Column([
-                ft.Text("My Results", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('my_results'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Divider(),
-                ft.Text("No exam results yet.", size=16, color=COLORS['text_secondary'])
+                ft.Text(t('no_results'), size=16, color=COLORS['text_secondary'])
             ])
             self.set_content(content)
             return
@@ -439,12 +440,12 @@ class ExamineeDashboard(ft.UserControl):
         # Create results table
         results_table = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Exam")),
-                ft.DataColumn(ft.Text("Date")),
-                ft.DataColumn(ft.Text("Score")),
-                ft.DataColumn(ft.Text("Status")),
-                ft.DataColumn(ft.Text("Duration")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('exams'))),
+                ft.DataColumn(ft.Text(t('date'))),
+                ft.DataColumn(ft.Text(t('score'))),
+                ft.DataColumn(ft.Text(t('status'))),
+                ft.DataColumn(ft.Text(t('duration'))),
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf"),
@@ -477,16 +478,16 @@ class ExamineeDashboard(ft.UserControl):
             # Show results only if: 1) show_results is enabled AND 2) no ungraded manual questions
             if show_results and not has_ungraded_manual:
                 # Show normal results
-                status = "Passed" if result['score'] >= result['passing_score'] else "Failed"
-                status_color = COLORS['success'] if status == "Passed" else COLORS['error']
+                status = t('passed') if result['score'] >= result['passing_score'] else t('failed')
+                status_color = COLORS['success'] if status == t('passed') else COLORS['error']
                 score_text = f"{result['score']:.1f}%"
                 status_text = status
-                
+
                 # Show View Details button
                 action_cell = ft.DataCell(
                     ft.IconButton(
                         icon=ft.icons.VISIBILITY,
-                        tooltip="View Details",
+                        tooltip=t('view_results'),
                         on_click=lambda e, session_id=result['id']: self.view_exam_details(session_id)
                     )
                 )
@@ -494,20 +495,20 @@ class ExamineeDashboard(ft.UserControl):
                 # Results not available - determine why
                 if has_ungraded_manual:
                     # Exam has ungraded essay/short_answer questions
-                    score_text = "Pending"
-                    status_text = "Pending Grading"
+                    score_text = t('pending')
+                    status_text = t('pending_grading')
                     status_color = COLORS['warning']
                 elif not show_results:
                     # All questions graded but results not released by instructor
-                    score_text = "Graded"
-                    status_text = "Pending Release"
+                    score_text = t('graded')
+                    status_text = t('pending')
                     status_color = COLORS['warning']
                 else:
                     # Fallback
-                    score_text = "Hidden"
-                    status_text = "Results Hidden"
+                    score_text = t('unanswered')
+                    status_text = t('no_results')
                     status_color = COLORS['text_secondary']
-                
+
                 # No action button for unreleased results
                 action_cell = ft.DataCell(ft.Text("-", color=COLORS['text_secondary']))
             
@@ -527,7 +528,7 @@ class ExamineeDashboard(ft.UserControl):
             )
         
         content = ft.Column([
-            ft.Text("My Results", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+            ft.Text(t('my_results'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
             ft.Container(
                 content=ft.ListView(
@@ -552,55 +553,55 @@ class ExamineeDashboard(ft.UserControl):
     def show_profile(self):
         # Create profile form
         profile_form = ft.Column([
-            ft.Text("Profile Information", size=18, weight=ft.FontWeight.BOLD),
+            ft.Text(t('profile'), size=18, weight=ft.FontWeight.BOLD),
             ft.Divider(),
             ft.Row([
                 ft.TextField(
-                    label="Full Name",
+                    label=t('full_name'),
                     value=self.user_data['full_name'],
                     read_only=True
                 ),
                 ft.TextField(
-                    label="Username",
+                    label=t('username'),
                     value=self.user_data['username'],
                     read_only=True
                 )
             ], spacing=20),
             ft.Row([
                 ft.TextField(
-                    label="Email",
+                    label=t('email'),
                     value=self.user_data['email'],
                     read_only=True
                 ),
                 ft.TextField(
-                    label="Department",
-                    value=self.user_data['department'] or "Not specified",
+                    label=t('department'),
+                    value=self.user_data['department'] or t('no_data'),
                     read_only=True
                 )
             ], spacing=20),
             ft.Row([
                 ft.TextField(
-                    label="Unit",
-                    value=self.user_data.get('unit') or "Not specified",
+                    label=t('unit'),
+                    value=self.user_data.get('unit') or t('no_data'),
                     read_only=True
                 ),
                 ft.TextField(
-                    label="Employee ID",
-                    value=self.user_data.get('employee_id') or "Not specified",
+                    label=t('employee_id'),
+                    value=self.user_data.get('employee_id') or t('no_data'),
                     read_only=True
                 )
             ], spacing=20),
             ft.Container(height=20),
             ft.ElevatedButton(
-                text="Change Password",
+                text=t('change_password'),
                 icon=ft.icons.LOCK,
                 on_click=self.show_change_password_dialog,
                 style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
             )
         ], spacing=15)
-        
+
         content = ft.Column([
-            ft.Text("Profile", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+            ft.Text(t('profile'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
             ft.Container(
                 content=profile_form,
@@ -992,7 +993,7 @@ class ExamineeDashboard(ft.UserControl):
                 modal=True,
                 title=ft.Row([
                     ft.Icon(ft.icons.ERROR, color=COLORS['error'], size=24),
-                    ft.Text("Error", color=COLORS['error'], weight=ft.FontWeight.BOLD)
+                    ft.Text(t('error'), color=COLORS['error'], weight=ft.FontWeight.BOLD)
                 ], spacing=8),
                 content=ft.Text(message, size=16),
                 actions=[
@@ -1274,7 +1275,7 @@ class ExamineeDashboard(ft.UserControl):
             ft.Container(
                 content=ft.Column([
                     ft.Text(f"{session_data['score']:.1f}%", size=24, weight=ft.FontWeight.BOLD),
-                    ft.Text("Score", size=12, color=COLORS['text_secondary'])
+                    ft.Text(t('score'), size=12, color=COLORS['text_secondary'])
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
                 padding=ft.padding.all(12),
                 bgcolor=COLORS['success'] if session_data['score'] >= session_data['passing_score'] else COLORS['error'],
@@ -1310,7 +1311,7 @@ class ExamineeDashboard(ft.UserControl):
             ft.Container(
                 content=ft.Column([
                     ft.Text(f"{session_data['duration_seconds']//60}m", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Text("Duration", size=12, color=COLORS['text_secondary'])
+                    ft.Text(t('duration'), size=12, color=COLORS['text_secondary'])
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
                 padding=ft.padding.all(12),
                 bgcolor=COLORS['surface'],
@@ -1417,7 +1418,7 @@ class ExamineeDashboard(ft.UserControl):
                 actions=[
                     ft.Row([
                         ft.TextButton(
-                            "Close",
+                            t('close'),
                             on_click=lambda e: self.close_exam_review_dialog()
                         )
                     ], alignment=ft.MainAxisAlignment.CENTER)
@@ -1637,7 +1638,7 @@ class ExamineeDashboard(ft.UserControl):
                 user_answer = question_data.get('user_answer_text', 'Not answered')
                 correct_answer = question_data.get('correct_answer_text', 'Manual grading required')
                 
-                question_type_display = "Short Answer" if question_type == 'short_answer' else "Essay"
+                question_type_display = t('short_answer') if question_type == 'short_answer' else t('essay')
                 
                 return ft.Column([
                     ft.Text(f"Type: {question_type_display}", size=12, color=COLORS['text_secondary'], italic=True),
@@ -1869,7 +1870,7 @@ class ExamineeDashboard(ft.UserControl):
         """Show dialog to change password"""
         # Create password input fields
         current_password = ft.TextField(
-            label="Current Password",
+            label=t('current_password'),
             password=True,
             can_reveal_password=True,
             width=400,
@@ -1877,14 +1878,14 @@ class ExamineeDashboard(ft.UserControl):
         )
 
         new_password = ft.TextField(
-            label="New Password",
+            label=t('new_password'),
             password=True,
             can_reveal_password=True,
             width=400
         )
 
         confirm_password = ft.TextField(
-            label="Confirm New Password",
+            label=t('confirm_password'),
             password=True,
             can_reveal_password=True,
             width=400
@@ -1900,17 +1901,17 @@ class ExamineeDashboard(ft.UserControl):
 
             # Validation
             if not current_password.value or not new_password.value or not confirm_password.value:
-                error_text.value = "All fields are required"
+                error_text.value = t('field_required')
                 dialog.update()
                 return
 
             if new_password.value != confirm_password.value:
-                error_text.value = "New passwords do not match"
+                error_text.value = t('password_mismatch')
                 dialog.update()
                 return
 
             if len(new_password.value) < 6:
-                error_text.value = "New password must be at least 6 characters long"
+                error_text.value = t('value_too_short')
                 dialog.update()
                 return
 
@@ -1922,7 +1923,7 @@ class ExamineeDashboard(ft.UserControl):
             )
 
             if not user or not bcrypt.checkpw(current_password.value.encode('utf-8'), user['password_hash'].encode('utf-8')):
-                error_text.value = "Current password is incorrect"
+                error_text.value = t('incorrect_password')
                 dialog.update()
                 return
 
@@ -1935,7 +1936,7 @@ class ExamineeDashboard(ft.UserControl):
                     (new_password_hash, self.user_data['id'])
                 )
 
-                success_text.value = "Password changed successfully!"
+                success_text.value = t('password_updated')
                 error_text.value = ""
                 current_password.value = ""
                 new_password.value = ""
@@ -1960,7 +1961,7 @@ class ExamineeDashboard(ft.UserControl):
         # Create dialog
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Change Password"),
+            title=ft.Text(t('change_password')),
             content=ft.Container(
                 content=ft.Column([
                     current_password,
@@ -1976,9 +1977,9 @@ class ExamineeDashboard(ft.UserControl):
                 padding=ft.padding.all(10)
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda e: self.close_dialog()),
+                ft.TextButton(t('cancel'), on_click=lambda e: self.close_dialog()),
                 ft.ElevatedButton(
-                    "Change Password",
+                    t('change_password'),
                     on_click=validate_and_change_password,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )

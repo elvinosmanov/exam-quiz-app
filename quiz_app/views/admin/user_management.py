@@ -2,6 +2,7 @@ import flet as ft
 from quiz_app.utils.auth import AuthManager
 from quiz_app.config import COLORS, DEPARTMENTS, get_units_for_department
 from quiz_app.utils.permissions import UnitPermissionManager
+from quiz_app.utils.localization import t
 
 class UserManagement(ft.UserControl):
     def __init__(self, db, user_data=None):
@@ -15,19 +16,19 @@ class UserManagement(ft.UserControl):
 
         # Search and filter controls
         self.search_field = ft.TextField(
-            label="Search users...",
+            label=t('search_users'),
             prefix_icon=ft.icons.SEARCH,
             on_change=self.apply_filters,
             expand=True
         )
 
         self.role_filter = ft.Dropdown(
-            label="Filter by Role",
+            label=t('filter_by_role'),
             options=[
-                ft.dropdown.Option("all", "All Roles"),
-                ft.dropdown.Option("admin", "Admin"),
-                ft.dropdown.Option("expert", "Expert"),
-                ft.dropdown.Option("examinee", "Examinee")
+                ft.dropdown.Option("all", t('all')),
+                ft.dropdown.Option("admin", t('admin')),
+                ft.dropdown.Option("expert", t('expert')),
+                ft.dropdown.Option("examinee", t('examinee'))
             ],
             value="all",
             on_change=self.apply_filters,
@@ -38,23 +39,23 @@ class UserManagement(ft.UserControl):
         self.users_table = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("#")),
-                ft.DataColumn(ft.Text("Username")),
-                ft.DataColumn(ft.Text("Full Name")),
-                ft.DataColumn(ft.Text("Email")),
-                ft.DataColumn(ft.Text("Role")),
-                ft.DataColumn(ft.Text("Department")),
-                ft.DataColumn(ft.Text("Unit")),
-                ft.DataColumn(ft.Text("Status")),
-                ft.DataColumn(ft.Text("Actions"))
+                ft.DataColumn(ft.Text(t('username'))),
+                ft.DataColumn(ft.Text(t('full_name'))),
+                ft.DataColumn(ft.Text(t('email'))),
+                ft.DataColumn(ft.Text(t('role'))),
+                ft.DataColumn(ft.Text(t('department'))),
+                ft.DataColumn(ft.Text(t('unit'))),
+                ft.DataColumn(ft.Text(t('status'))),
+                ft.DataColumn(ft.Text(t('actions')))
             ],
             rows=[],
             width=float("inf"),
             column_spacing=20
         )
-        
+
         # Action buttons
         self.add_user_btn = ft.ElevatedButton(
-            text="Add User",
+            text=t('add_user'),
             icon=ft.icons.ADD,
             on_click=self.show_add_user_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
@@ -71,7 +72,7 @@ class UserManagement(ft.UserControl):
         return ft.Column([
             # Header
             ft.Row([
-                ft.Text("User Management", size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Text(t('user_management'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
                 self.add_user_btn
             ]),
@@ -132,7 +133,7 @@ class UserManagement(ft.UserControl):
         self.users_table.rows.clear()
 
         for idx, user in enumerate(self.users_data, 1):
-            status = "Active" if user['is_active'] else "Inactive"
+            status = t('active') if user['is_active'] else t('inactive')
             status_color = COLORS['success'] if user['is_active'] else COLORS['error']
 
             self.users_table.rows.append(
@@ -150,12 +151,12 @@ class UserManagement(ft.UserControl):
                             ft.Row([
                                 ft.IconButton(
                                     icon=ft.icons.EDIT,
-                                    tooltip="Edit User",
+                                    tooltip=t('edit_user'),
                                     on_click=lambda e, u=user: self.show_edit_user_dialog(u)
                                 ),
                                 ft.IconButton(
                                     icon=ft.icons.DELETE if user['is_active'] else ft.icons.RESTORE,
-                                    tooltip="Deactivate User" if user['is_active'] else "Activate User",
+                                    tooltip=t('user_deactivated') if user['is_active'] else t('user_activated'),
                                     on_click=lambda e, u=user: self.toggle_user_status(u),
                                     icon_color=COLORS['error'] if user['is_active'] else COLORS['success']
                                 )
@@ -200,27 +201,27 @@ class UserManagement(ft.UserControl):
     
     def show_user_dialog(self, user=None):
         is_edit = user is not None
-        title = "Edit User" if is_edit else "Add New User"
-        
+        title = t('edit_user') if is_edit else t('create_user_account')
+
         # Form fields
         username_field = ft.TextField(
-            label="Username",
+            label=t('username'),
             value=user['username'] if is_edit else "",
             disabled=is_edit  # Don't allow username changes
         )
-        
+
         email_field = ft.TextField(
-            label="Email",
+            label=t('email'),
             value=user['email'] if is_edit else ""
         )
-        
+
         full_name_field = ft.TextField(
-            label="Full Name",
+            label=t('full_name'),
             value=user['full_name'] if is_edit else ""
         )
-        
+
         password_field = ft.TextField(
-            label="Password" if not is_edit else "New Password (leave empty to keep current)",
+            label=t('password') if not is_edit else t('new_password'),
             password=True,
             can_reveal_password=True
         )
@@ -229,8 +230,8 @@ class UserManagement(ft.UserControl):
         if self.user_data['role'] == 'expert':
             # Experts can only create examinees
             role_dropdown = ft.Dropdown(
-                label="Role",
-                options=[ft.dropdown.Option("examinee", "Examinee")],
+                label=t('role'),
+                options=[ft.dropdown.Option("examinee", t('examinee'))],
                 value="examinee",
                 disabled=True,  # Force examinee role
                 on_change=None
@@ -238,11 +239,11 @@ class UserManagement(ft.UserControl):
         else:
             # Admins can create any role
             role_dropdown = ft.Dropdown(
-                label="Role",
+                label=t('role'),
                 options=[
-                    ft.dropdown.Option("admin", "Admin"),
-                    ft.dropdown.Option("expert", "Expert"),
-                    ft.dropdown.Option("examinee", "Examinee")
+                    ft.dropdown.Option("admin", t('admin')),
+                    ft.dropdown.Option("expert", t('expert')),
+                    ft.dropdown.Option("examinee", t('examinee'))
                 ],
                 value=user['role'] if is_edit else "examinee",
                 on_change=None  # Will set below
@@ -252,14 +253,14 @@ class UserManagement(ft.UserControl):
         if self.user_data['role'] == 'expert':
             # Experts can only create users in their own unit
             department_dropdown = ft.TextField(
-                label="Department",
+                label=t('department'),
                 value=self.user_data.get('department', ''),
                 disabled=True,  # Locked to expert's department
                 width=300
             )
 
             unit_dropdown = ft.TextField(
-                label="Unit",
+                label=t('unit'),
                 value=self.user_data.get('unit', ''),
                 disabled=True,  # Locked to expert's unit
                 width=300
@@ -267,8 +268,8 @@ class UserManagement(ft.UserControl):
         else:
             # Admins can select any department/unit
             department_dropdown = ft.Dropdown(
-                label="Department" + (" *" if not is_edit else ""),
-                hint_text="Select department",
+                label=t('department') + (" *" if not is_edit else ""),
+                hint_text=t('select_department'),
                 options=[ft.dropdown.Option(dept) for dept in DEPARTMENTS],
                 value=user['department'] if is_edit else None,
                 width=300,
@@ -277,8 +278,8 @@ class UserManagement(ft.UserControl):
 
             # Unit dropdown (cascading - populated when department selected)
             unit_dropdown = ft.Dropdown(
-                label="Unit" + (" *" if not is_edit else ""),
-                hint_text="First select department",
+                label=t('unit') + (" *" if not is_edit else ""),
+                hint_text=t('select_unit'),
                 options=[],
                 value=user['unit'] if is_edit else None,
                 width=300,
@@ -316,11 +317,11 @@ class UserManagement(ft.UserControl):
 
                 # Expert requires department and unit
                 if selected_role == 'expert':
-                    department_dropdown.label = "Department *"
-                    unit_dropdown.label = "Unit *"
+                    department_dropdown.label = t('department') + " *"
+                    unit_dropdown.label = t('unit') + " *"
                 else:
-                    department_dropdown.label = "Department"
-                    unit_dropdown.label = "Unit"
+                    department_dropdown.label = t('department')
+                    unit_dropdown.label = t('unit')
 
                 department_dropdown.update()
                 unit_dropdown.update()
@@ -329,17 +330,17 @@ class UserManagement(ft.UserControl):
             role_dropdown.on_change = on_role_change
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
-        
+
         def save_user(e):
             # Validate fields
             if not username_field.value.strip() or not email_field.value.strip() or not full_name_field.value.strip():
-                error_text.value = "Please fill in all required fields"
+                error_text.value = t('field_required')
                 error_text.visible = True
                 self.user_dialog.update()
                 return
 
             if not is_edit and not password_field.value:
-                error_text.value = "Password is required for new users"
+                error_text.value = t('password_required')
                 error_text.visible = True
                 self.user_dialog.update()
                 return
@@ -347,7 +348,7 @@ class UserManagement(ft.UserControl):
             # Validate expert role requirements
             if role_dropdown.value == 'expert':
                 if not department_dropdown.value or not unit_dropdown.value:
-                    error_text.value = "Department and Unit are required for Expert role"
+                    error_text.value = t('role_required')
                     error_text.visible = True
                     self.user_dialog.update()
                     return
@@ -385,7 +386,7 @@ class UserManagement(ft.UserControl):
                     )
                     
                     if not user_id:
-                        error_text.value = "Username or email already exists"
+                        error_text.value = t('user_already_exists')
                         error_text.visible = True
                         self.user_dialog.update()
                         return
@@ -403,7 +404,7 @@ class UserManagement(ft.UserControl):
                     self.update()
                 
             except Exception as ex:
-                error_text.value = f"Error saving user: {str(ex)}"
+                error_text.value = f"{t('error')}: {str(ex)}"
                 error_text.visible = True
                 self.user_dialog.update()
         
@@ -429,9 +430,9 @@ class UserManagement(ft.UserControl):
                 padding=ft.padding.all(10)
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=close_dialog),
+                ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
-                    "Save" if is_edit else "Create",
+                    t('save') if is_edit else t('create'),
                     on_click=save_user,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )

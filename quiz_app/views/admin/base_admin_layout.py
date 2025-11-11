@@ -1,5 +1,6 @@
 import flet as ft
 from quiz_app.config import COLORS
+from quiz_app.utils.localization import t
 
 class BaseAdminLayout(ft.UserControl):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -16,16 +17,16 @@ class BaseAdminLayout(ft.UserControl):
         self.TOP_BAR_HEIGHT = 65   # Top bar height (padding + font size + border)
         self.BUFFER = 20           # Buffer for margins/padding
         self.MIN_HEIGHT = 600      # Minimum height for small windows
-        
+
         # Navigation items (no filtering - experts can now see User Management)
         self.nav_items = [
-            {"title": "Dashboard", "icon": ft.icons.DASHBOARD, "route": "dashboard"},
-            {"title": "User Management", "icon": ft.icons.PEOPLE, "route": "users"},
-            {"title": "Exam Assignments", "icon": ft.icons.QUIZ, "route": "exams"},
-            {"title": "Question Bank", "icon": ft.icons.HELP, "route": "questions"},
-            {"title": "Grading", "icon": ft.icons.GRADING, "route": "grading"},
-            {"title": "Reports", "icon": ft.icons.ANALYTICS, "route": "reports"},
-            {"title": "Settings", "icon": ft.icons.SETTINGS, "route": "settings"}
+            {"title": t("dashboard"), "icon": ft.icons.DASHBOARD, "route": "dashboard"},
+            {"title": t("user_management"), "icon": ft.icons.PEOPLE, "route": "users"},
+            {"title": t("exam_management"), "icon": ft.icons.QUIZ, "route": "exams"},
+            {"title": t("question_bank"), "icon": ft.icons.HELP, "route": "questions"},
+            {"title": t("grading"), "icon": ft.icons.GRADING, "route": "grading"},
+            {"title": t("reports"), "icon": ft.icons.ANALYTICS, "route": "reports"},
+            {"title": t("settings"), "icon": ft.icons.SETTINGS, "route": "settings"}
         ]
 
         # Grading badge indicator (blue circle)
@@ -78,9 +79,9 @@ class BaseAdminLayout(ft.UserControl):
     def create_top_bar(self):
         # Title - change for expert
         if self.user_data['role'] == 'expert':
-            title = "Quiz Expert System"
+            title = t("app_name") + " - " + t("expert")
         else:
-            title = "Quiz Administration System"
+            title = t("app_name") + " - " + t("admin")
 
         # Right side controls
         right_controls = []
@@ -93,12 +94,12 @@ class BaseAdminLayout(ft.UserControl):
         right_controls.extend([
             ft.Icon(ft.icons.PERSON, color=COLORS['text_secondary']),
             ft.Text(
-                f"Welcome, {self.user_data['full_name']}",
+                f"{t('welcome')}, {self.user_data['full_name']}",
                 color=COLORS['text_secondary']
             ),
             ft.IconButton(
                 icon=ft.icons.LOGOUT,
-                tooltip="Logout",
+                tooltip=t("logout"),
                 on_click=self.logout_clicked,
                 icon_color=COLORS['error']
             )
