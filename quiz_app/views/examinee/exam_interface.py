@@ -94,7 +94,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         'handlers_restored': False,
         'keyboard_hooked': False,
         'window_event_hooked': False,
-        'beforeunload_registered': False
+        'beforeunload_registered': False,
+        'navigator_scroll_offset': 0  # Track navigation sidebar scroll position
     }
     
     def cleanup_page_handlers():
@@ -1623,8 +1624,29 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         )
         
         # Main content (70%) - Fixed navigation at bottom
-        main_content = ft.Container(
-            content=ft.Column([
+        # Store question card container reference to update only its content
+        if 'main_content_container' not in exam_state or exam_state['main_content_container'] is None:
+            # First time - create containers
+            main_content = ft.Container(
+                content=ft.Column([
+                    progress_header,
+                    ft.Container(
+                        content=ft.Column([
+                            question_card
+                        ], scroll=ft.ScrollMode.AUTO),
+                        expand=True,
+                        padding=ft.padding.symmetric(vertical=20)
+                    ),
+                    navigation  # Fixed at bottom, always visible
+                ], spacing=0),
+                expand=7,
+                padding=ft.padding.only(right=10)
+            )
+            exam_state['main_content_container'] = main_content
+        else:
+            # Reuse existing container and update its column content
+            main_content = exam_state['main_content_container']
+            main_content.content.controls = [
                 progress_header,
                 ft.Container(
                     content=ft.Column([
@@ -1633,11 +1655,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     expand=True,
                     padding=ft.padding.symmetric(vertical=20)
                 ),
-                navigation  # Fixed at bottom, always visible
-            ], spacing=0),
-            expand=7,
-            padding=ft.padding.only(right=10)
-        )
+                navigation
+            ]
         
         # Sidebar (30%)
         timer_display = ft.Text(
@@ -1778,8 +1797,6 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         # Preserve the order topics first appear in the randomized question list
         ordered_topics = sorted(topic_groups.keys(), key=lambda t: topic_question_indices[t][0])
 
-        cumulative_number = 1  # Tracks the label to assign next
-
         for topic in ordered_topics:
             topic_questions = topic_groups[topic]
             topic_indices = topic_question_indices[topic]
@@ -1790,8 +1807,9 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             if topic_total == 0:
                 continue  # No questions to render for this topic
 
-            topic_start_number = cumulative_number
-            topic_end_number = cumulative_number + topic_total - 1
+            # Calculate range of question numbers for this topic (sequential order)
+            topic_start_number = min(topic_indices) + 1
+            topic_end_number = max(topic_indices) + 1
 
             # Topic header
             topic_header = ft.Container(
@@ -1816,8 +1834,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
             # Create question buttons for this topic
             topic_buttons = []
-            for local_order, idx in enumerate(topic_indices):
-                display_number = topic_start_number + local_order
+            # CRITICAL FIX: Sort indices so buttons appear in sequential navigation order
+            for idx in sorted(topic_indices):
+                # CRITICAL FIX: Use actual array index + 1 for display number (sequential order)
+                display_number = idx + 1
                 question_id = questions[idx]['id']
                 is_current = idx == exam_state['current_question_index']
                 is_answered = question_id in exam_state['user_answers']
@@ -1867,14 +1887,18 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 )
             )
 
-            cumulative_number += topic_total  # Prepare numbering for the next topic
-
+        # Simple Column with scroll - no fancy preservation attempts
+        # User can manually scroll as needed
         question_navigator = ft.Container(
             content=ft.Column([
                 ft.Text(t('navigation'), size=14, weight=ft.FontWeight.BOLD),
                 ft.Container(height=8),
                 ft.Container(
-                    content=ft.Column(navigator_sections, spacing=4, scroll=ft.ScrollMode.AUTO),
+                    content=ft.Column(
+                        navigator_sections,
+                        spacing=4,
+                        scroll=ft.ScrollMode.AUTO
+                    ),
                     height=280
                 )
             ]),
@@ -1961,18 +1985,30 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             alignment=ft.alignment.center
         )
         
+        # Create or reuse sidebar scrollable column to preserve scroll position
+        sidebar_scroll_content = [
+            progress_overview,
+            ft.Container(height=20),
+            question_navigator,
+            ft.Container(height=20),
+            color_legend_and_shortcuts,
+        ]
+
+        if 'sidebar_scroll_column' not in exam_state or exam_state['sidebar_scroll_column'] is None:
+            # First time - create sidebar scroll column
+            sidebar_scroll_col = ft.Column(sidebar_scroll_content, spacing=0, scroll=ft.ScrollMode.AUTO)
+            exam_state['sidebar_scroll_column'] = sidebar_scroll_col
+        else:
+            # Reuse existing scroll column and update content
+            sidebar_scroll_col = exam_state['sidebar_scroll_column']
+            sidebar_scroll_col.controls = sidebar_scroll_content
+
         # Sidebar with scrollable content area and fixed submit button
         sidebar = ft.Container(
             content=ft.Column([
                 # Scrollable content area
                 ft.Container(
-                    content=ft.Column([
-                        progress_overview,
-                        ft.Container(height=20),
-                        question_navigator,
-                        ft.Container(height=20),
-                        color_legend_and_shortcuts,
-                    ], spacing=0, scroll=ft.ScrollMode.AUTO),
+                    content=sidebar_scroll_col,
                     expand=True
                 ),
                 # Fixed submit button at bottom
@@ -2011,10 +2047,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
 
         # Fullscreen lock banner removed (feature temporarily disabled)
 
-        # Add main content area
-        column_controls.append(
-            # Main content area
-            ft.Container(
+        # Create or reuse main layout row to preserve sidebar scroll
+        if 'main_layout_row' not in exam_state or exam_state['main_layout_row'] is None:
+            # First time - create main layout
+            main_layout_container = ft.Container(
                 content=ft.Row([
                     main_content,
                     ft.VerticalDivider(width=1, color=EXAM_COLORS['border']),
@@ -2024,7 +2060,18 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 padding=ft.padding.all(24),
                 bgcolor=EXAM_COLORS['background']
             )
-        )
+            exam_state['main_layout_row'] = main_layout_container
+            column_controls.append(main_layout_container)
+        else:
+            # Reuse existing layout - sidebar scroll will be preserved
+            main_layout_container = exam_state['main_layout_row']
+            # Update the row content with updated main_content and sidebar
+            main_layout_container.content.controls = [
+                main_content,
+                ft.VerticalDivider(width=1, color=EXAM_COLORS['border']),
+                sidebar
+            ]
+            column_controls.append(main_layout_container)
 
         return ft.Column(column_controls, spacing=0)
     

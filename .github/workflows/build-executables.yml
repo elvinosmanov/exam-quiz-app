@@ -1,0 +1,91 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python-version: ['3.11']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Display Python version
+      run: python --version
+
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install wheel
+        python -m pip install flet==0.25.1 flet-cli==0.25.1
+        python -m pip install bcrypt==4.1.2
+        python -m pip install Pillow==10.1.0
+        python -m pip install reportlab==4.4.2
+        python -m pip install PyPDF2==3.0.1
+        python -m pip install python-dateutil==2.9.0.post0
+        python -m pip install pytz==2025.2
+
+    - name: Install dependencies (macOS/Linux)
+      if: runner.os != 'Windows'
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Initialize Database
+      run: python test_db.py
+
+    - name: Build Executable (Windows)
+      if: runner.os == 'Windows'
+      run: python build_exe.py
+
+    - name: Build Executable (macOS/Linux)
+      if: runner.os != 'Windows'
+      run: python build_exe.py
+
+    - name: List dist directory (Windows)
+      if: runner.os == 'Windows'
+      run: dir dist
+
+    - name: List dist directory (macOS/Linux)
+      if: runner.os != 'Windows'
+      run: ls -la dist/
+
+    - name: Upload Windows Executable
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: QuizExamSystem-Windows
+        path: dist/QuizExamSystem.exe
+        retention-days: 30
+
+    - name: Upload macOS Executable
+      if: runner.os == 'macOS'
+      uses: actions/upload-artifact@v4
+      with:
+        name: QuizExamSystem-macOS
+        path: dist/QuizExamSystem.app
+        retention-days: 30
+
+    - name: Upload Linux Executable
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: QuizExamSystem-Linux
+        path: dist/QuizExamSystem
+        retention-days: 30

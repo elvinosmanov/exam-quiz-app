@@ -18,6 +18,57 @@ class QuizApp:
         self.expert_view_mode = 'expert'  # 'expert' or 'examinee' for expert users
         self.current_user_data = None  # Store current user for view switching
 
+    def setup_packaged_environment(self):
+        """Setup environment for packaged executable"""
+        import shutil
+        from quiz_app.config import DATABASE_PATH, DATA_DIR, UPLOAD_FOLDER
+
+        if getattr(sys, 'frozen', False):
+            print("[SETUP] Running as packaged executable")
+
+            # Get the bundle directory (_MEIPASS for PyInstaller)
+            bundle_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+            print(f"[SETUP] Bundle directory (_MEIPASS): {bundle_dir}")
+
+            # Check if database exists in the executable directory (writable location)
+            if not os.path.exists(DATABASE_PATH):
+                print(f"[SETUP] Database not found at {DATABASE_PATH}")
+
+                # Try to find database in the bundle
+                bundled_db = os.path.join(bundle_dir, 'quiz_app.db')
+                print(f"[SETUP] Looking for bundled database at: {bundled_db}")
+
+                if os.path.exists(bundled_db):
+                    print(f"[SETUP] Found bundled database, copying to writable location")
+                    shutil.copy2(bundled_db, DATABASE_PATH)
+                    print(f"[SETUP] Database copied to: {DATABASE_PATH}")
+                else:
+                    print(f"[SETUP] No bundled database found. Will create new database.")
+            else:
+                print(f"[SETUP] Database found at: {DATABASE_PATH}")
+
+            # Ensure assets directory exists in writable location
+            if not os.path.exists(UPLOAD_FOLDER):
+                print(f"[SETUP] Creating assets directory: {UPLOAD_FOLDER}")
+                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+            # Check if bundled assets exist and copy them
+            bundle_assets = os.path.join(bundle_dir, 'assets', 'images')
+            print(f"[SETUP] Looking for bundled assets at: {bundle_assets}")
+            if os.path.exists(bundle_assets):
+                print(f"[SETUP] Found bundled assets, copying to writable location")
+                shutil.copytree(bundle_assets, UPLOAD_FOLDER, dirs_exist_ok=True)
+                print(f"[SETUP] Assets copied to: {UPLOAD_FOLDER}")
+            else:
+                print(f"[SETUP] No bundled assets found at: {bundle_assets}")
+                # List what's actually in the bundle
+                if os.path.exists(bundle_dir):
+                    print(f"[SETUP] Contents of bundle directory:")
+                    for item in os.listdir(bundle_dir):
+                        print(f"[SETUP]   - {item}")
+        else:
+            print("[SETUP] Running in development mode")
+
     def load_system_language(self):
         """Load system-wide language setting from database"""
         try:
@@ -50,6 +101,9 @@ class QuizApp:
         page.window.min_height = 600
         page.padding = 0  # Remove default padding for full height containers
         page.spacing = 0  # Remove default spacing for full height containers
+
+        # Check if running as packaged executable
+        self.setup_packaged_environment()
 
         # Initialize database
         init_database()
@@ -190,7 +244,21 @@ def main(page: ft.Page):
     app.main(page)
 
 if __name__ == "__main__":
-    ft.app(target=main, assets_dir="quiz_app/assets")
+    # Determine assets directory based on whether we're packaged or not
+    if getattr(sys, 'frozen', False):
+        # Running as packaged executable
+        # Flet will use the bundled assets from _MEIPASS
+        bundle_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+        assets_path = os.path.join(bundle_dir, 'assets')
+        if os.path.exists(assets_path):
+            print(f"[MAIN] Using bundled assets from: {assets_path}")
+            ft.app(target=main, assets_dir=assets_path)
+        else:
+            print(f"[MAIN] No bundled assets found, using default")
+            ft.app(target=main)
+    else:
+        # Running in development
+        ft.app(target=main, assets_dir="quiz_app/assets")
 
 
  

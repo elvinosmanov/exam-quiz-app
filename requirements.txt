@@ -1,8 +1,25 @@
-flet>=0.15.0
-pandas>=1.5.0
-openpyxl>=3.0.0
-Pillow>=9.0.0
-bcrypt>=4.0.0
-python-dateutil>=2.8.0
-matplotlib>=3.6.0
-reportlab>=3.6.0
+# Core Framework
+flet==0.25.1
+flet-cli==0.25.1
+
+# Security & Authentication
+bcrypt==4.1.2
+
+# PDF Generation & Reports
+reportlab==4.4.2
+PyPDF2==3.0.1
+
+# Data Processing & Excel Support
+pandas==2.3.3
+openpyxl==3.1.5
+numpy==2.3.3
+
+# Plotting & Charts (for reports)
+matplotlib==3.10.0
+
+# Image Processing
+Pillow==10.1.0
+
+# Additional utilities
+python-dateutil==2.9.0.post0
+pytz==2025.2

@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# PyInstaller
+*.manifest
+
+# Database (you might want to include a template, exclude user data)
+# Uncomment the line below if you don't want to include the database
+# quiz_app.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Distribution / packaging
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Test coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# OS specific
+Thumbs.db
+.DS_Store
+
+# User uploaded files (optional - remove if you want to track them)
+quiz_app/assets/images/*.jpg
+quiz_app/assets/images/*.png
+# But keep the background image
+!quiz_app/assets/images/background.png
+!quiz_app/assets/images/azercosmos-logo.png

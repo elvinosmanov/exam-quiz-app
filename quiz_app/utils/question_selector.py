@@ -235,8 +235,9 @@ class QuestionSelector:
 
     def _randomize_by_topic_groups(self, questions: List[Dict], session_id: int) -> List[Dict]:
         """
-        Randomize questions within their topic/category groups to maintain subject grouping.
-        For question pool exams, groups by category field.
+        Randomize questions within their topic/exam template groups to maintain subject grouping.
+        For multi-template exams, groups by exam_id (template).
+        For single-template exams, groups by category field.
 
         Args:
             questions: List of selected questions
@@ -245,24 +246,48 @@ class QuestionSelector:
         Returns:
             List of questions randomized within each topic group
         """
-        # Group questions by category/topic (for question pool exams)
-        topic_groups = {}
-        for question in questions:
-            category = question.get('category') or 'General'
-            if category not in topic_groups:
-                topic_groups[category] = []
-            topic_groups[category].append(question)
+        # Determine grouping strategy: by exam_id (multi-template) or category (single-template)
+        # Check if questions come from multiple exam templates
+        unique_exam_ids = set(q.get('exam_id') for q in questions if q.get('exam_id'))
+        is_multi_template = len(unique_exam_ids) > 1
 
-        print(f"  Randomizing within {len(topic_groups)} category groups:")
+        topic_groups = {}
+
+        if is_multi_template:
+            # Multi-template: Group by exam_id (each template is a topic/subject)
+            print(f"  Multi-template detected: Randomizing within {len(unique_exam_ids)} exam template groups")
+            for question in questions:
+                exam_id = question.get('exam_id', 0)
+                if exam_id not in topic_groups:
+                    topic_groups[exam_id] = []
+                topic_groups[exam_id].append(question)
+        else:
+            # Single-template: Group by category field
+            print(f"  Single-template: Randomizing within category groups")
+            for question in questions:
+                category = question.get('category') or 'General'
+                if category not in topic_groups:
+                    topic_groups[category] = []
+                topic_groups[category].append(question)
 
         # Randomize within each group and reassemble
         randomized_questions = []
         order_index = 1
 
-        # Sort topic groups by name for consistent ordering
-        for topic in sorted(topic_groups.keys()):
-            group_questions = topic_groups[topic]
-            print(f"    - {topic}: {len(group_questions)} questions")
+        # Sort topic groups to maintain consistent order across multiple sessions
+        # For multi-template: sort by exam_id
+        # For single-template: sort by category name
+        sorted_keys = sorted(topic_groups.keys())
+
+        for topic_key in sorted_keys:
+            group_questions = topic_groups[topic_key]
+
+            if is_multi_template:
+                # Get exam title for logging
+                exam_title = group_questions[0].get('exam_title', f'Exam {topic_key}') if group_questions else f'Exam {topic_key}'
+                print(f"    - {exam_title} (exam_id={topic_key}): {len(group_questions)} questions")
+            else:
+                print(f"    - {topic_key}: {len(group_questions)} questions")
 
             # Shuffle within this topic group
             random.shuffle(group_questions)
