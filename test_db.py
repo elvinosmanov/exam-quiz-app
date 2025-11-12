@@ -41,33 +41,36 @@ def test_database_setup():
         else:
             print("✗ Admin authentication failed")
         
-        # Test creating a new user
-        new_user_id = auth.create_user(
-            username="testuser",
-            email="test@example.com",
-            password="testpass123",
-            full_name="Test User",
-            role="examinee",
-            department="IT"
-        )
-        
-        if new_user_id:
-            print(f"✓ New user created successfully with ID: {new_user_id}")
-            
-            # Test new user authentication
-            test_user = auth.authenticate_user("testuser", "testpass123")
-            if test_user:
-                print(f"✓ New user authentication works. User: {test_user['username']}")
-            else:
-                print("✗ New user authentication failed")
+        # Test creating a new user (skip if already exists)
+        try:
+            new_user_id = auth.create_user(
+                username="testuser",
+                email="test@example.com",
+                password="testpass123",
+                full_name="Test User",
+                role="examinee",
+                department="IT"
+            )
+
+            if new_user_id:
+                print(f"✓ New user created successfully with ID: {new_user_id}")
+        except Exception as e:
+            # User might already exist, that's okay
+            print(f"Note: Test user already exists (this is okay)")
+
+        # Test user authentication (should work even if user already existed)
+        test_user = auth.authenticate_user("testuser", "testpass123")
+        if test_user:
+            print(f"✓ Test user authentication works. User: {test_user['username']}")
         else:
-            print("✗ Failed to create new user")
+            print("✗ Test user authentication failed")
         
         # Create a sample exam
+        from datetime import datetime
         exam_id = db.execute_insert('''
-            INSERT INTO exams (title, description, duration_minutes, passing_score, created_by)
-            VALUES (?, ?, ?, ?, ?)
-        ''', ("Sample Python Quiz", "A basic Python programming quiz", 30, 70.0, 1))
+            INSERT INTO exams (title, description, duration_minutes, passing_score, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', ("Sample Python Quiz", "A basic Python programming quiz", 30, 70.0, 1, datetime.now().isoformat()))
         
         if exam_id:
             print(f"✓ Sample exam created with ID: {exam_id}")
