@@ -17,6 +17,13 @@ class SessionManager:
     def create_session(self, user_data: Dict) -> bool:
         """Create a new user session"""
         try:
+            # Validate required fields exist
+            required_fields = ['id', 'username', 'role', 'full_name']
+            for field in required_fields:
+                if field not in user_data:
+                    print(f"[ERROR] Missing required field in user_data: {field}")
+                    return False
+
             self.current_user = user_data
             self.login_time = datetime.now()
 
@@ -26,19 +33,11 @@ class SessionManager:
             try:
                 # First try to get from user_data
                 language_pref = user_data.get('language_preference', 'en')
-
-                # If no preference in user data, try to load from database
-                if (not language_pref or language_pref == 'en') and self.db:
-                    user_info = self.db.execute_single(
-                        "SELECT language_preference FROM users WHERE id = ?",
-                        (user_data['id'],)
-                    )
-                    if user_info and user_info.get('language_preference'):
-                        language_pref = user_info['language_preference']
+                if not language_pref:
+                    language_pref = 'en'
             except Exception as e:
                 # Language preference loading failed, continue with default
                 print(f"[WARNING] Could not load language preference: {e}")
-                print(f"[INFO] Using default language: en")
                 language_pref = 'en'
 
             # Set the application language
@@ -60,6 +59,12 @@ class SessionManager:
             print(f"[INFO] Session created successfully for user: {user_data['username']}")
             return True
 
+        except KeyError as e:
+            print(f"[ERROR] Missing key in user_data: {e}")
+            print(f"[ERROR] Available keys: {user_data.keys() if user_data else 'None'}")
+            import traceback
+            traceback.print_exc()
+            return False
         except Exception as e:
             print(f"[ERROR] Error creating session: {e}")
             import traceback
