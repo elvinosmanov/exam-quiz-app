@@ -71,15 +71,6 @@ class SessionManager:
             except:
                 _write_log("Could not get language preference, using default 'en'")
 
-            # Set language - do this AFTER session is created, non-critical
-            try:
-                from quiz_app.utils.localization import set_language
-                set_language(language_pref)
-                _write_log("Language set successfully")
-            except Exception as e:
-                _write_log(f"WARNING: Could not set language: {e}")
-                # Don't fail session creation for this
-
             # Create session data dictionary - use safe gets
             self.session_data = {
                 'user_id': user_id,
@@ -90,7 +81,18 @@ class SessionManager:
                 'language': language_pref
             }
 
+            _write_log(f"Session data created: {self.session_data}")
             _write_log(f"Session created successfully for user: {username}")
+
+            # Set language - do this AFTER session is fully created, non-critical
+            try:
+                from quiz_app.utils.localization import set_language
+                set_language(language_pref)
+                _write_log("Language set successfully")
+            except Exception as e:
+                _write_log(f"WARNING: Could not set language: {e}")
+                # Don't fail session creation for this - session is already created
+
             return True
 
         except Exception as e:
