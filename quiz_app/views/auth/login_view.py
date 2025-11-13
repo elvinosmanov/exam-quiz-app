@@ -158,7 +158,12 @@ class LoginView(ft.UserControl):
                     # Proceed to dashboard
                     self.on_login_success(self.page, user_data)
                 else:
-                    self.show_error(t('session_failed'))
+                    # Show detailed error from session manager
+                    error_detail = getattr(self.session_manager, 'last_error', None)
+                    if error_detail:
+                        self.show_error(f"Session failed: {error_detail}")
+                    else:
+                        self.show_error(t('session_failed'))
                     self.show_loading(False)
             else:
                 self.show_error(t('invalid_credentials'))

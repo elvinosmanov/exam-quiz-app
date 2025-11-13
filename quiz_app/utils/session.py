@@ -28,10 +28,15 @@ class SessionManager:
         """Create a new user session - BULLETPROOF VERSION"""
         _write_log("=== Session creation started ===")
 
+        # Store error for UI display
+        self.last_error = None
+
         try:
             # Check if user_data is None or empty
             if not user_data:
-                _write_log("ERROR: user_data is None or empty")
+                error_msg = "ERROR: user_data is None or empty"
+                _write_log(error_msg)
+                self.last_error = error_msg
                 return False
 
             _write_log(f"User data keys: {list(user_data.keys())}")
@@ -46,13 +51,19 @@ class SessionManager:
 
             # Validate only absolutely critical fields
             if not user_id:
-                _write_log("ERROR: Missing user id")
+                error_msg = f"ERROR: Missing user id. Keys: {list(user_data.keys())}"
+                _write_log(error_msg)
+                self.last_error = error_msg
                 return False
             if not username:
-                _write_log("ERROR: Missing username")
+                error_msg = f"ERROR: Missing username. Keys: {list(user_data.keys())}"
+                _write_log(error_msg)
+                self.last_error = error_msg
                 return False
             if not role:
-                _write_log("ERROR: Missing role")
+                error_msg = f"ERROR: Missing role. Keys: {list(user_data.keys())}"
+                _write_log(error_msg)
+                self.last_error = error_msg
                 return False
 
             # Set session basics - these CANNOT fail
@@ -96,9 +107,12 @@ class SessionManager:
             return True
 
         except Exception as e:
-            _write_log(f"CRITICAL ERROR in session creation: {type(e).__name__}: {str(e)}")
+            error_msg = f"CRITICAL ERROR: {type(e).__name__}: {str(e)}"
+            _write_log(error_msg)
             import traceback
-            _write_log(traceback.format_exc())
+            tb = traceback.format_exc()
+            _write_log(tb)
+            self.last_error = f"{error_msg}\n{tb}"
             return False
     
     def is_valid_session(self) -> bool:
