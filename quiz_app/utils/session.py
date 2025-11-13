@@ -1,7 +1,17 @@
 from typing import Optional, Dict
 from datetime import datetime, timedelta
 from quiz_app.config import SESSION_TIMEOUT
-from quiz_app.utils.localization import set_language, get_language
+import os
+
+def _write_log(message: str):
+    """Write log message to file for debugging"""
+    try:
+        log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'session_debug.log')
+        with open(log_file, 'a', encoding='utf-8') as f:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            f.write(f"[{timestamp}] {message}\n")
+    except:
+        pass  # Silent fail for logging
 
 class SessionManager:
     def __init__(self):
@@ -15,60 +25,78 @@ class SessionManager:
         self.db = db
 
     def create_session(self, user_data: Dict) -> bool:
-        """Create a new user session"""
-        try:
-            # Validate required fields exist
-            required_fields = ['id', 'username', 'role', 'full_name']
-            for field in required_fields:
-                if field not in user_data:
-                    print(f"[ERROR] Missing required field in user_data: {field}")
-                    return False
+        """Create a new user session - BULLETPROOF VERSION"""
+        _write_log("=== Session creation started ===")
 
+        try:
+            # Check if user_data is None or empty
+            if not user_data:
+                _write_log("ERROR: user_data is None or empty")
+                return False
+
+            _write_log(f"User data keys: {list(user_data.keys())}")
+
+            # Get critical fields with safe defaults
+            user_id = user_data.get('id')
+            username = user_data.get('username')
+            role = user_data.get('role')
+            full_name = user_data.get('full_name', '')
+
+            _write_log(f"user_id={user_id}, username={username}, role={role}, full_name={full_name}")
+
+            # Validate only absolutely critical fields
+            if not user_id:
+                _write_log("ERROR: Missing user id")
+                return False
+            if not username:
+                _write_log("ERROR: Missing username")
+                return False
+            if not role:
+                _write_log("ERROR: Missing role")
+                return False
+
+            # Set session basics - these CANNOT fail
             self.current_user = user_data
             self.login_time = datetime.now()
 
-            # Get user language preference with safe fallback
-            language_pref = 'en'  # Default fallback
+            _write_log("Basic session data set successfully")
 
+            # Get language preference - completely optional, never fail
+            language_pref = 'en'
             try:
-                # First try to get from user_data
-                language_pref = user_data.get('language_preference', 'en')
-                if not language_pref:
-                    language_pref = 'en'
-            except Exception as e:
-                # Language preference loading failed, continue with default
-                print(f"[WARNING] Could not load language preference: {e}")
-                language_pref = 'en'
+                lang = user_data.get('language_preference')
+                if lang and isinstance(lang, str) and lang in ['en', 'az']:
+                    language_pref = lang
+                    _write_log(f"Language preference: {language_pref}")
+            except:
+                _write_log("Could not get language preference, using default 'en'")
 
-            # Set the application language
+            # Set language - do this AFTER session is created, non-critical
             try:
+                from quiz_app.utils.localization import set_language
                 set_language(language_pref)
+                _write_log("Language set successfully")
             except Exception as e:
-                print(f"[WARNING] Could not set language: {e}")
-                set_language('en')
+                _write_log(f"WARNING: Could not set language: {e}")
+                # Don't fail session creation for this
 
+            # Create session data dictionary - use safe gets
             self.session_data = {
-                'user_id': user_data['id'],
-                'username': user_data['username'],
-                'role': user_data['role'],
-                'full_name': user_data['full_name'],
+                'user_id': user_id,
+                'username': username,
+                'role': role,
+                'full_name': full_name,
                 'login_time': self.login_time,
                 'language': language_pref
             }
 
-            print(f"[INFO] Session created successfully for user: {user_data['username']}")
+            _write_log(f"Session created successfully for user: {username}")
             return True
 
-        except KeyError as e:
-            print(f"[ERROR] Missing key in user_data: {e}")
-            print(f"[ERROR] Available keys: {user_data.keys() if user_data else 'None'}")
-            import traceback
-            traceback.print_exc()
-            return False
         except Exception as e:
-            print(f"[ERROR] Error creating session: {e}")
+            _write_log(f"CRITICAL ERROR in session creation: {type(e).__name__}: {str(e)}")
             import traceback
-            traceback.print_exc()
+            _write_log(traceback.format_exc())
             return False
     
     def is_valid_session(self) -> bool:
@@ -123,7 +151,11 @@ class SessionManager:
         """Get current user's language preference"""
         if self.session_data:
             return self.session_data.get('language', 'en')
-        return get_language()
+        try:
+            from quiz_app.utils.localization import get_language
+            return get_language()
+        except:
+            return 'en'
 
     def set_user_language(self, language_code: str) -> bool:
         """
@@ -141,6 +173,7 @@ class SessionManager:
                 self.session_data['language'] = language_code
 
             # Update application language
+            from quiz_app.utils.localization import set_language
             set_language(language_code)
 
             # Update in database if available
