@@ -146,18 +146,26 @@ class LoginView(ft.UserControl):
             self.show_loading(False)
             return
 
-        # Authenticate user
-        user_data = self.auth_manager.authenticate_user(username, password)
+        try:
+            # Authenticate user
+            user_data = self.auth_manager.authenticate_user(username, password)
 
-        if user_data:
-            # Create session
-            if self.session_manager.create_session(user_data):
-                self.on_login_success(self.page, user_data)
+            if user_data:
+                # Create session
+                if self.session_manager.create_session(user_data):
+                    # Turn off loading before page transition
+                    self.show_loading(False)
+                    # Proceed to dashboard
+                    self.on_login_success(self.page, user_data)
+                else:
+                    self.show_error(t('session_failed'))
+                    self.show_loading(False)
             else:
-                self.show_error(t('session_failed'))
+                self.show_error(t('invalid_credentials'))
                 self.show_loading(False)
-        else:
-            self.show_error(t('invalid_credentials'))
+        except Exception as ex:
+            print(f"[ERROR] Login error: {ex}")
+            self.show_error(t('session_failed'))
             self.show_loading(False)
 
     def show_error(self, message: str):
