@@ -42,7 +42,7 @@ def build_executable():
         '--name', 'QuizExamSystem',
         '--add-data', 'quiz_app.db:.',
         '--add-data', 'quiz_app/assets/images:assets/images',
-        '--console',  # Enable console window for debugging
+        '--pyinstaller-options', '--console',  # Enable console window for debugging
     ]
 
     print("\nBuilding executable...")
