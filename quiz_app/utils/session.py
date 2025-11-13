@@ -20,24 +20,33 @@ class SessionManager:
             self.current_user = user_data
             self.login_time = datetime.now()
 
-            # Get user language preference
-            language_pref = user_data.get('language_preference', 'en')
+            # Get user language preference with safe fallback
+            language_pref = 'en'  # Default fallback
 
-            # If no preference in user data, try to load from database
-            if not language_pref or language_pref == 'en':
-                if self.db:
-                    try:
-                        user_info = self.db.execute_single(
-                            "SELECT language_preference FROM users WHERE id = ?",
-                            (user_data['id'],)
-                        )
-                        if user_info and user_info.get('language_preference'):
-                            language_pref = user_info['language_preference']
-                    except Exception as e:
-                        print(f"[WARNING] Could not load language preference: {e}")
+            try:
+                # First try to get from user_data
+                language_pref = user_data.get('language_preference', 'en')
+
+                # If no preference in user data, try to load from database
+                if (not language_pref or language_pref == 'en') and self.db:
+                    user_info = self.db.execute_single(
+                        "SELECT language_preference FROM users WHERE id = ?",
+                        (user_data['id'],)
+                    )
+                    if user_info and user_info.get('language_preference'):
+                        language_pref = user_info['language_preference']
+            except Exception as e:
+                # Language preference loading failed, continue with default
+                print(f"[WARNING] Could not load language preference: {e}")
+                print(f"[INFO] Using default language: en")
+                language_pref = 'en'
 
             # Set the application language
-            set_language(language_pref)
+            try:
+                set_language(language_pref)
+            except Exception as e:
+                print(f"[WARNING] Could not set language: {e}")
+                set_language('en')
 
             self.session_data = {
                 'user_id': user_data['id'],
@@ -47,9 +56,14 @@ class SessionManager:
                 'login_time': self.login_time,
                 'language': language_pref
             }
+
+            print(f"[INFO] Session created successfully for user: {user_data['username']}")
             return True
+
         except Exception as e:
-            print(f"Error creating session: {e}")
+            print(f"[ERROR] Error creating session: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def is_valid_session(self) -> bool:
