@@ -1847,7 +1847,7 @@ class QuestionManagement(ft.UserControl):
                     self.update()
 
             except Exception as ex:
-                error_text.value = t('error_saving_exam').format(str(ex))
+                error_text.value = f"Error saving exam: {str(ex)}"
                 error_text.visible = True
                 self.exam_dialog.update()
 
