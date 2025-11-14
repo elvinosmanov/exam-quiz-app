@@ -4392,7 +4392,9 @@ class QuizManagement(ft.UserControl):
             for topic_id, counts in self.preset_selected_topics.items():
                 total += counts.get('easy', 0) + counts.get('medium', 0) + counts.get('hard', 0)
             total_questions_text.value = f"Total Questions: {total}"
-            total_questions_text.update()
+            if total_questions_text.page:
+                # Control must be attached to the page before update() is allowed
+                total_questions_text.update()
 
         def add_topic_to_preset(exam_id):
             """Add a topic to the preset configuration"""
