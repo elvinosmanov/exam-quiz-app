@@ -1811,16 +1811,25 @@ class QuestionManagement(ft.UserControl):
                     )
                     self.db.execute_update(query, params)
                 else:
-                    # Create new exam - need user_id from somewhere
-                    # Get current user from session or pass it in
+                    # Create new exam with default values
+                    user_id = self.user_data.get('id', 1) if self.user_data else 1
                     query = """
-                        INSERT INTO exams (title, description, created_by)
-                        VALUES (?, ?, ?)
+                        INSERT INTO exams (
+                            title, description, created_by,
+                            duration_minutes, passing_score,
+                            max_attempts, randomize_questions, show_results
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        1  # TODO: Get actual user ID
+                        user_id,
+                        60,  # Default 60 minutes
+                        70.0,  # Default 70% passing score
+                        3,  # Default 3 attempts
+                        0,  # Don't randomize by default
+                        1   # Show results by default
                     )
                     self.db.execute_insert(query, params)
 

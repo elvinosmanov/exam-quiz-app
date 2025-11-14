@@ -53,7 +53,14 @@ class Grading(ft.UserControl):
 
         self.update_answers_table()
         self.update_completed_table()
-    
+
+    def did_mount(self):
+        """Called after component is mounted - rebuild tables with page reference"""
+        super().did_mount()
+        # Rebuild completed table now that self.page is available for email buttons
+        self.update_completed_table()
+        self.update()
+
     def load_ungraded_answers(self):
         """Load exam sessions that have ungraded essay/short answer questions (assignment-based)"""
         try:
@@ -510,7 +517,15 @@ class Grading(ft.UserControl):
                 
                 # Reload data
                 self.load_ungraded_answers()
+                self.load_completed_sessions()
                 self.update_answers_table()
+                self.update_completed_table()
+
+                # Update tab counts if tabs exist
+                if hasattr(self, 'tabs_control'):
+                    self.tabs_control.tabs[0].text = f"{t('pending_grading')} ({len(self.ungraded_answers)})"
+                    self.tabs_control.tabs[1].text = f"{t('exam_completed')} ({len(self.completed_sessions)})"
+
                 self.update()
 
                 # Update grading badge in parent dashboard
@@ -631,25 +646,28 @@ class Grading(ft.UserControl):
         self.update()
     
     def build(self):
-        return ft.Container(
-            content=ft.Column([
-                # Header
-                ft.Container(
-                    content=ft.Row([
-                        ft.Text(t('grading'), size=24, weight=ft.FontWeight.BOLD),
-                        ft.Container(expand=True),
-                        ft.ElevatedButton(
-                            t('refresh'),
-                            icon=ft.icons.REFRESH,
-                            on_click=self.refresh_data,
-                            style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
-                        )
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    padding=ft.padding.only(bottom=20)
-                ),
+        return ft.Column([
+            # Header
+            ft.Row([
+                ft.Text(t('grading'), size=24, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ft.ElevatedButton(
+                    t('refresh'),
+                    icon=ft.icons.REFRESH,
+                    on_click=self.refresh_data,
+                    style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
+                )
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+
+            ft.Container(height=20),
 
                 # Tabs for ungraded and completed sessions
-                ft.Tabs(
+                self._create_tabs()
+        ], spacing=0, expand=True)
+
+    def _create_tabs(self):
+        """Create tabs control and store reference for updates"""
+        self.tabs_control = ft.Tabs(
                     selected_index=0,
                     tabs=[
                         # Ungraded tab
@@ -722,7 +740,4 @@ class Grading(ft.UserControl):
                     ],
                     expand=True
                 )
-            ], spacing=0),
-            padding=ft.padding.all(20),
-            expand=True
-        )
+        return self.tabs_control

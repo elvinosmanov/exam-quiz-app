@@ -52,10 +52,10 @@ class LoginView(ft.UserControl):
             color=COLORS['error'],
             size=12,
             visible=False,
-            width=380,
-            max_lines=10,
-            overflow=ft.TextOverflow.VISIBLE,
-            selectable=True
+            width=300,
+            max_lines=3,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            text_align=ft.TextAlign.CENTER
         )
 
         self.loading_ring = ft.ProgressRing(
@@ -109,11 +109,11 @@ class LoginView(ft.UserControl):
                         # Error message
                         ft.Container(
                             content=self.error_text,
-                            height=20,
+                            width=300,
                             alignment=ft.alignment.center
                         ),
 
-                        ft.Container(height=10),
+                        ft.Container(height=15),
 
                         # Login button with loading indicator
                         ft.Row([
