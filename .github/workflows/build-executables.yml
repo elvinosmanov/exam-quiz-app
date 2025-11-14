@@ -40,13 +40,7 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install wheel
         python -m pip install pyinstaller
-        python -m pip install flet==0.25.1 flet-cli==0.25.1
-        python -m pip install bcrypt==4.1.2
-        python -m pip install Pillow==10.1.0
-        python -m pip install reportlab==4.4.2
-        python -m pip install PyPDF2==3.0.1
-        python -m pip install python-dateutil==2.9.0.post0
-        python -m pip install pytz==2025.2
+        python -m pip install -r requirements.txt
 
     - name: Initialize Database
       run: python test_db.py

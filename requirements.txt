@@ -1,6 +1,7 @@
 # Core Framework
 flet==0.25.1
 flet-cli==0.25.1
+flet-desktop==0.25.1
 
 # Security & Authentication
 bcrypt==4.1.2
