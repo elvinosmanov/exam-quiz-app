@@ -693,15 +693,24 @@ class QuizManagement(ft.UserControl):
                     )
                     self.db.execute_update(query, params)
                 else:
-                    # Create new exam
+                    # Create new exam with required default values
                     query = """
-                        INSERT INTO exams (title, description, created_by)
-                        VALUES (?, ?, ?)
+                        INSERT INTO exams (
+                            title, description, created_by,
+                            duration_minutes, passing_score,
+                            max_attempts, randomize_questions, show_results
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        self.user_data['id']
+                        self.user_data['id'],
+                        60,  # Default 60 minutes
+                        70.0,  # Default 70% passing score
+                        3,  # Default 3 attempts
+                        0,  # Don't randomize by default
+                        1   # Show results by default
                     )
                     self.db.execute_insert(query, params)
 
