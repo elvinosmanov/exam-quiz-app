@@ -42,6 +42,21 @@ def build_executable():
         '--name', 'QuizExamSystem',
         '--add-data', 'quiz_app.db:.',
         '--add-data', 'quiz_app/assets/images:assets/images',
+        '--hidden-import', 'pandas',
+        '--hidden-import', 'openpyxl',
+        '--hidden-import', 'PIL',
+        '--hidden-import', 'reportlab',
+        '--hidden-import', 'bcrypt',
+        '--hidden-import', 'quiz_app.database.database',
+        '--hidden-import', 'quiz_app.utils.auth',
+        '--hidden-import', 'quiz_app.utils.session',
+        '--hidden-import', 'quiz_app.utils.localization',
+        '--hidden-import', 'quiz_app.utils.email_handler',
+        '--hidden-import', 'quiz_app.utils.pdf_generator',
+        '--hidden-import', 'quiz_app.utils.permissions',
+        '--hidden-import', 'quiz_app.utils.view_switcher',
+        '--hidden-import', 'quiz_app.utils.question_selector',
+        '--hidden-import', 'quiz_app.utils.bulk_import',
     ]
 
     print("\nBuilding executable...")
