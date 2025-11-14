@@ -194,10 +194,7 @@ class Grading(ft.UserControl):
 
             self.completed_list.rows.append(
                 ft.DataRow([
-                    ft.DataCell(ft.Column([
-                        ft.Text(assignment_display, weight=ft.FontWeight.BOLD, size=13),
-                        ft.Text(f"{t('exam_title')}: {session['exam_title']}", size=11, color=COLORS['text_secondary'])
-                    ], spacing=2)),
+                    ft.DataCell(ft.Text(assignment_display, weight=ft.FontWeight.BOLD, size=13)),
                     ft.DataCell(ft.Text(session['student_name'])),
                     ft.DataCell(ft.Text(f"{score}%", weight=ft.FontWeight.BOLD)),
                     ft.DataCell(ft.Text(status_text, color=status_color)),
@@ -659,7 +656,7 @@ class Grading(ft.UserControl):
                 )
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
 
-            ft.Container(height=20),
+            ft.Container(height=10),
 
                 # Tabs for ungraded and completed sessions
                 self._create_tabs()
