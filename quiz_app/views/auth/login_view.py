@@ -50,8 +50,12 @@ class LoginView(ft.UserControl):
         self.error_text = ft.Text(
             "",
             color=COLORS['error'],
-            size=14,
-            visible=False
+            size=12,
+            visible=False,
+            width=380,
+            max_lines=10,
+            overflow=ft.TextOverflow.VISIBLE,
+            selectable=True
         )
 
         self.loading_ring = ft.ProgressRing(
@@ -181,6 +185,31 @@ class LoginView(ft.UserControl):
         self.error_text.value = message
         self.error_text.visible = True
         self.update()
+
+        # Also show in dialog for long errors
+        if len(message) > 50 or '\n' in message:
+            def close_dialog(e):
+                dialog.open = False
+                self.page.update()
+
+            dialog = ft.AlertDialog(
+                title=ft.Text("Error Details"),
+                content=ft.Container(
+                    content=ft.Text(
+                        message,
+                        selectable=True,
+                        size=12
+                    ),
+                    width=500,
+                    padding=10
+                ),
+                actions=[
+                    ft.TextButton("Close", on_click=close_dialog)
+                ]
+            )
+            self.page.dialog = dialog
+            dialog.open = True
+            self.page.update()
 
     def hide_error(self):
         self.error_text.visible = False
