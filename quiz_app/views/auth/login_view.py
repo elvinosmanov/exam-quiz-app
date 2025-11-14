@@ -170,7 +170,11 @@ class LoginView(ft.UserControl):
                 self.show_loading(False)
         except Exception as ex:
             print(f"[ERROR] Login error: {ex}")
-            self.show_error(t('session_failed'))
+            import traceback
+            tb = traceback.format_exc()
+            print(tb)
+            # Show the actual exception in UI
+            self.show_error(f"Login error: {type(ex).__name__}: {str(ex)}")
             self.show_loading(False)
 
     def show_error(self, message: str):

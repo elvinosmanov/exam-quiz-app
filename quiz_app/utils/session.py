@@ -19,6 +19,7 @@ class SessionManager:
         self.session_data = {}
         self.login_time = None
         self.db = None  # Will be set externally if needed
+        self.last_error = None  # Store last error for UI display
 
     def set_database(self, db):
         """Set database instance for language preference operations"""
