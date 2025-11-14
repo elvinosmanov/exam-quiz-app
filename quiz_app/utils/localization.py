@@ -82,8 +82,10 @@ TRANSLATIONS = {
         'full_name': 'Full Name',
         'role': 'Role',
         'department': 'Department',
+        'section': 'Section',
         'unit': 'Unit',
         'employee_id': 'Employee ID',
+        'select_section': 'Select Section',
         'admin': 'Admin',
         'examinee': 'Examinee',
         'expert': 'Expert',
@@ -112,6 +114,9 @@ TRANSLATIONS = {
         'password_required': 'Password is required',
         'full_name_required': 'Full name is required',
         'role_required': 'Role is required',
+        'department_required_for_expert': 'Department is required for experts',
+        'cannot_deactivate_last_admin': 'Cannot deactivate the last admin user. At least one active admin must exist.',
+        'ok': 'OK',
 
         # Exams
         'exams': 'Exams',
@@ -238,6 +243,9 @@ TRANSLATIONS = {
         'observer_already_assigned': 'Observer already has access',
         'observer_select_prompt': 'Please select an observer to add',
         'observer_manage_forbidden': 'Only the topic owner or admins can manage observers',
+        'my_topic_label': 'My topic',
+        'observer_topic_label': 'Observer access',
+        'observer_add_forbidden': 'Observers cannot modify questions on this topic.',
 
         # Grading
         'grading': 'Grading',
@@ -357,6 +365,8 @@ TRANSLATIONS = {
         'password_mismatch': 'Passwords do not match',
         'incorrect_password': 'Current password is incorrect',
         'profile_updated': 'Profile updated successfully',
+        'update_your_password': 'Update your account password',
+        'current_user': 'Current User',
 
         # Exam Interface
         'exam_interface': 'Exam Interface',
@@ -679,7 +689,7 @@ TRANSLATIONS = {
 
     'az': {
         # Common / Ümumi
-        'app_name': 'İmtahan Sistemin',
+        'app_name': 'İmtahan Sistemi',
         'welcome': 'Xoş gəlmisiniz',
         'save': 'Yadda saxla',
         'cancel': 'Ləğv et',
@@ -754,8 +764,10 @@ TRANSLATIONS = {
         'full_name': 'Tam ad',
         'role': 'Rol',
         'department': 'Departament',
+        'section': 'Şöbə',
         'unit': 'Bölmə',
         'employee_id': 'İşçi ID',
+        'select_section': 'Şöbə seçin',
         'admin': 'Admin',
         'examinee': 'İştirakçı',
         'expert': 'Ekspert',
@@ -784,6 +796,9 @@ TRANSLATIONS = {
         'password_required': 'Şifrə tələb olunur',
         'full_name_required': 'Tam ad tələb olunur',
         'role_required': 'Rol tələb olunur',
+        'department_required_for_expert': 'Ekspertlər üçün departament tələb olunur',
+        'cannot_deactivate_last_admin': 'Son admin istifadəçini deaktivləşdirmək mümkün deyil. Ən azı bir aktiv admin olmalıdır.',
+        'ok': 'Tamam',
 
         # Exams / İmtahanlar
         'exams': 'İmtahanlar',
@@ -910,6 +925,9 @@ TRANSLATIONS = {
         'observer_already_assigned': 'Müşahidəçi artıq əlavə edilib',
         'observer_select_prompt': 'Lütfən əvvəlcə müşahidəçini seçin',
         'observer_manage_forbidden': 'Müşahidəçiləri yalnız mövzu sahibi və administratorlar idarə edə bilər',
+        'my_topic_label': 'Mənim mövzum',
+        'observer_topic_label': 'Müşahidəçi girişi',
+        'observer_add_forbidden': 'Müşahidəçilər bu mövzuda sualları dəyişə bilməz.',
 
         # Grading / Qiymətləndirmə
         'grading': 'Qiymətləndirmə',
@@ -1027,6 +1045,8 @@ TRANSLATIONS = {
         'confirm_password': 'Şifrəni təsdiq et',
         'password_updated': 'Şifrə uğurla yeniləndi',
         'password_mismatch': 'Şifrələr uyğun gəlmir',
+        'update_your_password': 'Hesab şifrənizi yeniləyin',
+        'current_user': 'Cari İstifadəçi',
         'incorrect_password': 'Cari şifrə yanlışdır',
         'profile_updated': 'Profil uğurla yeniləndi',
 

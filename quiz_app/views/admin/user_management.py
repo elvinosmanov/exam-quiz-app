@@ -1,8 +1,8 @@
 import flet as ft
 from quiz_app.utils.auth import AuthManager
-from quiz_app.config import COLORS, DEPARTMENTS, get_units_for_department
+from quiz_app.config import COLORS, get_departments, get_sections_for_department, get_units_for_department
 from quiz_app.utils.permissions import UnitPermissionManager
-from quiz_app.utils.localization import t
+from quiz_app.utils.localization import t, get_language
 
 class UserManagement(ft.UserControl):
     def __init__(self, db, user_data=None):
@@ -44,6 +44,7 @@ class UserManagement(ft.UserControl):
                 ft.DataColumn(ft.Text(t('email'))),
                 ft.DataColumn(ft.Text(t('role'))),
                 ft.DataColumn(ft.Text(t('department'))),
+                ft.DataColumn(ft.Text(t('section'))),
                 ft.DataColumn(ft.Text(t('unit'))),
                 ft.DataColumn(ft.Text(t('status'))),
                 ft.DataColumn(ft.Text(t('actions')))
@@ -106,23 +107,57 @@ class UserManagement(ft.UserControl):
         ], spacing=10, expand=True)
     
     def load_users(self):
-        # Experts can only see examinees in their unit
+        """
+        Load users based on role and hierarchical permissions.
+
+        Permission Levels for Experts:
+        - Department only: See all users in entire department
+        - Department + Section: See all users in that section
+        - Department + Section + Unit: See users in that specific unit
+        """
         if self.user_data['role'] == 'expert':
             department = self.user_data.get('department', '')
-            unit = self.user_data.get('unit', '')
+            section = self.user_data.get('section')
+            unit = self.user_data.get('unit')
 
-            self.all_users_data = self.db.execute_query("""
-                SELECT id, username, full_name, email, role, department, unit, is_active, created_at
-                FROM users
-                WHERE role = 'examinee'
-                AND department = ?
-                AND unit = ?
-                ORDER BY created_at DESC
-            """, (department, unit))
+            # Build query based on hierarchical level
+            if unit:
+                # Most specific: Department + Section + Unit
+                # Show only users in this specific unit
+                self.all_users_data = self.db.execute_query("""
+                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
+                    FROM users
+                    WHERE role = 'examinee'
+                    AND department = ?
+                    AND (section = ? OR section IS NULL)
+                    AND (unit = ? OR unit IS NULL)
+                    ORDER BY created_at DESC
+                """, (department, section or '', unit))
+            elif section:
+                # Medium specific: Department + Section
+                # Show all users in this section (all units under this section)
+                self.all_users_data = self.db.execute_query("""
+                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
+                    FROM users
+                    WHERE role = 'examinee'
+                    AND department = ?
+                    AND (section = ? OR section IS NULL)
+                    ORDER BY created_at DESC
+                """, (department, section))
+            else:
+                # Least specific: Department only
+                # Show all users in entire department (all sections and units)
+                self.all_users_data = self.db.execute_query("""
+                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
+                    FROM users
+                    WHERE role = 'examinee'
+                    AND department = ?
+                    ORDER BY created_at DESC
+                """, (department,))
         else:
             # Admins see all users
             self.all_users_data = self.db.execute_query("""
-                SELECT id, username, full_name, email, role, department, unit, is_active, created_at
+                SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
                 FROM users
                 ORDER BY created_at DESC
             """)
@@ -145,6 +180,7 @@ class UserManagement(ft.UserControl):
                         ft.DataCell(ft.Text(user['email'])),
                         ft.DataCell(ft.Text(user['role'].title())),
                         ft.DataCell(ft.Text(user['department'] or "N/A")),
+                        ft.DataCell(ft.Text(user['section'] or "N/A")),
                         ft.DataCell(ft.Text(user['unit'] or "N/A")),
                         ft.DataCell(ft.Text(status, color=status_color)),
                         ft.DataCell(
@@ -165,7 +201,7 @@ class UserManagement(ft.UserControl):
                     ]
                 )
             )
-        
+
         self.update()
     
     def apply_filters(self, e):
@@ -249,61 +285,247 @@ class UserManagement(ft.UserControl):
                 on_change=None  # Will set below
             )
 
-        # Department/Unit - auto-fill and lock for experts
+        # Department/Section/Unit - hierarchical permissions for experts
         if self.user_data['role'] == 'expert':
-            # Experts can only create users in their own unit
+            """
+            Expert permissions are hierarchical:
+            - Department only: Can select any section/unit in their department
+            - Department + Section: Can select any unit in their section
+            - Department + Section + Unit: Locked to their specific unit
+            """
+            expert_dept = self.user_data.get('department', '')
+            expert_section = self.user_data.get('section')
+            expert_unit = self.user_data.get('unit')
+            current_lang = get_language()
+
+            # Department is always locked to expert's department
             department_dropdown = ft.TextField(
                 label=t('department'),
-                value=self.user_data.get('department', ''),
-                disabled=True,  # Locked to expert's department
-                width=300
+                value=expert_dept,
+                disabled=True,  # Always locked to expert's department
+                expand=True
             )
 
-            unit_dropdown = ft.TextField(
-                label=t('unit'),
-                value=self.user_data.get('unit', ''),
-                disabled=True,  # Locked to expert's unit
-                width=300
-            )
+            if expert_unit:
+                # Expert has unit: Lock section and unit
+                section_dropdown = ft.TextField(
+                    label=t('section'),
+                    value=expert_section or 'N/A',
+                    disabled=True,
+                    expand=True
+                )
+
+                unit_dropdown = ft.TextField(
+                    label=t('unit'),
+                    value=expert_unit,
+                    disabled=True,
+                    expand=True
+                )
+            elif expert_section:
+                # Expert has section but no unit: Lock section, allow unit selection
+                section_dropdown = ft.TextField(
+                    label=t('section'),
+                    value=expert_section,
+                    disabled=True,
+                    expand=True
+                )
+
+                # Get units under expert's section
+                units = get_units_for_department(expert_dept, expert_section, current_lang)
+                unit_dropdown = ft.Dropdown(
+                    label=t('unit'),
+                    hint_text=t('select_unit'),
+                    options=[ft.dropdown.Option(u) for u in units] if units else [],
+                    value=user.get('unit') if is_edit else None,
+                    expand=True,
+                    disabled=len(units) == 0
+                )
+            else:
+                # Expert has only department: Allow section and unit selection
+                sections = get_sections_for_department(expert_dept, current_lang)
+                direct_units = get_units_for_department(expert_dept, None, current_lang)
+
+                section_dropdown = ft.Dropdown(
+                    label=t('section'),
+                    hint_text=t('select_section'),
+                    options=[ft.dropdown.Option(sec) for sec in sections] if sections else [],
+                    value=user.get('section') if is_edit else None,
+                    expand=True,
+                    disabled=len(sections) == 0
+                )
+
+                # Initially populate with direct units under department (no section selected yet)
+                unit_dropdown = ft.Dropdown(
+                    label=t('unit'),
+                    hint_text=t('select_unit'),
+                    options=[ft.dropdown.Option(u) for u in direct_units] if direct_units else [],
+                    value=user.get('unit') if is_edit else None,
+                    expand=True,
+                    disabled=len(direct_units) == 0
+                )
+
+                # If editing and has section selected, populate units from that section
+                if is_edit and user.get('section'):
+                    units = get_units_for_department(expert_dept, user['section'], current_lang)
+                    if units:
+                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.disabled = False
+
+                # Add cascading logic for department-level experts
+                def on_section_change_expert(e):
+                    """When section changes for department-level expert"""
+                    selected_section = e.control.value
+                    current_lang = get_language()
+
+                    if selected_section:
+                        # Section selected: show units under that section
+                        units = get_units_for_department(expert_dept, selected_section, current_lang)
+                        if units:
+                            unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                            unit_dropdown.disabled = False
+                            unit_dropdown.value = None
+                        else:
+                            unit_dropdown.options = []
+                            unit_dropdown.disabled = True
+                            unit_dropdown.value = None
+                    else:
+                        # No section selected: show direct units under department
+                        direct_units = get_units_for_department(expert_dept, None, current_lang)
+                        if direct_units:
+                            unit_dropdown.options = [ft.dropdown.Option(u) for u in direct_units]
+                            unit_dropdown.disabled = False
+                            unit_dropdown.value = None
+                        else:
+                            unit_dropdown.options = []
+                            unit_dropdown.disabled = True
+                            unit_dropdown.value = None
+
+                    unit_dropdown.update()
+
+                section_dropdown.on_change = on_section_change_expert
         else:
-            # Admins can select any department/unit
+            # Admins can select any department/section/unit
+            # Get current language for displaying department names
+            current_lang = get_language()
+            departments = get_departments(current_lang)
+
             department_dropdown = ft.Dropdown(
                 label=t('department') + (" *" if not is_edit else ""),
                 hint_text=t('select_department'),
-                options=[ft.dropdown.Option(dept) for dept in DEPARTMENTS],
+                options=[ft.dropdown.Option(dept) for dept in departments],
                 value=user['department'] if is_edit else None,
-                width=300,
+                expand=True,
                 on_change=None  # Will set below
             )
 
-            # Unit dropdown (cascading - populated when department selected)
+            # Section dropdown (cascading - populated when department selected)
+            section_dropdown = ft.Dropdown(
+                label=t('section'),
+                hint_text=t('select_section'),
+                options=[],
+                value=user['section'] if is_edit else None,
+                expand=True,
+                disabled=True
+            )
+
+            # Unit dropdown (cascading - populated when department or section selected)
             unit_dropdown = ft.Dropdown(
-                label=t('unit') + (" *" if not is_edit else ""),
+                label=t('unit'),
                 hint_text=t('select_unit'),
                 options=[],
                 value=user['unit'] if is_edit else None,
-                width=300,
+                expand=True,
                 disabled=True
             )
 
         # Cascading dropdown logic - only for admins
         if self.user_data['role'] == 'admin':
-            # If editing and has department, populate units
+            # Get current language
+            current_lang = get_language()
+
+            # If editing and has department, populate sections and units
             if is_edit and user.get('department'):
-                units = get_units_for_department(user['department'])
-                unit_dropdown.options = [ft.dropdown.Option(unit) for unit in units]
-                unit_dropdown.disabled = False
+                sections = get_sections_for_department(user['department'], current_lang)
+                if sections:
+                    section_dropdown.options = [ft.dropdown.Option(sec) for sec in sections]
+                    section_dropdown.disabled = False
+
+                # If has section, get units from section
+                if user.get('section'):
+                    units = get_units_for_department(user['department'], user['section'], current_lang)
+                    if units:
+                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.disabled = False
+                else:
+                    # Get direct units under department
+                    units = get_units_for_department(user['department'], None, current_lang)
+                    if units:
+                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.disabled = False
 
             def on_department_change(e):
-                """When department changes, populate units dropdown"""
+                """When department changes, populate sections and units dropdowns"""
                 selected_dept = e.control.value
+                current_lang = get_language()
 
                 if selected_dept:
-                    # Get units for selected department
-                    units = get_units_for_department(selected_dept)
-                    unit_dropdown.options = [ft.dropdown.Option(unit) for unit in units]
-                    unit_dropdown.disabled = False
-                    unit_dropdown.value = None  # Reset selection
+                    # Get sections for selected department
+                    sections = get_sections_for_department(selected_dept, current_lang)
+
+                    if sections:
+                        # Department has sections
+                        section_dropdown.options = [ft.dropdown.Option(sec) for sec in sections]
+                        section_dropdown.disabled = False
+                        section_dropdown.value = None
+
+                        # Disable units until section is selected
+                        unit_dropdown.options = []
+                        unit_dropdown.disabled = True
+                        unit_dropdown.value = None
+                    else:
+                        # No sections - get direct units
+                        section_dropdown.options = []
+                        section_dropdown.disabled = True
+                        section_dropdown.value = None
+
+                        units = get_units_for_department(selected_dept, None, current_lang)
+                        if units:
+                            unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                            unit_dropdown.disabled = False
+                            unit_dropdown.value = None
+                        else:
+                            unit_dropdown.options = []
+                            unit_dropdown.disabled = True
+                            unit_dropdown.value = None
+                else:
+                    # Clear all
+                    section_dropdown.options = []
+                    section_dropdown.disabled = True
+                    section_dropdown.value = None
+                    unit_dropdown.options = []
+                    unit_dropdown.disabled = True
+                    unit_dropdown.value = None
+
+                section_dropdown.update()
+                unit_dropdown.update()
+
+            def on_section_change(e):
+                """When section changes, populate units dropdown"""
+                selected_section = e.control.value
+                selected_dept = department_dropdown.value
+                current_lang = get_language()
+
+                if selected_section and selected_dept:
+                    # Get units for selected section
+                    units = get_units_for_department(selected_dept, selected_section, current_lang)
+                    if units:
+                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.disabled = False
+                        unit_dropdown.value = None
+                    else:
+                        unit_dropdown.options = []
+                        unit_dropdown.disabled = True
+                        unit_dropdown.value = None
                 else:
                     unit_dropdown.options = []
                     unit_dropdown.disabled = True
@@ -312,21 +534,19 @@ class UserManagement(ft.UserControl):
                 unit_dropdown.update()
 
             def on_role_change(e):
-                """When role changes, show/hide department/unit requirement"""
+                """When role changes, show/hide department/section/unit requirement"""
                 selected_role = e.control.value
 
-                # Expert requires department and unit
+                # Expert requires only department (section and unit optional)
                 if selected_role == 'expert':
                     department_dropdown.label = t('department') + " *"
-                    unit_dropdown.label = t('unit') + " *"
                 else:
                     department_dropdown.label = t('department')
-                    unit_dropdown.label = t('unit')
 
                 department_dropdown.update()
-                unit_dropdown.update()
 
             department_dropdown.on_change = on_department_change
+            section_dropdown.on_change = on_section_change
             role_dropdown.on_change = on_role_change
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
@@ -347,17 +567,18 @@ class UserManagement(ft.UserControl):
 
             # Validate expert role requirements
             if role_dropdown.value == 'expert':
-                if not department_dropdown.value or not unit_dropdown.value:
-                    error_text.value = t('role_required')
+                if not department_dropdown.value:
+                    error_text.value = t('department_required_for_expert')
                     error_text.visible = True
                     self.user_dialog.update()
                     return
+                # Section and unit are optional for experts
             
             try:
                 if is_edit:
                     # Update user
                     query = """
-                        UPDATE users SET email = ?, full_name = ?, role = ?, department = ?, unit = ?
+                        UPDATE users SET email = ?, full_name = ?, role = ?, department = ?, section = ?, unit = ?
                         WHERE id = ?
                     """
                     params = (
@@ -365,11 +586,12 @@ class UserManagement(ft.UserControl):
                         full_name_field.value.strip(),
                         role_dropdown.value,
                         department_dropdown.value or None,
+                        section_dropdown.value or None,
                         unit_dropdown.value or None,
                         user['id']
                     )
                     self.db.execute_update(query, params)
-                    
+
                     # Update password if provided
                     if password_field.value:
                         self.auth_manager.update_password(user['id'], password_field.value)
@@ -382,6 +604,7 @@ class UserManagement(ft.UserControl):
                         full_name_field.value.strip(),
                         role_dropdown.value,
                         department_dropdown.value or None,
+                        section_dropdown.value or None,
                         unit_dropdown.value or None
                     )
                     
@@ -423,6 +646,7 @@ class UserManagement(ft.UserControl):
                     password_field,
                     role_dropdown,
                     department_dropdown,
+                    section_dropdown,
                     unit_dropdown,
                     error_text
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
@@ -445,15 +669,47 @@ class UserManagement(ft.UserControl):
         self.page.update()
     
     def toggle_user_status(self, user):
+        # Check if trying to deactivate an admin
+        if user['is_active'] and user['role'] == 'admin':
+            # Count active admins
+            active_admins = self.db.execute_query(
+                "SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND is_active = 1"
+            )
+            admin_count = active_admins[0]['count'] if active_admins else 0
+
+            # Prevent deactivation if this is the last active admin
+            if admin_count <= 1:
+                # Show error dialog
+                error_dialog = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text(t('error'), color=COLORS['error']),
+                    content=ft.Text(t('cannot_deactivate_last_admin')),
+                    actions=[
+                        ft.TextButton(
+                            t('ok'),
+                            on_click=lambda e: self.close_error_dialog(error_dialog)
+                        )
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END
+                )
+                self.page.dialog = error_dialog
+                error_dialog.open = True
+                self.page.update()
+                return
+
         new_status = 0 if user['is_active'] else 1
         self.db.execute_update(
             "UPDATE users SET is_active = ? WHERE id = ?",
             (new_status, user['id'])
         )
-        
+
         # Reload users and update UI
         self.load_users()
-        
+
         # Force update of the component
         if self.page:
             self.update()
+
+    def close_error_dialog(self, dialog):
+        dialog.open = False
+        self.page.update()
