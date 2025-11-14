@@ -78,13 +78,13 @@ class LoginView(ft.UserControl):
             ft.Container(
                 content=ft.Container(
                     content=ft.Column([
-                        # Header with icon
-                        ft.Icon(
-                            ft.icons.QUIZ_ROUNDED,
-                            size=70,
-                            color=COLORS['primary']
+                        # Azercosmos Logo
+                        ft.Image(
+                            src="assets/images/azercosmos-logo.png",
+                            width=200,
+                            fit=ft.ImageFit.CONTAIN
                         ),
-                        ft.Container(height=15),
+                        ft.Container(height=20),
                         ft.Text(
                             t('app_name'),
                             size=28,

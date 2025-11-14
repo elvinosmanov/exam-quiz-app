@@ -107,12 +107,21 @@ class BaseAdminLayout(ft.UserControl):
 
         return ft.Container(
             content=ft.Row([
-                ft.Text(
-                    title,
-                    size=20,
-                    weight=ft.FontWeight.BOLD,
-                    color=COLORS['text_primary']
-                ),
+                ft.Row([
+                    ft.Image(
+                        src="assets/images/azercosmos-logo.png",
+                        width=120,
+                        height=40,
+                        fit=ft.ImageFit.CONTAIN
+                    ),
+                    ft.Container(width=15),
+                    ft.Text(
+                        title,
+                        size=20,
+                        weight=ft.FontWeight.BOLD,
+                        color=COLORS['text_primary']
+                    )
+                ], spacing=0),
                 ft.Row(right_controls, spacing=10)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.padding.symmetric(horizontal=20, vertical=15),
