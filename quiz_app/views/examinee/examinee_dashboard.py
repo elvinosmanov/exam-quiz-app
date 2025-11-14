@@ -99,7 +99,7 @@ class ExamineeDashboard(ft.UserControl):
             content=ft.Row([
                 ft.Row([
                     ft.Image(
-                        src="assets/images/azercosmos-logo.png",
+                        src="images/azercosmos-logo.png",
                         width=120,
                         height=40,
                         fit=ft.ImageFit.CONTAIN

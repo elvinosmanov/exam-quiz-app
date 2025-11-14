@@ -27,7 +27,8 @@ try:
     print("Test user: testuser / testpass123")
     print("Note: Some deprecation warnings are expected and can be ignored.")
     
-    ft.app(target=main)
+    assets_dir = os.path.join(os.path.dirname(__file__), "quiz_app", "assets")
+    ft.app(target=main, assets_dir=assets_dir)
     
 except ImportError as e:
     print(f"Missing dependencies: {e}")

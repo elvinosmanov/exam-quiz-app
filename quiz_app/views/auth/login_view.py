@@ -80,7 +80,7 @@ class LoginView(ft.UserControl):
                     content=ft.Column([
                         # Azercosmos Logo
                         ft.Image(
-                            src="assets/images/azercosmos-logo.png",
+                            src="images/azercosmos-logo.png",
                             width=200,
                             fit=ft.ImageFit.CONTAIN
                         ),
