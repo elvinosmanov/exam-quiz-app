@@ -119,11 +119,36 @@ class QuestionManagement(ft.UserControl):
             on_click=self.show_create_exam_dialog,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
         )
+        
+        self.manage_observers_btn = ft.ElevatedButton(
+            text=t('observers'),
+            icon=ft.icons.REMOVE_RED_EYE,
+            on_click=self.show_observers_dialog,
+            disabled=True,
+            style=ft.ButtonStyle(
+                bgcolor={
+                    ft.MaterialState.DEFAULT: COLORS['info'],
+                    ft.MaterialState.DISABLED: ft.colors.with_opacity(0.2, COLORS['info'])
+                },
+                color={
+                    ft.MaterialState.DEFAULT: ft.colors.WHITE,
+                    ft.MaterialState.DISABLED: ft.colors.WHITE70
+                }
+            )
+        )
 
         # Dialogs
         self.question_dialog = None
         self.bulk_import_dialog = None
         self.exam_dialog = None
+        self.observers_dialog = None
+        
+        # Observer management state
+        self.current_observers = []
+        self.observer_candidates = []
+        self.observer_dropdown = None
+        self.observers_list_column = None
+        self.observers_message_text = None
     
     def preselect_exam(self, exam_id):
         """Pre-select an exam in the dropdown and load its questions"""
@@ -134,6 +159,9 @@ class QuestionManagement(ft.UserControl):
             
             # Load questions for the selected exam
             self.load_questions()
+            
+            # Update observer button availability
+            self.update_observers_button_state()
             
             # Update the UI if it's already mounted
             if hasattr(self, 'page') and self.page:
@@ -147,7 +175,14 @@ class QuestionManagement(ft.UserControl):
             ft.Row([
                 ft.Text(t('question_bank'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
                 ft.Container(expand=True),
-                ft.Row([self.create_exam_btn, self.download_template_btn, self.bulk_import_btn, self.export_questions_btn, self.add_question_btn], spacing=10)
+                ft.Row([
+                    self.create_exam_btn,
+                    self.manage_observers_btn,
+                    self.download_template_btn,
+                    self.bulk_import_btn,
+                    self.export_questions_btn,
+                    self.add_question_btn
+                ], spacing=10)
             ]),
             ft.Divider(),
             
@@ -185,18 +220,93 @@ class QuestionManagement(ft.UserControl):
     def load_exams(self):
         # Apply unit-level filtering for experts
         perm_manager = UnitPermissionManager(self.db)
-        filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+        filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data, table_alias='e')
 
         # Build query with unit filtering
         query = """
-            SELECT e.id, e.title, u.full_name as creator_name, u.unit as creator_unit
+            SELECT e.id, e.title, e.created_by, u.full_name as creator_name, u.unit as creator_unit
             FROM exams e
             LEFT JOIN users u ON e.created_by = u.id
             WHERE e.is_active = 1 {filter_clause}
             ORDER BY e.title
         """.format(filter_clause=filter_clause)
 
-        self.exams_data = self.db.execute_query(query, tuple(filter_params))
+        base_exams = self.db.execute_query(query, tuple(filter_params))
+
+        # Include observer access for experts
+        if self.user_data.get('role') == 'expert' and self.user_data.get('id'):
+            observer_query = """
+                SELECT e.id, e.title, e.created_by, owner.full_name as creator_name, owner.unit as creator_unit
+                FROM exam_observers eo
+                JOIN exams e ON eo.exam_id = e.id
+                LEFT JOIN users owner ON e.created_by = owner.id
+                WHERE eo.observer_id = ? AND e.is_active = 1
+            """
+            observer_exams = self.db.execute_query(observer_query, (self.user_data['id'],))
+
+            exam_map = {exam['id']: exam for exam in base_exams}
+            for exam in observer_exams:
+                exam_map.setdefault(exam['id'], exam)
+
+            self.exams_data = sorted(
+                exam_map.values(),
+                key=lambda ex: (ex['title'] or '').lower()
+            )
+        else:
+            self.exams_data = base_exams
+
+        self.refresh_exam_selector_options()
+        self.update_observers_button_state()
+
+    def refresh_exam_selector_options(self):
+        """Update the exam dropdown with the latest exam list"""
+        if not hasattr(self, 'exam_selector') or not self.exam_selector:
+            return
+
+        current_value = self.exam_selector.value
+        options = [
+            ft.dropdown.Option(str(exam['id']), exam['title'])
+            for exam in self.exams_data
+        ]
+        self.exam_selector.options = options
+
+        if current_value:
+            option_keys = {opt.key or opt.text for opt in options}
+            if current_value not in option_keys:
+                self.exam_selector.value = None
+                self.selected_exam_id = None
+                self.questions_data = []
+                self.update_table()
+                self.update_observers_button_state()
+
+        if self.page:
+            self.exam_selector.update()
+
+    def update_observers_button_state(self):
+        """Enable or disable observer button based on exam selection"""
+        if not hasattr(self, 'manage_observers_btn') or not self.manage_observers_btn:
+            return
+
+        selected_exam = self.get_selected_exam()
+        can_manage = bool(
+            selected_exam and (
+                self.user_data.get('role') == 'admin' or 
+                selected_exam.get('created_by') == self.user_data.get('id')
+            )
+        )
+        self.manage_observers_btn.disabled = not can_manage
+        if self.page:
+            self.manage_observers_btn.update()
+
+    def get_selected_exam(self):
+        """Return the dictionary of the currently selected exam"""
+        if not self.selected_exam_id:
+            return None
+
+        for exam in self.exams_data:
+            if exam['id'] == self.selected_exam_id:
+                return exam
+        return None
     
     def exam_selected(self, e):
         old_exam_id = self.selected_exam_id
@@ -212,6 +322,8 @@ class QuestionManagement(ft.UserControl):
             self.questions_data = []
             self.update_table()
             self.hide_question_pool_stats()
+        
+        self.update_observers_button_state()
     
     def load_questions(self):
         if not self.selected_exam_id:
@@ -1900,3 +2012,293 @@ class QuestionManagement(ft.UserControl):
         self.page.dialog = self.exam_dialog
         self.exam_dialog.open = True
         self.page.update()
+
+    def show_observers_dialog(self, e):
+        """Display dialog for managing topic observers"""
+        if not self.selected_exam_id:
+            self.show_error_dialog(t('please_select_exam'))
+            return
+
+        selected_exam = self.get_selected_exam()
+        if not selected_exam:
+            self.show_error_dialog(t('please_select_exam'))
+            return
+
+        # Only admins or topic owners can manage observers
+        if self.user_data.get('role') != 'admin' and selected_exam.get('created_by') != self.user_data.get('id'):
+            self.show_error_dialog(t('observer_manage_forbidden'))
+            return
+
+        self.current_observers = self.load_exam_observers(self.selected_exam_id)
+        self.observer_candidates = self.load_observer_candidates(selected_exam.get('created_by'))
+        self.observer_dropdown = ft.Dropdown(
+            label=t('select_observer'),
+            width=350
+        )
+        self.observers_message_text = ft.Text("", visible=False, color=COLORS['error'])
+        add_button = ft.ElevatedButton(
+            text=t('add_observer'),
+            icon=ft.icons.PERSON_ADD_ALT_1,
+            on_click=self.handle_add_observer,
+            style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+        )
+        self.observers_list_column = ft.Column(spacing=8, expand=True, scroll=ft.ScrollMode.AUTO)
+        self.update_observers_dropdown()
+        self.populate_observers_list()
+
+        info_text = ft.Text(
+            t('observer_instructions'),
+            color=COLORS['text_secondary'],
+            size=13
+        )
+
+        dialog_content = ft.Container(
+            content=ft.Column([
+                info_text,
+                ft.Row(
+                    controls=[self.observer_dropdown, add_button],
+                    spacing=10,
+                    wrap=True
+                ),
+                self.observers_message_text,
+                ft.Divider(),
+                ft.Text(t('current_observers'), size=16, weight=ft.FontWeight.BOLD),
+                ft.Container(
+                    content=self.observers_list_column,
+                    bgcolor=COLORS['surface'],
+                    padding=ft.padding.all(10),
+                    border_radius=8,
+                    height=220
+                )
+            ], spacing=12, tight=True),
+            width=640,
+            height=380
+        )
+
+        def close_dialog(ev):
+            self.observers_dialog.open = False
+            self.page.update()
+
+        self.observers_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(t('manage_observers'), size=20, weight=ft.FontWeight.BOLD),
+            content=dialog_content,
+            actions=[
+                ft.TextButton(t('close'), on_click=close_dialog)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = self.observers_dialog
+        self.observers_dialog.open = True
+        self.page.update()
+
+    def load_exam_observers(self, exam_id):
+        """Load observers for a given exam"""
+        try:
+            return self.db.execute_query("""
+                SELECT eo.observer_id, eo.granted_at, u.full_name, u.department, u.unit, u.email
+                FROM exam_observers eo
+                JOIN users u ON eo.observer_id = u.id
+                WHERE eo.exam_id = ?
+                ORDER BY u.full_name
+            """, (exam_id,))
+        except Exception as ex:
+            print(f"Error loading observers: {ex}")
+            return []
+
+    def load_observer_candidates(self, owner_id):
+        """Load eligible expert observers except the topic owner"""
+        owner_id = owner_id or -1
+        try:
+            return self.db.execute_query("""
+                SELECT id, full_name, department, unit
+                FROM users
+                WHERE role = 'expert' AND is_active = 1 AND id != ?
+                ORDER BY full_name
+            """, (owner_id,))
+        except Exception as ex:
+            print(f"Error loading observer candidates: {ex}")
+            return []
+
+    def update_observers_dropdown(self):
+        """Refresh dropdown options with available observers"""
+        if not self.observer_dropdown:
+            return
+
+        assigned_ids = {observer['observer_id'] for observer in self.current_observers}
+        options = []
+        for candidate in self.observer_candidates:
+            if candidate['id'] in assigned_ids:
+                continue
+
+            dept = candidate.get('department') or ''
+            unit = candidate.get('unit') or ''
+            descriptor = ""
+            if dept or unit:
+                parts = [part for part in [dept, unit] if part]
+                descriptor = f" ({' / '.join(parts)})"
+
+            label = f"{candidate['full_name']}{descriptor}"
+            options.append(ft.dropdown.Option(str(candidate['id']), label))
+
+        self.observer_dropdown.options = options
+
+        if not options:
+            self.observer_dropdown.value = None
+            self.observer_dropdown.disabled = True
+        else:
+            self.observer_dropdown.disabled = False
+
+        # Control may not be mounted yet when dialog is being assembled,
+        # so only call update when it is already part of the page tree.
+        if self.page and getattr(self.observer_dropdown, 'page', None):
+            self.observer_dropdown.update()
+
+    def populate_observers_list(self):
+        """Render the list of observers inside the dialog"""
+        if not self.observers_list_column:
+            return
+
+        self.observers_list_column.controls = []
+
+        if not self.current_observers:
+            self.observers_list_column.controls.append(
+                ft.Text(
+                    t('no_observers_assigned'),
+                    color=COLORS['text_secondary'],
+                    italic=True
+                )
+            )
+        else:
+            for observer in self.current_observers:
+                dept = observer.get('department') or ''
+                unit = observer.get('unit') or ''
+                dept_unit = ' / '.join([val for val in [dept, unit] if val]) or '-'
+
+                observer_row = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.BADGE, color=COLORS['primary'], size=20),
+                        ft.Column([
+                            ft.Text(observer['full_name'], weight=ft.FontWeight.BOLD),
+                            ft.Text(dept_unit, color=COLORS['text_secondary'], size=12)
+                        ], tight=True, expand=True),
+                        ft.IconButton(
+                            icon=ft.icons.DELETE_OUTLINE,
+                            icon_color=COLORS['error'],
+                            tooltip=t('delete'),
+                            on_click=lambda ev, obs_id=observer['observer_id']: self.handle_remove_observer(obs_id)
+                        )
+                    ], alignment=ft.MainAxisAlignment.START),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    bgcolor=ft.colors.with_opacity(0.04, COLORS['primary']),
+                    border_radius=6
+                )
+                self.observers_list_column.controls.append(observer_row)
+
+        if self.page and getattr(self.observers_list_column, 'page', None):
+            self.observers_list_column.update()
+
+    def handle_add_observer(self, e):
+        """Handle adding a new observer"""
+        if not self.selected_exam_id or not self.observer_dropdown:
+            return
+
+        if not self.observer_dropdown.value:
+            self.show_observers_message(t('observer_select_prompt'))
+            return
+
+        observer_id = int(self.observer_dropdown.value)
+        status, error = self.add_exam_observer_record(self.selected_exam_id, observer_id)
+
+        if status == 'success':
+            self.observer_dropdown.value = None
+            if self.page:
+                self.observer_dropdown.update()
+            self.show_observers_message(t('observer_added'), success=True)
+        elif status == 'duplicate':
+            self.show_observers_message(t('observer_already_assigned'))
+        else:
+            message = t('error')
+            if error:
+                message = f"{t('error')}: {error}"
+            self.show_observers_message(message)
+            return
+
+        self.reload_observer_state()
+
+    def handle_remove_observer(self, observer_id):
+        """Remove observer access"""
+        if not self.selected_exam_id:
+            return
+
+        status, error = self.remove_exam_observer_record(self.selected_exam_id, observer_id)
+
+        if status:
+            self.show_observers_message(t('observer_removed'), success=True)
+            self.reload_observer_state()
+        else:
+            message = t('error')
+            if error:
+                message = f"{t('error')}: {error}"
+            self.show_observers_message(message)
+
+    def add_exam_observer_record(self, exam_id, observer_id):
+        """Persist observer assignment"""
+        try:
+            existing = self.db.execute_single("""
+                SELECT id FROM exam_observers
+                WHERE exam_id = ? AND observer_id = ?
+            """, (exam_id, observer_id))
+
+            if existing:
+                return 'duplicate', None
+
+            granted_by = self.user_data.get('id')
+            self.db.execute_insert("""
+                INSERT INTO exam_observers (exam_id, observer_id, granted_by)
+                VALUES (?, ?, ?)
+            """, (exam_id, observer_id, granted_by))
+
+            return 'success', None
+        except Exception as ex:
+            print(f"Error saving observer: {ex}")
+            return 'error', str(ex)
+
+    def remove_exam_observer_record(self, exam_id, observer_id):
+        """Delete observer assignment"""
+        try:
+            self.db.execute_update("""
+                DELETE FROM exam_observers
+                WHERE exam_id = ? AND observer_id = ?
+            """, (exam_id, observer_id))
+            return True, None
+        except Exception as ex:
+            print(f"Error removing observer: {ex}")
+            return False, str(ex)
+
+    def reload_observer_state(self):
+        """Reload dropdown options and list after changes"""
+        if not self.selected_exam_id:
+            return
+
+        selected_exam = self.get_selected_exam()
+        owner_id = selected_exam.get('created_by') if selected_exam else None
+        self.current_observers = self.load_exam_observers(self.selected_exam_id)
+        self.observer_candidates = self.load_observer_candidates(owner_id)
+        self.update_observers_dropdown()
+        self.populate_observers_list()
+        if self.page and self.observers_dialog:
+            self.observers_dialog.update()
+
+    def show_observers_message(self, message, success=False):
+        """Display inline feedback inside the observers dialog"""
+        if not self.observers_message_text:
+            return
+
+        self.observers_message_text.value = message
+        self.observers_message_text.color = COLORS['success'] if success else COLORS['error']
+        self.observers_message_text.visible = True
+
+        if self.page:
+            self.observers_message_text.update()

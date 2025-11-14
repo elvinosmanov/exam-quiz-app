@@ -257,6 +257,21 @@ def create_tables():
                 UNIQUE(user_id, exam_id)
             )
         ''')
+
+        # Exam observers table (experts allowed to view specific topics)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS exam_observers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_id INTEGER NOT NULL,
+                observer_id INTEGER NOT NULL,
+                granted_by INTEGER NOT NULL,
+                granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (exam_id) REFERENCES exams (id),
+                FOREIGN KEY (observer_id) REFERENCES users (id),
+                FOREIGN KEY (granted_by) REFERENCES users (id),
+                UNIQUE(exam_id, observer_id)
+            )
+        ''')
         
         # Audit log table
         cursor.execute('''
@@ -342,6 +357,8 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_templates_type_lang ON email_templates(template_type, language)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_log_session ON email_log(session_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_log_sent_by ON email_log(sent_by)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_observers_exam ON exam_observers(exam_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_observers_observer ON exam_observers(observer_id)')
 
         conn.commit()
 
