@@ -34,32 +34,13 @@ def build_executable():
             shutil.rmtree(folder)
             print(f"✓ Cleaned {folder} folder")
 
-    # Build command
-    # Database and assets will be bundled into the executable
-    # At runtime, they'll be extracted to _MEIPASS temporary directory
-    cmd = [
-        'flet', 'pack', 'main.py',
-        '--name', 'QuizExamSystem',
-        '--add-data', 'quiz_app.db:.',
-        '--add-data', 'quiz_app/assets/images:assets/images',
-        '--hidden-import', 'pandas',
-        '--hidden-import', 'openpyxl',
-        '--hidden-import', 'PIL',
-        '--hidden-import', 'reportlab',
-        '--hidden-import', 'bcrypt',
-        '--hidden-import', 'quiz_app.database.database',
-        '--hidden-import', 'quiz_app.utils.auth',
-        '--hidden-import', 'quiz_app.utils.session',
-        '--hidden-import', 'quiz_app.utils.localization',
-        '--hidden-import', 'quiz_app.utils.email_handler',
-        '--hidden-import', 'quiz_app.utils.pdf_generator',
-        '--hidden-import', 'quiz_app.utils.permissions',
-        '--hidden-import', 'quiz_app.utils.view_switcher',
-        '--hidden-import', 'quiz_app.utils.question_selector',
-        '--hidden-import', 'quiz_app.utils.bulk_import',
-    ]
+    # Use PyInstaller directly with our spec file
+    # The spec file (QuizExamSystem.spec) already has all hiddenimports configured
+    print("\nUsing PyInstaller with QuizExamSystem.spec file...")
+    print("This spec file includes all required hidden imports.\n")
 
-    print("\nBuilding executable...")
+    cmd = ['pyinstaller', '--clean', 'QuizExamSystem.spec']
+
     print(f"Command: {' '.join(cmd)}\n")
 
     try:
