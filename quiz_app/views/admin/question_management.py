@@ -1812,19 +1812,21 @@ class QuestionManagement(ft.UserControl):
                     self.db.execute_update(query, params)
                 else:
                     # Create new exam with default values
+                    from datetime import datetime
                     user_id = self.user_data.get('id', 1) if self.user_data else 1
                     query = """
                         INSERT INTO exams (
-                            title, description, created_by,
+                            title, description, created_by, created_at,
                             duration_minutes, passing_score,
                             max_attempts, randomize_questions, show_results
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
                         user_id,
+                        datetime.now().isoformat(),
                         60,  # Default 60 minutes
                         70.0,  # Default 70% passing score
                         3,  # Default 3 attempts
