@@ -678,10 +678,10 @@ class Grading(ft.UserControl):
                                 content=ft.Column([
                                     ft.Text(
                                         t('manual_grading_required'),
-                                        size=14,
+                                        size=13,
                                         color=COLORS['text_secondary']
                                     ),
-                                    ft.Container(height=10),
+                                    ft.Container(height=5),
                                     ft.Container(
                                         content=ft.ListView(
                                             controls=[self.answers_list],
@@ -690,11 +690,11 @@ class Grading(ft.UserControl):
                                         ),
                                         bgcolor=COLORS['surface'],
                                         border_radius=8,
-                                        padding=ft.padding.all(16),
+                                        padding=ft.padding.all(8),
                                         expand=True
                                     )
-                                ]),
-                                padding=ft.padding.all(10),
+                                ], spacing=0),
+                                padding=ft.padding.all(5),
                                 expand=True
                             )
                         ),
@@ -708,19 +708,19 @@ class Grading(ft.UserControl):
                                     ft.Row([
                                         ft.Text(
                                             t('grading_completed'),
-                                            size=14,
+                                            size=13,
                                             color=COLORS['text_secondary']
                                         ),
                                         ft.Container(expand=True),
-                                        ft.Icon(ft.icons.EMAIL_OUTLINED, color=COLORS['primary'], size=20),
+                                        ft.Icon(ft.icons.EMAIL_OUTLINED, color=COLORS['primary'], size=18),
                                         ft.Text(
                                             t('send'),
-                                            size=12,
+                                            size=11,
                                             color=COLORS['primary'],
                                             italic=True
                                         )
                                     ]),
-                                    ft.Container(height=10),
+                                    ft.Container(height=5),
                                     ft.Container(
                                         content=ft.ListView(
                                             controls=[self.completed_list],
@@ -729,11 +729,11 @@ class Grading(ft.UserControl):
                                         ),
                                         bgcolor=COLORS['surface'],
                                         border_radius=8,
-                                        padding=ft.padding.all(16),
+                                        padding=ft.padding.all(8),
                                         expand=True
                                     )
-                                ]),
-                                padding=ft.padding.all(10),
+                                ], spacing=0),
+                                padding=ft.padding.all(5),
                                 expand=True
                             )
                         )
