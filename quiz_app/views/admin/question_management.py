@@ -1347,22 +1347,38 @@ class QuestionManagement(ft.UserControl):
     def download_template(self, e):
         try:
             from quiz_app.utils.bulk_import import BulkImporter
-            importer = BulkImporter()
-            
-            # Create template file in Downloads folder
-            template_path = importer.create_template()
-            
-            # Show success message
-            success_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text(t('template_downloaded')),
-                content=ft.Text(t('template_saved_to').format(template_path)),
-                actions=[ft.TextButton("OK", on_click=lambda e: self.close_success_dialog())]
-            )
-            self.page.dialog = success_dialog
-            success_dialog.open = True
+
+            # Create file picker for save location
+            def on_save_result(e: ft.FilePickerResultEvent):
+                if e.path:
+                    try:
+                        importer = BulkImporter()
+                        # Create template and save to selected path
+                        template_path = importer.create_template(file_path=e.path)
+
+                        # Show success message
+                        success_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text(t('template_downloaded')),
+                            content=ft.Text(t('template_saved_to').format(template_path)),
+                            actions=[ft.TextButton("OK", on_click=lambda e: self.close_success_dialog())]
+                        )
+                        self.page.dialog = success_dialog
+                        success_dialog.open = True
+                        self.page.update()
+                    except Exception as ex:
+                        self.show_error_dialog(t('error_downloading_template').format(str(ex)))
+
+            # Create and show file picker
+            save_file_dialog = ft.FilePicker(on_result=on_save_result)
+            self.page.overlay.append(save_file_dialog)
             self.page.update()
-            
+
+            save_file_dialog.save_file(
+                file_name="questions_template.xlsx",
+                allowed_extensions=["xlsx"]
+            )
+
         except Exception as ex:
             self.show_error_dialog(t('error_downloading_template').format(str(ex)))
     
