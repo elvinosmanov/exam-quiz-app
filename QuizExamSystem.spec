@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('quiz_app.db', '.'), ('quiz_app/assets/images', 'assets/images')],
+    datas=[('quiz_app/assets/images', 'assets/images')],  # Removed quiz_app.db - created at runtime
     hiddenimports=[
         'quiz_app.database.database',
         'quiz_app.utils.auth',
@@ -40,9 +40,21 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # Exclude unused modules to reduce size
+        'tkinter',
+        'unittest',
+        'test',
+        'tests',
+        'curses',
+        'email.mime',
+        'pydoc',
+        'doctest',
+        'argparse',
+        'difflib',
+    ],
     noarchive=False,
-    optimize=0,
+    optimize=2,  # Changed from 0 to 2 for bytecode optimization
 )
 pyz = PYZ(a.pure)
 

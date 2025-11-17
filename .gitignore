@@ -20,9 +20,9 @@ dist/
 # PyInstaller
 *.manifest
 
-# Database (you might want to include a template, exclude user data)
-# Uncomment the line below if you don't want to include the database
-# quiz_app.db
+# Database (exclude user data)
+quiz_app.db
+*.db
 
 # IDE
 .vscode/
@@ -50,6 +50,13 @@ htmlcov/
 *.tmp
 *.bak
 *.backup
+
+# Development/Test files
+*.xlsx
+*.xls
+*.pdf
+departments-sections-units.xlsx
+TODO_list.xlsx
 
 # OS specific
 Thumbs.db
