@@ -62,7 +62,20 @@ def create_tables():
                 last_login TIMESTAMP
             )
         ''')
-        
+
+        # Add section and unit columns if they don't exist (for existing databases)
+        try:
+            cursor.execute('ALTER TABLE users ADD COLUMN section TEXT')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE users ADD COLUMN unit TEXT')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+
         # Exams table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS exams (
