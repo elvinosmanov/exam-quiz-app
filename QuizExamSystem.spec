@@ -51,7 +51,6 @@ a = Analysis(
         'pydoc',
         'doctest',
         'argparse',
-        'difflib',
     ],
     noarchive=False,
     optimize=2,  # Changed from 0 to 2 for bytecode optimization
