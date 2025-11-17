@@ -53,7 +53,7 @@ a = Analysis(
         'argparse',
     ],
     noarchive=False,
-    optimize=2,  # Changed from 0 to 2 for bytecode optimization
+    optimize=0,  # Keep docstrings intact (required by pandas/numpy)
 )
 pyz = PYZ(a.pure)
 
