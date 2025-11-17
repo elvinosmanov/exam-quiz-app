@@ -544,6 +544,171 @@ class Settings(ft.UserControl):
         # Email Templates Card
         email_templates_card = self.build_email_templates_card()
 
+        # Change Password Card
+        def show_change_password_dialog(e):
+            """Show dialog to change admin password"""
+            current_password = ft.TextField(
+                label=t('current_password'),
+                password=True,
+                can_reveal_password=True,
+                width=400,
+                autofocus=True
+            )
+
+            new_password = ft.TextField(
+                label=t('new_password'),
+                password=True,
+                can_reveal_password=True,
+                width=400
+            )
+
+            confirm_password = ft.TextField(
+                label=t('confirm_password'),
+                password=True,
+                can_reveal_password=True,
+                width=400
+            )
+
+            error_text = ft.Text("", color=COLORS['error'], size=14)
+            success_text = ft.Text("", color=COLORS['success'], size=14)
+
+            def validate_and_change_password(e):
+                """Validate inputs and change password"""
+                error_text.value = ""
+                success_text.value = ""
+
+                # Validation
+                if not current_password.value or not new_password.value or not confirm_password.value:
+                    error_text.value = t('field_required')
+                    dialog.update()
+                    return
+
+                if new_password.value != confirm_password.value:
+                    error_text.value = t('password_mismatch')
+                    dialog.update()
+                    return
+
+                if len(new_password.value) < 6:
+                    error_text.value = t('value_too_short')
+                    dialog.update()
+                    return
+
+                # Verify current password
+                import bcrypt
+                user = self.db.execute_single(
+                    "SELECT password_hash FROM users WHERE id = ?",
+                    (self.user_data['id'],)
+                )
+
+                if not user or not bcrypt.checkpw(current_password.value.encode('utf-8'), user['password_hash'].encode('utf-8')):
+                    error_text.value = t('incorrect_password')
+                    dialog.update()
+                    return
+
+                # Update password
+                new_password_hash = bcrypt.hashpw(new_password.value.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+                try:
+                    self.db.execute_update(
+                        "UPDATE users SET password_hash = ? WHERE id = ?",
+                        (new_password_hash, self.user_data['id'])
+                    )
+
+                    success_text.value = t('password_updated')
+                    error_text.value = ""
+                    current_password.value = ""
+                    new_password.value = ""
+                    confirm_password.value = ""
+                    dialog.update()
+
+                    # Close dialog after 1.5 seconds
+                    import time
+                    import threading
+                    def close_after_delay():
+                        time.sleep(1.5)
+                        if self.page:
+                            dialog.open = False
+                            self.page.update()
+
+                    threading.Thread(target=close_after_delay, daemon=True).start()
+
+                except Exception as ex:
+                    error_text.value = f"Error changing password: {str(ex)}"
+                    dialog.update()
+
+            def close_dialog(e):
+                """Close the dialog"""
+                if self.page and self.page.dialog:
+                    self.page.dialog.open = False
+                    self.page.update()
+
+            # Create dialog
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(t('change_password')),
+                content=ft.Container(
+                    content=ft.Column([
+                        current_password,
+                        ft.Container(height=10),
+                        new_password,
+                        ft.Container(height=10),
+                        confirm_password,
+                        ft.Container(height=10),
+                        error_text,
+                        success_text
+                    ], tight=True),
+                    width=450,
+                    padding=ft.padding.all(10)
+                ),
+                actions=[
+                    ft.TextButton(t('cancel'), on_click=close_dialog),
+                    ft.ElevatedButton(
+                        t('change_password'),
+                        on_click=validate_and_change_password,
+                        style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END
+            )
+
+            # Show dialog
+            if self.page:
+                self.page.dialog = dialog
+                dialog.open = True
+                self.page.update()
+
+        change_password_card = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.LOCK, size=32, color=COLORS['error']),
+                    ft.Column([
+                        ft.Text(t('change_password'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('update_your_password'), size=13, color=COLORS['text_secondary'])
+                    ], spacing=2, expand=True)
+                ], spacing=15),
+                ft.Container(height=15),
+                ft.Text(
+                    t('current_user') + ": " + self.user_data.get('username', 'Unknown'),
+                    size=14,
+                    color=COLORS['text_secondary']
+                ),
+                ft.Container(height=10),
+                ft.ElevatedButton(
+                    text=t('change_password'),
+                    icon=ft.icons.VPN_KEY,
+                    on_click=show_change_password_dialog,
+                    style=ft.ButtonStyle(
+                        bgcolor=COLORS['error'],
+                        color=ft.colors.WHITE
+                    )
+                )
+            ], spacing=5),
+            padding=ft.padding.all(20),
+            bgcolor=ft.colors.WHITE,
+            border_radius=12,
+            border=ft.border.all(1, COLORS['border'])
+        )
+
         # Main layout
         return ft.Column([
             # Header
@@ -563,6 +728,8 @@ class Settings(ft.UserControl):
                 exam_duration_card,
                 ft.Container(height=20),
                 language_card,
+                ft.Container(height=20),
+                change_password_card,
                 ft.Container(height=20),
                 email_templates_card
             ], scroll=ft.ScrollMode.AUTO, expand=True)

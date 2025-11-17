@@ -54,6 +54,8 @@ def create_tables():
                 full_name TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'examinee',
                 department TEXT,
+                section TEXT,
+                unit TEXT,
                 employee_id TEXT,
                 is_active BOOLEAN DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

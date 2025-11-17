@@ -177,9 +177,8 @@ class ExamineeDashboard(ft.UserControl):
         # Get user statistics
         stats = self.get_user_stats()
         
-        # Create dashboard cards
+        # Create dashboard cards (removed total_exams card)
         cards = ft.Row([
-            self.create_stat_card(t('total_exams'), str(stats['total_exams']), ft.icons.ASSIGNMENT, COLORS['primary']),
             self.create_stat_card(t('exam_completed'), str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success']),
             self.create_stat_card(t('average_score'), f"{stats['average_score']:.1f}%", ft.icons.GRADE, COLORS['warning']),
             self.create_stat_card(t('available_exams'), str(stats['available_exams']), ft.icons.QUIZ, COLORS['error'])

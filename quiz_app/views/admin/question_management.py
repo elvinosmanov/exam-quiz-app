@@ -89,7 +89,16 @@ class QuestionManagement(ft.UserControl):
             text=t('add_question'),
             icon=ft.icons.ADD,
             on_click=self.show_add_question_dialog,
-            style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+            style=ft.ButtonStyle(
+                bgcolor={
+                    ft.MaterialState.DEFAULT: COLORS['primary'],
+                    ft.MaterialState.DISABLED: ft.colors.with_opacity(0.2, COLORS['primary'])
+                },
+                color={
+                    ft.MaterialState.DEFAULT: ft.colors.WHITE,
+                    ft.MaterialState.DISABLED: ft.colors.WHITE70
+                }
+            )
         )
         
         self.bulk_import_btn = ft.ElevatedButton(
@@ -162,6 +171,7 @@ class QuestionManagement(ft.UserControl):
             
             # Update observer button availability
             self.update_observers_button_state()
+            self.update_add_question_button_state()
             
             # Update the UI if it's already mounted
             if hasattr(self, 'page') and self.page:
@@ -232,6 +242,12 @@ class QuestionManagement(ft.UserControl):
         """.format(filter_clause=filter_clause)
 
         base_exams = self.db.execute_query(query, tuple(filter_params))
+        current_user_id = self.user_data.get('id')
+        for exam in base_exams:
+            if current_user_id and exam.get('created_by') == current_user_id:
+                exam['access_type'] = 'own'
+            else:
+                exam['access_type'] = 'direct'
 
         # Include observer access for experts
         if self.user_data.get('role') == 'expert' and self.user_data.get('id'):
@@ -246,6 +262,7 @@ class QuestionManagement(ft.UserControl):
 
             exam_map = {exam['id']: exam for exam in base_exams}
             for exam in observer_exams:
+                exam['access_type'] = 'observer'
                 exam_map.setdefault(exam['id'], exam)
 
             self.exams_data = sorted(
@@ -257,6 +274,7 @@ class QuestionManagement(ft.UserControl):
 
         self.refresh_exam_selector_options()
         self.update_observers_button_state()
+        self.update_add_question_button_state()
 
     def refresh_exam_selector_options(self):
         """Update the exam dropdown with the latest exam list"""
@@ -265,7 +283,7 @@ class QuestionManagement(ft.UserControl):
 
         current_value = self.exam_selector.value
         options = [
-            ft.dropdown.Option(str(exam['id']), exam['title'])
+            ft.dropdown.Option(str(exam['id']), self.get_exam_option_label(exam))
             for exam in self.exams_data
         ]
         self.exam_selector.options = options
@@ -278,9 +296,11 @@ class QuestionManagement(ft.UserControl):
                 self.questions_data = []
                 self.update_table()
                 self.update_observers_button_state()
+                self.update_add_question_button_state()
 
         if self.page:
             self.exam_selector.update()
+        self.update_add_question_button_state()
 
     def update_observers_button_state(self):
         """Enable or disable observer button based on exam selection"""
@@ -308,6 +328,37 @@ class QuestionManagement(ft.UserControl):
                 return exam
         return None
     
+    def get_exam_option_label(self, exam):
+        """Human-friendly option label with ownership indicator"""
+        base_title = exam.get('title') or "Untitled"
+        if self.user_data.get('role') == 'admin':
+            return base_title
+
+        access_type = exam.get('access_type')
+        if access_type == 'observer':
+            return f"{base_title} [{t('observer_topic_label')}]"
+        if access_type == 'own':
+            return f"{base_title} [{t('my_topic_label')}]"
+        return base_title
+
+    def user_can_add_questions(self):
+        """Determine if current user can add questions for selected exam"""
+        exam = self.get_selected_exam()
+        if not exam:
+            return False
+        if self.user_data.get('role') == 'admin':
+            return True
+        return exam.get('access_type') != 'observer'
+
+    def update_add_question_button_state(self):
+        """Enable/disable add question button based on access level"""
+        if not hasattr(self, 'add_question_btn') or not self.add_question_btn:
+            return
+
+        self.add_question_btn.disabled = not self.user_can_add_questions()
+        if self.page and getattr(self.add_question_btn, 'page', None):
+            self.add_question_btn.update()
+    
     def exam_selected(self, e):
         old_exam_id = self.selected_exam_id
         self.selected_exam_id = int(e.control.value) if e.control.value else None
@@ -324,6 +375,7 @@ class QuestionManagement(ft.UserControl):
             self.hide_question_pool_stats()
         
         self.update_observers_button_state()
+        self.update_add_question_button_state()
     
     def load_questions(self):
         if not self.selected_exam_id:
@@ -623,6 +675,9 @@ class QuestionManagement(ft.UserControl):
         if not self.selected_exam_id:
             print("DEBUG: No exam selected, showing error dialog")
             self.show_error_dialog(t('please_select_exam'))
+            return
+        if not self.user_can_add_questions():
+            self.show_error_dialog(t('observer_add_forbidden'))
             return
         
         print("DEBUG: Exam is selected, calling show_question_dialog")
