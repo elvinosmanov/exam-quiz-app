@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta, date
 from quiz_app.config import COLORS
 from quiz_app.utils.permissions import UnitPermissionManager
-from quiz_app.utils.localization import t
+from quiz_app.utils.localization import t, get_language
 
 class QuizManagement(ft.UserControl):
     def __init__(self, db, user_data):
@@ -1550,38 +1550,67 @@ class QuizManagement(ft.UserControl):
         # User selection containers (same as single-template version)
         self.selected_assignment_users = []
         self.selected_assignment_departments = []
+        self.selected_assignment_units = []
 
         # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
-            SELECT id, full_name, username, role
+            SELECT id, full_name, username, role, department, unit
             FROM users
             WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
         """)
 
-        departments = self.db.execute_query("""
-            SELECT DISTINCT department
-            FROM users
-            WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
-            ORDER BY department
-        """)
+        department_values = sorted({u['department'] for u in users if u.get('department')})
+        unit_combo_set = {
+            (u['department'], u['unit'])
+            for u in users
+            if u.get('department') and u.get('unit')
+        }
+        unit_combo_list = sorted(list(unit_combo_set), key=lambda combo: (combo[0], combo[1]))
+
+        # Helper function to extract unit name in current language
+        current_lang = get_language()
+        def get_unit_display_name(dept, unit):
+            """Extract unit name in current language"""
+            # If unit contains " / ", it's bilingual
+            if " / " in unit:
+                parts = unit.split(" / ")
+                if len(parts) == 2:
+                    # First part is Azerbaijani, second is English
+                    return parts[1].strip() if current_lang == 'en' else parts[0].strip()
+            return unit
 
         user_dropdown = ft.Dropdown(
+            label=t('search_users'),
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
-            width=480,
-            text_size=14,
-            content_padding=12,
-            border=ft.InputBorder.OUTLINE
+            expand=True,
+            height=56,
+            content_padding=5
         )
 
         department_dropdown = ft.Dropdown(
+            label=t('assign_department'),
             hint_text="Choose departments",
-            options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
-            width=480,
-            text_size=14,
-            content_padding=12,
-            border=ft.InputBorder.OUTLINE
+            options=[ft.dropdown.Option(dept, dept) for dept in department_values],
+            expand=True,
+            height=56,
+            content_padding=5
+        )
+
+        unit_dropdown = ft.Dropdown(
+            label=t('assign_unit'),
+            hint_text="Select unit",
+            options=[
+                ft.dropdown.Option(
+                    f"{dept}|||{unit}",
+                    f"{get_unit_display_name(dept, dept)} / {get_unit_display_name(dept, unit)}"
+                )
+                for dept, unit in unit_combo_list
+            ],
+            expand=True,
+            height=56,
+            content_padding=5
         )
 
         selected_chips_row = ft.Row(spacing=8, wrap=True)
@@ -1656,8 +1685,40 @@ class QuizManagement(ft.UserControl):
                 if self.page:
                     self.page.update()
 
+        def on_unit_selection(e):
+            if not e.control.value:
+                return
+
+            dept, unit = e.control.value.split("|||")
+            key = (dept, unit)
+            if key not in self.selected_assignment_units:
+                self.selected_assignment_units.append(key)
+
+                chip = ft.Chip(
+                    label=ft.Text(f"Unit: {dept} / {unit}"),
+                    on_delete=lambda e, combo=key: remove_unit(combo),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+            e.control.value = None
+            if self.page:
+                self.page.update()
+
+        def remove_unit(combo):
+            if combo in self.selected_assignment_units:
+                self.selected_assignment_units.remove(combo)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
+                        selected_chips_row.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
         user_dropdown.on_change = on_user_selection
         department_dropdown.on_change = on_department_selection
+        unit_dropdown.on_change = on_unit_selection
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
@@ -1669,10 +1730,10 @@ class QuizManagement(ft.UserControl):
                 assignment_dialog.update()
                 return
 
-            # For create mode, validate user/department selection (skip for PDF export)
+            # For create mode, validate user/department/unit selection (skip for PDF export)
             is_pdf_export = delivery_method.value == "pdf_export"
-            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments:
-                error_text.value = "Please select at least one user or department (not required for PDF Export)"
+            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments and not self.selected_assignment_units:
+                error_text.value = "Please select at least one user, department, or unit (not required for PDF Export)"
                 error_text.visible = True
                 assignment_dialog.update()
                 return
@@ -1893,6 +1954,25 @@ class QuizManagement(ft.UserControl):
                                 VALUES (?, ?, ?)
                             """, (assignment_id, user['id'], self.user_data['id']))
 
+                # Assign units
+                for dept, unit in self.selected_assignment_units:
+                    unit_users = self.db.execute_query("""
+                        SELECT id FROM users
+                        WHERE department = ? AND unit = ? AND role IN ('examinee', 'expert') AND is_active = 1
+                    """, (dept, unit))
+
+                    for user in unit_users:
+                        existing = self.db.execute_single("""
+                            SELECT id FROM assignment_users
+                            WHERE assignment_id = ? AND user_id = ?
+                        """, (assignment_id, user['id']))
+
+                        if not existing:
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                                VALUES (?, ?, ?)
+                            """, (assignment_id, user['id'], self.user_data['id']))
+
                 # Close dialog
                 assignment_dialog.open = False
                 if self.page:
@@ -1963,25 +2043,19 @@ class QuizManagement(ft.UserControl):
             ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Text(
-                "Type a name or username to search examinees.",
+                "Select users, departments, or units to assign this exam.",
                 size=12,
                 color=COLORS['text_secondary']
             ),
+            ft.Container(height=8),
             ft.Row([
-                ft.Container(
-                    content=user_search_field,
-                    width=450
-                ),
-                department_assign_dropdown,
-                unit_assign_dropdown
-            ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.END, wrap=True),
-            ft.Container(
-                content=user_results_list,
-                padding=ft.padding.all(8),
-                bgcolor=ft.colors.with_opacity(0.03, COLORS['primary']),
-                border_radius=8,
-                height=220
-            ),
+                user_dropdown,
+                ft.Container(width=12),
+                department_dropdown,
+                ft.Container(width=12),
+                unit_dropdown
+            ], spacing=0),
+            ft.Container(height=12),
             selected_items_container,
             ft.Container(height=10),
         ], visible=True)
@@ -1989,7 +2063,6 @@ class QuizManagement(ft.UserControl):
         apply_delivery_method_state(delivery_method.value == "pdf_export")
 
         dialog_content_controls.append(user_selection_section)
-        initialize_filters()
         dialog_content_controls.append(error_text)
 
         dialog_title = f"Edit Multi-Template Assignment ({len(exams)} exams)" if is_edit else f"Create Multi-Template Assignment ({len(exams)} exams)"
@@ -2233,22 +2306,39 @@ class QuizManagement(ft.UserControl):
         }
         unit_combo_list = sorted(list(unit_combo_set), key=lambda combo: (combo[0], combo[1]))
 
-        # Filters for narrowing user list
-        user_search_field = ft.TextField(
+        # Helper function to extract unit name in current language
+        current_lang = get_language()
+        def get_unit_display_name(dept, unit):
+            """Extract unit name in current language"""
+            # If unit contains " / ", it's bilingual
+            if " / " in unit:
+                parts = unit.split(" / ")
+                if len(parts) == 2:
+                    # First part is Azerbaijani, second is English
+                    return parts[1].strip() if current_lang == 'en' else parts[0].strip()
+            return unit
+
+        # User selection dropdown (searchable)
+        user_search_dropdown = ft.Dropdown(
             label=t('search_users'),
-            hint_text="Type a name or username",
-            width=420,
+            hint_text="Search users by name, username, or email",
+            options=[
+                ft.dropdown.Option(
+                    key=str(user['id']),
+                    text=f"{user['full_name']} ({user['username']})"
+                )
+                for user in users
+            ],
+            expand=True,
             height=56,
             content_padding=5
         )
-
-        user_results_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO)
 
         department_assign_dropdown = ft.Dropdown(
             label=t('assign_department'),
             hint_text="Select department",
             options=[ft.dropdown.Option(dept, dept) for dept in department_values],
-            width=240,
+            expand=True,
             height=56,
             content_padding=5
         )
@@ -2257,10 +2347,13 @@ class QuizManagement(ft.UserControl):
             label=t('assign_unit'),
             hint_text="Select unit",
             options=[
-                ft.dropdown.Option(f"{dept}|||{unit}", f"{dept} / {unit}")
+                ft.dropdown.Option(
+                    f"{dept}|||{unit}",
+                    f"{get_unit_display_name(dept, dept)} / {get_unit_display_name(dept, unit)}"
+                )
                 for dept, unit in unit_combo_list
             ],
-            width=240,
+            expand=True,
             height=56,
             content_padding=5
         )
@@ -2271,35 +2364,12 @@ class QuizManagement(ft.UserControl):
             selected_chips_row,
         ], spacing=5)
 
-        def update_user_results():
-            search_text = (user_search_field.value or "").lower()
+        def on_user_selection(e):
+            """Handle user selection from dropdown"""
+            if not e.control.value:
+                return
 
-            filtered_users = []
-            for user in users:
-                descriptor = f"{user['full_name']} ({user['username']})"
-                if search_text and search_text not in descriptor.lower():
-                    continue
-                filtered_users.append((user['id'], descriptor))
-
-            # Limit to 25 entries for readability
-            filtered_users = filtered_users[:25]
-
-            user_results_list.controls = [
-                ft.Container(
-                    content=ft.Text(desc),
-                    padding=ft.padding.symmetric(horizontal=12, vertical=8),
-                    bgcolor=ft.colors.with_opacity(0.04, COLORS['primary']),
-                    border_radius=6,
-                    on_click=lambda _, uid=user_id: add_user_from_list(uid),
-                    ink=True
-                )
-                for user_id, desc in filtered_users
-            ] or [ft.Text("No users match the current filters.", size=12, color=COLORS['text_secondary'])]
-
-            if self.page:
-                user_results_list.update()
-
-        def add_user_from_list(user_id):
+            user_id = int(e.control.value)
             if user_id not in self.selected_assignment_users:
                 self.selected_assignment_users.append(user_id)
 
@@ -2313,6 +2383,7 @@ class QuizManagement(ft.UserControl):
                 )
                 selected_chips_row.controls.append(chip)
 
+            e.control.value = None
             if self.page:
                 self.page.update()
 
@@ -2387,12 +2458,9 @@ class QuizManagement(ft.UserControl):
             if self.page:
                 self.page.update()
 
-        user_search_field.on_change = lambda e: update_user_results()
+        user_search_dropdown.on_change = on_user_selection
         department_assign_dropdown.on_change = on_department_assign
         unit_assign_dropdown.on_change = on_unit_assign
-
-        def initialize_filters():
-            update_user_results()
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
@@ -2590,44 +2658,23 @@ class QuizManagement(ft.UserControl):
         user_selection_section = ft.Column([
             ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
-            # Search and filter row
-            ft.Row([
-                user_search_field,
-                department_assign_dropdown,
-                unit_assign_dropdown
-            ], spacing=12, wrap=True),
-            ft.Container(height=12),
-            # Two columns: Available users (left) and Selected items (right)
-            ft.Container(
-                content=ft.Row([
-                    # LEFT: Available users list
-                    ft.Column([
-                        ft.Text("Available Users", size=13, weight=ft.FontWeight.W_500, color=COLORS['text_secondary']),
-                        ft.Container(height=8),
-                        ft.Container(
-                            content=user_results_list,
-                            padding=ft.padding.all(10),
-                            bgcolor=ft.colors.with_opacity(0.03, COLORS['primary']),
-                            border_radius=8,
-                            expand=True
-                        ),
-                    ], spacing=0, expand=1),
-                    # RIGHT: Selected items
-                    ft.Column([
-                        ft.Text("Selected for Assignment", size=13, weight=ft.FontWeight.W_500, color=COLORS['text_secondary']),
-                        ft.Container(height=8),
-                        ft.Container(
-                            content=ft.Column([selected_chips_row], scroll=ft.ScrollMode.AUTO),
-                            padding=ft.padding.all(10),
-                            bgcolor=ft.colors.with_opacity(0.02, COLORS['success']),
-                            border_radius=8,
-                            border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['success'])),
-                            expand=True
-                        ),
-                    ], spacing=0, expand=1),
-                ], spacing=16, expand=True),
-                height=280
+            ft.Text(
+                "Select users, departments, or units to assign this exam.",
+                size=12,
+                color=COLORS['text_secondary']
             ),
+            ft.Container(height=8),
+            # All 3 dropdowns in the same row
+            ft.Row([
+                user_search_dropdown,
+                ft.Container(width=12),
+                department_assign_dropdown,
+                ft.Container(width=12),
+                unit_assign_dropdown
+            ], spacing=0),
+            ft.Container(height=12),
+            # Selected items only
+            selected_items_container,
             ft.Container(height=10),
         ], visible=True)
 
@@ -3077,8 +3124,40 @@ class QuizManagement(ft.UserControl):
                 if self.page:
                     self.page.update()
 
+        def on_unit_selection(e):
+            if not e.control.value:
+                return
+
+            dept, unit = e.control.value.split("|||")
+            key = (dept, unit)
+            if key not in self.selected_assignment_units:
+                self.selected_assignment_units.append(key)
+
+                chip = ft.Chip(
+                    label=ft.Text(f"Unit: {dept} / {unit}"),
+                    on_delete=lambda e, combo=key: remove_unit(combo),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+            e.control.value = None
+            if self.page:
+                self.page.update()
+
+        def remove_unit(combo):
+            if combo in self.selected_assignment_units:
+                self.selected_assignment_units.remove(combo)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
+                        selected_chips_row.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
         user_dropdown.on_change = on_user_selection
         department_dropdown.on_change = on_department_selection
+        unit_dropdown.on_change = on_unit_selection
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
@@ -3090,10 +3169,10 @@ class QuizManagement(ft.UserControl):
                 assignment_dialog.update()
                 return
 
-            # For create mode, validate user/department selection (skip for PDF export)
+            # For create mode, validate user/department/unit selection (skip for PDF export)
             is_pdf_export = delivery_method.value == "pdf_export"
-            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments:
-                error_text.value = "Please select at least one user or department (not required for PDF Export)"
+            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments and not self.selected_assignment_units:
+                error_text.value = "Please select at least one user, department, or unit (not required for PDF Export)"
                 error_text.visible = True
                 assignment_dialog.update()
                 return

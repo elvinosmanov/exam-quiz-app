@@ -1,6 +1,6 @@
 import flet as ft
 from quiz_app.utils.auth import AuthManager
-from quiz_app.config import COLORS, get_departments, get_sections_for_department, get_units_for_department
+from quiz_app.config import COLORS, get_departments, get_sections_for_department, get_units_for_department, ORGANIZATIONAL_STRUCTURE
 from quiz_app.utils.permissions import UnitPermissionManager
 from quiz_app.utils.localization import t, get_language
 
@@ -106,12 +106,55 @@ class UserManagement(ft.UserControl):
             )
         ], spacing=10, expand=True)
     
+    def get_localized_text(self, text, field_type='department'):
+        """Get localized name for department/section/unit based on ORGANIZATIONAL_STRUCTURE"""
+        if not text:
+            return "N/A"
+
+        current_lang = get_language()
+        lang_suffix = '_en' if current_lang == 'en' else '_az'
+
+        # Search in ORGANIZATIONAL_STRUCTURE for matching name
+        for dept_key, dept_data in ORGANIZATIONAL_STRUCTURE.items():
+            # Check department names
+            if field_type == 'department':
+                if dept_data.get('name_az') == text or dept_data.get('name_en') == text or dept_data.get('abbr_az') == text or dept_data.get('abbr_en') == text:
+                    return dept_data.get(f'name{lang_suffix}', text)
+
+            # Check section names
+            if field_type == 'section' and 'sections' in dept_data:
+                for section_key, section_data in dept_data['sections'].items():
+                    if section_data.get('name_az') == text or section_data.get('name_en') == text or section_data.get('abbr_az') == text or section_data.get('abbr_en') == text:
+                        return section_data.get(f'name{lang_suffix}', text)
+
+            # Check unit names in department-level units
+            if field_type == 'unit' and 'units' in dept_data:
+                for unit in dept_data['units']:
+                    if unit.get('name_az') == text or unit.get('name_en') == text or unit.get('abbr_az') == text or unit.get('abbr_en') == text:
+                        return unit.get(f'name{lang_suffix}', text)
+
+            # Check unit names in section-level units
+            if field_type == 'unit' and 'sections' in dept_data:
+                for section_key, section_data in dept_data['sections'].items():
+                    if 'units' in section_data:
+                        for unit in section_data['units']:
+                            if unit.get('name_az') == text or unit.get('name_en') == text or unit.get('abbr_az') == text or unit.get('abbr_en') == text:
+                                return unit.get(f'name{lang_suffix}', text)
+
+        # If not found in structure, try splitting bilingual text
+        if " / " in text:
+            parts = text.split(" / ")
+            if len(parts) == 2:
+                return parts[1].strip() if current_lang == 'en' else parts[0].strip()
+
+        return text
+
     def load_users(self):
         """
         Load users based on role and hierarchical permissions.
 
         Permission Levels for Experts:
-        - Department only: See all users in entire department
+        - Department only: See all users (experts and examinees) in entire department
         - Department + Section: See all users in that section
         - Department + Section + Unit: See users in that specific unit
         """
@@ -123,7 +166,7 @@ class UserManagement(ft.UserControl):
             # Build query based on hierarchical level
             if unit:
                 # Most specific: Department + Section + Unit
-                # Show only users in this specific unit
+                # Show only examinees in this specific unit
                 self.all_users_data = self.db.execute_query("""
                     SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
                     FROM users
@@ -135,7 +178,7 @@ class UserManagement(ft.UserControl):
                 """, (department, section or '', unit))
             elif section:
                 # Medium specific: Department + Section
-                # Show all users in this section (all units under this section)
+                # Show all examinees in this section (all units under this section)
                 self.all_users_data = self.db.execute_query("""
                     SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
                     FROM users
@@ -145,12 +188,12 @@ class UserManagement(ft.UserControl):
                     ORDER BY created_at DESC
                 """, (department, section))
             else:
-                # Least specific: Department only
-                # Show all users in entire department (all sections and units)
+                # Least specific: Department only (department-level expert)
+                # Show all users (experts and examinees) in entire department
                 self.all_users_data = self.db.execute_query("""
                     SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
                     FROM users
-                    WHERE role = 'examinee'
+                    WHERE (role = 'expert' OR role = 'examinee')
                     AND department = ?
                     ORDER BY created_at DESC
                 """, (department,))
@@ -179,9 +222,9 @@ class UserManagement(ft.UserControl):
                         ft.DataCell(ft.Text(user['full_name'])),
                         ft.DataCell(ft.Text(user['email'])),
                         ft.DataCell(ft.Text(user['role'].title())),
-                        ft.DataCell(ft.Text(user['department'] or "N/A")),
-                        ft.DataCell(ft.Text(user['section'] or "N/A")),
-                        ft.DataCell(ft.Text(user['unit'] or "N/A")),
+                        ft.DataCell(ft.Text(self.get_localized_text(user['department'], 'department'))),
+                        ft.DataCell(ft.Text(self.get_localized_text(user['section'], 'section'))),
+                        ft.DataCell(ft.Text(self.get_localized_text(user['unit'], 'unit'))),
                         ft.DataCell(ft.Text(status, color=status_color)),
                         ft.DataCell(
                             ft.Row([
@@ -262,16 +305,35 @@ class UserManagement(ft.UserControl):
             can_reveal_password=True
         )
         
-        # Role dropdown - restrict for experts
+        # Role dropdown - restrict based on expert level
         if self.user_data['role'] == 'expert':
-            # Experts can only create examinees
-            role_dropdown = ft.Dropdown(
-                label=t('role'),
-                options=[ft.dropdown.Option("examinee", t('examinee'))],
-                value="examinee",
-                disabled=True,  # Force examinee role
-                on_change=None
+            # Check if this is a department-level expert
+            is_department_level_expert = (
+                self.user_data.get('department') and
+                not self.user_data.get('section') and
+                not self.user_data.get('unit')
             )
+
+            if is_department_level_expert:
+                # Department-level experts can create both expert and examinee users
+                role_dropdown = ft.Dropdown(
+                    label=t('role'),
+                    options=[
+                        ft.dropdown.Option("expert", t('expert')),
+                        ft.dropdown.Option("examinee", t('examinee'))
+                    ],
+                    value=user['role'] if is_edit else "examinee",
+                    on_change=None  # Will set below if needed
+                )
+            else:
+                # Section/unit-level experts can only create examinees
+                role_dropdown = ft.Dropdown(
+                    label=t('role'),
+                    options=[ft.dropdown.Option("examinee", t('examinee'))],
+                    value="examinee",
+                    disabled=True,  # Force examinee role
+                    on_change=None
+                )
         else:
             # Admins can create any role
             role_dropdown = ft.Dropdown(
@@ -292,6 +354,10 @@ class UserManagement(ft.UserControl):
             - Department only: Can select any section/unit in their department
             - Department + Section: Can select any unit in their section
             - Department + Section + Unit: Locked to their specific unit
+
+            For department-level experts creating expert users:
+            - They can assign department only (no section/unit) for department-level expert
+            - Or assign department + section/unit for section/unit-level expert
             """
             expert_dept = self.user_data.get('department', '')
             expert_section = self.user_data.get('section')
@@ -300,7 +366,7 @@ class UserManagement(ft.UserControl):
 
             # Department is always locked to expert's department
             department_dropdown = ft.TextField(
-                label=t('department'),
+                label=t('department') + (" *" if not is_edit else ""),
                 value=expert_dept,
                 disabled=True,  # Always locked to expert's department
                 expand=True
@@ -567,14 +633,26 @@ class UserManagement(ft.UserControl):
 
             # Validate expert role requirements
             if role_dropdown.value == 'expert':
-                if not department_dropdown.value:
+                # Get department value (either from dropdown or text field for experts)
+                dept_value = None
+                if isinstance(department_dropdown, ft.Dropdown):
+                    dept_value = department_dropdown.value
+                elif isinstance(department_dropdown, ft.TextField):
+                    dept_value = department_dropdown.value
+
+                if not dept_value:
                     error_text.value = t('department_required_for_expert')
                     error_text.visible = True
                     self.user_dialog.update()
                     return
-                # Section and unit are optional for experts
+                # Section and unit are optional for experts (allows department-level experts)
             
             try:
+                # Get department/section/unit values (handle both Dropdown and TextField)
+                dept_value = department_dropdown.value if hasattr(department_dropdown, 'value') else None
+                section_value = section_dropdown.value if hasattr(section_dropdown, 'value') else None
+                unit_value = unit_dropdown.value if hasattr(unit_dropdown, 'value') else None
+
                 if is_edit:
                     # Update user
                     query = """
@@ -585,9 +663,9 @@ class UserManagement(ft.UserControl):
                         email_field.value.strip(),
                         full_name_field.value.strip(),
                         role_dropdown.value,
-                        department_dropdown.value or None,
-                        section_dropdown.value or None,
-                        unit_dropdown.value or None,
+                        dept_value or None,
+                        section_value or None,
+                        unit_value or None,
                         user['id']
                     )
                     self.db.execute_update(query, params)
@@ -603,9 +681,9 @@ class UserManagement(ft.UserControl):
                         password_field.value,
                         full_name_field.value.strip(),
                         role_dropdown.value,
-                        department_dropdown.value or None,
-                        section_dropdown.value or None,
-                        unit_dropdown.value or None
+                        dept_value or None,
+                        section_value or None,
+                        unit_value or None
                     )
                     
                     if not user_id:

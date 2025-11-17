@@ -184,10 +184,15 @@ class AdminDashboard(BaseAdminLayout):
                 # Rebuild top bar
                 self.top_bar = self.create_top_bar()
 
+                # Update the top bar in the main layout (first control in the Column)
+                if hasattr(self, 'controls') and len(self.controls) > 0 and isinstance(self.controls[0], ft.Column):
+                    self.controls[0].controls[0] = self.top_bar
+
                 # Rebuild dashboard
                 self.show_dashboard()
 
                 # Force update
+                self.update()
                 self.page.update()
 
         settings_view = Settings(
