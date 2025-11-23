@@ -11,7 +11,6 @@ def get_base_path():
         # Running in development
         base = os.path.dirname(os.path.dirname(__file__))
 
-    print(f"[CONFIG] Base path: {base}")
     return base
 
 def get_data_dir():
@@ -25,7 +24,6 @@ def get_data_dir():
 
     # Ensure directory exists and is writable
     os.makedirs(data_dir, exist_ok=True)
-    print(f"[CONFIG] Data directory: {data_dir}")
     return data_dir
 
 # Base path for the application
@@ -34,7 +32,6 @@ DATA_DIR = get_data_dir()
 
 # Database configuration
 DATABASE_PATH = os.path.join(DATA_DIR, 'quiz_app.db')
-print(f"[CONFIG] Database path: {DATABASE_PATH}")
 
 # Security settings
 SECRET_KEY = "your-secret-key-change-in-production"
@@ -47,7 +44,6 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 # Ensure upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-print(f"[CONFIG] Upload folder: {UPLOAD_FOLDER}")
 
 # Exam settings
 DEFAULT_EXAM_DURATION = 60  # minutes

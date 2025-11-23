@@ -157,9 +157,11 @@ class LoginView(ft.UserControl):
             if user_data:
                 # Create session
                 if self.session_manager.create_session(user_data):
-                    # Turn off loading before page transition
-                    self.show_loading(False)
-                    # Proceed to dashboard
+                    # Update loading message - keep loading indicator visible
+                    self.login_button.text = t('loading_dashboard')
+                    self.update()
+
+                    # Proceed to dashboard - loading will be turned off by dashboard
                     self.on_login_success(self.page, user_data)
                 else:
                     # Show detailed error from session manager

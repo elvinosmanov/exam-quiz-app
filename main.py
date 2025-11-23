@@ -10,6 +10,11 @@ from quiz_app.views.auth.login_view import LoginView
 from quiz_app.utils.session import SessionManager
 from quiz_app.utils.localization import set_language
 
+# Pre-import dashboard views for faster loading (Fix: Performance Issue #3)
+from quiz_app.views.admin.admin_dashboard import AdminDashboard
+from quiz_app.views.examinee.examinee_dashboard import ExamineeDashboard
+from quiz_app.utils.view_switcher import create_view_switcher
+
 class QuizApp:
     def __init__(self):
         self.session_manager = SessionManager()
@@ -19,58 +24,30 @@ class QuizApp:
         self.current_user_data = None  # Store current user for view switching
 
     def setup_packaged_environment(self):
-        """Setup environment for packaged executable"""
+        """Setup environment for packaged executable - Optimized (Performance Fix #5)"""
         import shutil
         from quiz_app.config import DATABASE_PATH, DATA_DIR, UPLOAD_FOLDER
 
         if getattr(sys, 'frozen', False):
-            print("[SETUP] Running as packaged executable")
-
             # Get the bundle directory (_MEIPASS for PyInstaller)
             bundle_dir = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-            print(f"[SETUP] Bundle directory (_MEIPASS): {bundle_dir}")
 
-            # Check if database exists in the executable directory (writable location)
+            # Only copy database if it doesn't exist (one-time operation)
             if not os.path.exists(DATABASE_PATH):
-                print(f"[SETUP] Database not found at {DATABASE_PATH}")
-
-                # Try to find database in the bundle
                 bundled_db = os.path.join(bundle_dir, 'quiz_app.db')
-                print(f"[SETUP] Looking for bundled database at: {bundled_db}")
-
                 if os.path.exists(bundled_db):
-                    print(f"[SETUP] Found bundled database, copying to writable location")
                     shutil.copy2(bundled_db, DATABASE_PATH)
-                    print(f"[SETUP] Database copied to: {DATABASE_PATH}")
-                else:
-                    print(f"[SETUP] No bundled database found. Will create new database.")
-            else:
-                print(f"[SETUP] Database found at: {DATABASE_PATH}")
 
-            # Ensure assets directory exists in writable location
-            if not os.path.exists(UPLOAD_FOLDER):
-                print(f"[SETUP] Creating assets directory: {UPLOAD_FOLDER}")
-                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            # Ensure assets directory exists (lightweight operation)
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-            # Check if bundled assets exist and copy them
+            # Only copy assets if directory is empty (one-time operation)
             bundle_assets = os.path.join(bundle_dir, 'assets', 'images')
-            print(f"[SETUP] Looking for bundled assets at: {bundle_assets}")
-            if os.path.exists(bundle_assets):
-                print(f"[SETUP] Found bundled assets, copying to writable location")
+            if os.path.exists(bundle_assets) and not os.listdir(UPLOAD_FOLDER):
                 shutil.copytree(bundle_assets, UPLOAD_FOLDER, dirs_exist_ok=True)
-                print(f"[SETUP] Assets copied to: {UPLOAD_FOLDER}")
-            else:
-                print(f"[SETUP] No bundled assets found at: {bundle_assets}")
-                # List what's actually in the bundle
-                if os.path.exists(bundle_dir):
-                    print(f"[SETUP] Contents of bundle directory:")
-                    for item in os.listdir(bundle_dir):
-                        print(f"[SETUP]   - {item}")
-        else:
-            print("[SETUP] Running in development mode")
 
     def load_system_language(self):
-        """Load system-wide language setting from database"""
+        """Load system-wide language setting from database - Optimized (Performance Fix #5)"""
         try:
             # Query system settings for language
             result = self.db.execute_single(
@@ -82,14 +59,11 @@ class QuizApp:
                 # Map from display name to language code
                 language_code = 'en' if language_value == 'English' else 'az'
                 set_language(language_code)
-                print(f"[DEBUG] System language loaded: {language_code} ({language_value})")
             else:
                 # Default to English if no setting found
                 set_language('en')
-                print("[DEBUG] No system language setting found, defaulting to English")
-        except Exception as e:
-            print(f"[WARNING] Failed to load system language: {e}")
-            # Default to English on error
+        except Exception:
+            # Default to English on error (silent fail for performance)
             set_language('en')
 
     def main(self, page: ft.Page):
@@ -146,11 +120,28 @@ class QuizApp:
 
     def show_dashboard(self, page: ft.Page):
         """Show appropriate dashboard based on user role and view mode"""
-        from quiz_app.views.admin.admin_dashboard import AdminDashboard
-        from quiz_app.views.examinee.examinee_dashboard import ExamineeDashboard
-        from quiz_app.utils.view_switcher import create_view_switcher
+        # Imports moved to top for performance
+
+        # Show loading indicator while dashboard builds (Performance Fix #4)
+        loading_overlay = ft.Container(
+            content=ft.Column([
+                ft.ProgressRing(),
+                ft.Container(height=20),
+                ft.Text(
+                    "Loading dashboard...",
+                    size=16,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.colors.BLUE_700
+                )
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            alignment=ft.alignment.center,
+            expand=True,
+            bgcolor=ft.colors.WHITE
+        )
 
         page.clean()
+        page.add(loading_overlay)
+        page.update()
 
         user_data = self.current_user_data
         role = user_data['role']
@@ -195,6 +186,8 @@ class QuizApp:
         dashboard._page_ref = page
         self.current_view = dashboard
 
+        # Replace loading overlay with actual dashboard (Performance Fix #4)
+        page.clean()
         page.add(dashboard)
         page.update()
 
