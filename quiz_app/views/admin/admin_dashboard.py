@@ -15,6 +15,11 @@ class AdminDashboard(BaseAdminLayout):
         super().__init__(session_manager, user_data, logout_callback, view_switcher)
         self.db = Database()
 
+        # Cache for dashboard stats (Performance Fix #6)
+        self._stats_cache = None
+        self._stats_cache_time = None
+        self._cache_duration = 30  # seconds
+
         # Don't initialize dashboard view here - wait until added to page
     
     def did_mount(self):
@@ -199,17 +204,33 @@ class AdminDashboard(BaseAdminLayout):
         self.set_content(settings_view)
     
     def get_dashboard_stats(self):
-        total_users = self.db.execute_single("SELECT COUNT(*) as count FROM users WHERE is_active = 1")['count']
-        total_exams = self.db.execute_single("SELECT COUNT(*) as count FROM exams WHERE is_active = 1")['count']
-        active_sessions = self.db.execute_single("SELECT COUNT(*) as count FROM exam_sessions WHERE status = 'in_progress'")['count']
-        completed_exams = self.db.execute_single("SELECT COUNT(*) as count FROM exam_sessions WHERE is_completed = 1")['count']
-        
-        return {
-            'total_users': total_users,
-            'total_exams': total_exams,
-            'active_sessions': active_sessions,
-            'completed_exams': completed_exams
+        # Check cache first (Performance Fix #6)
+        from datetime import datetime, timedelta
+        if self._stats_cache and self._stats_cache_time:
+            if datetime.now() - self._stats_cache_time < timedelta(seconds=self._cache_duration):
+                return self._stats_cache
+
+        # Optimized: Single query instead of 4 separate queries (Performance Fix #3)
+        result = self.db.execute_single("""
+            SELECT
+                (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_users,
+                (SELECT COUNT(*) FROM exams WHERE is_active = 1) as total_exams,
+                (SELECT COUNT(*) FROM exam_sessions WHERE status = 'in_progress') as active_sessions,
+                (SELECT COUNT(*) FROM exam_sessions WHERE is_completed = 1) as completed_exams
+        """)
+
+        stats = {
+            'total_users': result['total_users'],
+            'total_exams': result['total_exams'],
+            'active_sessions': result['active_sessions'],
+            'completed_exams': result['completed_exams']
         }
+
+        # Update cache
+        self._stats_cache = stats
+        self._stats_cache_time = datetime.now()
+
+        return stats
     
     def get_recent_activity(self):
         """Get recent exam activity - latest completions and pending grading"""
