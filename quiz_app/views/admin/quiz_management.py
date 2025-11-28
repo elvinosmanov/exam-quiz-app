@@ -38,7 +38,7 @@ class QuizManagement(ft.UserControl):
         )
 
         # Status filter
-        self.status_filter = ft.Dropdown(
+        self.status_filter = self.create_styled_dropdown(
             label=t('filter_by_status'),
             options=[
                 ft.dropdown.Option("all", t('all')),
@@ -92,7 +92,38 @@ class QuizManagement(ft.UserControl):
         except Exception as e:
             print(f"[DEBUG] Failed to load setting {key}: {e}")
         return default_value
-    
+
+    def create_styled_dropdown(self, label, value=None, options=None, **kwargs):
+        """Create a dropdown with consistent app styling
+
+        Args:
+            label: Dropdown label
+            value: Selected value
+            options: List of dropdown options
+            **kwargs: Additional properties to override defaults
+
+        Returns:
+            ft.Dropdown with consistent styling
+        """
+        # Default styling - clean and minimal to match TextFields
+        default_props = {
+            'border_color': ft.colors.OUTLINE,
+            'focused_border_color': COLORS['primary'],
+            'border_radius': 4,
+            'text_size': 14,
+            'height': 56,
+        }
+
+        # Merge with kwargs (kwargs take precedence)
+        props = {**default_props, **kwargs}
+
+        return ft.Dropdown(
+            label=label,
+            value=value,
+            options=options or [],
+            **props
+        )
+
     def did_mount(self):
         """Called after the control is added to the page"""
         super().did_mount()
@@ -458,7 +489,7 @@ class QuizManagement(ft.UserControl):
                    COALESCE(tc.total_medium, ea.medium_questions_count) as selected_medium_count,
                    COALESCE(tc.total_hard, ea.hard_questions_count) as selected_hard_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
-                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
+                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.start_time >= au.granted_at THEN au.user_id END) as completed_users_count,
                    u.full_name as creator_name,
                    u.department as creator_department,
                    u.unit as creator_unit
@@ -536,15 +567,7 @@ class QuizManagement(ft.UserControl):
             # Action buttons - conditionally show edit/delete for experts
             action_buttons = []
 
-            # Edit button - only if user can edit
-            if can_edit:
-                action_buttons.append(
-                    ft.IconButton(
-                        icon=ft.icons.EDIT,
-                        tooltip=t('edit'),
-                        on_click=lambda e, ex=assignment: self.show_edit_assignment_dialog(ex)
-                    )
-                )
+            # Note: Edit functionality is now available by clicking the row
 
             # PDF export - available to all
             action_buttons.append(
@@ -598,7 +621,8 @@ class QuizManagement(ft.UserControl):
                         ft.DataCell(ft.Text(completion_text)),
                         ft.DataCell(ft.Text(assignment.get('deadline')[:10] if assignment.get('deadline') else "No deadline")),
                         ft.DataCell(ft.Row(action_buttons, spacing=5))
-                    ]
+                    ],
+                    on_select_changed=lambda e, ex=assignment: self.show_assignment_detail_dialog(ex)
                 )
             )
 
@@ -892,7 +916,7 @@ class QuizManagement(ft.UserControl):
         self.selected_preset_id = None
 
         # Preset template dropdown
-        preset_dropdown = ft.Dropdown(
+        preset_dropdown = self.create_styled_dropdown(
             label=t('select_preset'),
             hint_text="Choose a preset template",
             options=[
@@ -908,7 +932,7 @@ class QuizManagement(ft.UserControl):
         )
 
         # Available exams dropdown (manual selection)
-        exam_dropdown = ft.Dropdown(
+        exam_dropdown = self.create_styled_dropdown(
             label=t('select_exam_templates'),
             hint_text="Choose exams to combine into one assignment",
             options=[
@@ -1033,21 +1057,21 @@ class QuizManagement(ft.UserControl):
                 subtotal_text = ft.Text("Subtotal: 0", size=14, weight=ft.FontWeight.BOLD)
 
                 # Create dropdowns
-                easy_dropdown = ft.Dropdown(
+                easy_dropdown = self.create_styled_dropdown(
                     label=f"Easy (max: {easy_available})",
                     options=easy_options,
                     value="0",
                     width=180,
                     content_padding=5
                 )
-                medium_dropdown = ft.Dropdown(
+                medium_dropdown = self.create_styled_dropdown(
                     label=f"Medium (max: {medium_available})",
                     options=medium_options,
                     value="0",
                     width=180,
                     content_padding=5
                 )
-                hard_dropdown = ft.Dropdown(
+                hard_dropdown = self.create_styled_dropdown(
                     label=f"Hard (max: {hard_available})",
                     options=hard_options,
                     value="0",
@@ -1281,28 +1305,47 @@ class QuizManagement(ft.UserControl):
             )
 
             if has_pool_config:
-                # Create TextField controls with existing values for editing
+                # Create Dropdown controls with existing values for editing
                 pool_configs = {}
                 for exam in exams:
+                    # Get available question counts for this exam by difficulty
+                    difficulty_counts = self.db.execute_query("""
+                        SELECT difficulty_level, COUNT(*) as count
+                        FROM questions
+                        WHERE exam_id = ? AND is_active = 1
+                        GROUP BY difficulty_level
+                    """, (exam['id'],))
+
+                    easy_available = 0
+                    medium_available = 0
+                    hard_available = 0
+                    for row in difficulty_counts:
+                        if row['difficulty_level'] == 'easy':
+                            easy_available = row['count']
+                        elif row['difficulty_level'] == 'medium':
+                            medium_available = row['count']
+                        elif row['difficulty_level'] == 'hard':
+                            hard_available = row['count']
+
                     pool_configs[exam['id']] = {
-                        'easy': ft.TextField(
+                        'easy': self.create_styled_dropdown(
                             label=t('easy'),
                             value=str(exam.get('easy_count', 0) or 0),
-                            keyboard_type=ft.KeyboardType.NUMBER,
+                            options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, easy_available + 1)],
                             width=80,
                             content_padding=8
                         ),
-                        'medium': ft.TextField(
+                        'medium': self.create_styled_dropdown(
                             label=t('medium'),
                             value=str(exam.get('medium_count', 0) or 0),
-                            keyboard_type=ft.KeyboardType.NUMBER,
+                            options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, medium_available + 1)],
                             width=80,
                             content_padding=8
                         ),
-                        'hard': ft.TextField(
+                        'hard': self.create_styled_dropdown(
                             label=t('hard'),
                             value=str(exam.get('hard_count', 0) or 0),
-                            keyboard_type=ft.KeyboardType.NUMBER,
+                            options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, hard_available + 1)],
                             width=80,
                             content_padding=8
                         )
@@ -1331,17 +1374,15 @@ class QuizManagement(ft.UserControl):
 
         # Show selected exam templates with editable pool configs if in edit mode
         header_text = "Selected Exam Templates (Edit Pool Counts):" if (is_edit and pool_configs) else "Selected Exam Templates:"
-        selected_exams_display = ft.Column([
-            ft.Text(header_text, size=14, weight=ft.FontWeight.BOLD),
-            ft.Container(height=5)
-        ])
 
+        # Create exam cards list
+        exam_cards = []
         for exam in exams:
             # Build question count display - editable if pool_configs exist, otherwise read-only
             if pool_configs and exam['id'] in pool_configs:
                 config = pool_configs[exam['id']]
 
-                # Show editable TextFields for pool counts
+                # Show editable Dropdowns for pool counts
                 exam_card = ft.Container(
                     content=ft.Column([
                         ft.Row([
@@ -1357,27 +1398,38 @@ class QuizManagement(ft.UserControl):
                     padding=ft.padding.all(12),
                     bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
                     border_radius=8,
-                    border=ft.border.all(1, COLORS['secondary'])
+                    border=ft.border.all(1, COLORS['secondary']),
+                    expand=True
                 )
-                selected_exams_display.controls.append(exam_card)
+                exam_cards.append(exam_card)
             else:
                 # Read-only display for non-pool assignments
                 question_text = f"{exam.get('question_count', 0)} questions"
-                selected_exams_display.controls.append(
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
-                            ft.Text(f"{exam['title']}", size=13),
-                            ft.Container(expand=True),
-                            ft.Text(question_text, size=12, color=COLORS['text_secondary'])
-                        ], spacing=8),
-                        padding=ft.padding.symmetric(vertical=4, horizontal=8),
-                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
-                        border_radius=4
-                    )
+                exam_card = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
+                        ft.Text(f"{exam['title']}", size=13),
+                        ft.Container(expand=True),
+                        ft.Text(question_text, size=12, color=COLORS['text_secondary'])
+                    ], spacing=8),
+                    padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                    border_radius=4,
+                    expand=True
                 )
+                exam_cards.append(exam_card)
 
-        selected_exams_display.controls.append(
+        # Arrange cards in rows of 2 columns
+        exam_rows = []
+        for i in range(0, len(exam_cards), 2):
+            row_cards = exam_cards[i:i+2]
+            exam_rows.append(ft.Row(row_cards, spacing=10))
+
+        # Build the display with header and grid
+        selected_exams_display = ft.Column([
+            ft.Text(header_text, size=14, weight=ft.FontWeight.BOLD),
+            ft.Container(height=5),
+            ft.Column(exam_rows, spacing=10),
             ft.Container(
                 content=ft.Text(
                     f"Total: {total_questions} questions from {len(exams)} exam(s)",
@@ -1387,7 +1439,7 @@ class QuizManagement(ft.UserControl):
                 ),
                 padding=ft.padding.only(top=8)
             )
-        )
+        ])
 
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
@@ -1444,7 +1496,7 @@ class QuizManagement(ft.UserControl):
 
         # Variant count dropdown
         existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
-        variant_count = ft.Dropdown(
+        variant_count = self.create_styled_dropdown(
             label=t('pdf_variants'),
             options=[
                 ft.dropdown.Option("1", "1 Variant"),
@@ -1552,6 +1604,48 @@ class QuizManagement(ft.UserControl):
         self.selected_assignment_departments = []
         self.selected_assignment_units = []
 
+        # If editing, load currently assigned users/departments/units from database
+        if is_edit:
+            # Load assigned users
+            assigned_users_data = self.db.execute_query("""
+                SELECT DISTINCT user_id
+                FROM assignment_users
+                WHERE assignment_id = ? AND is_active = 1
+            """, (assignment['id'],))
+            self.selected_assignment_users = [u['user_id'] for u in assigned_users_data]
+
+            # Load assigned departments (users grouped by department)
+            assigned_depts_data = self.db.execute_query("""
+                SELECT DISTINCT u.department
+                FROM assignment_users au
+                JOIN users u ON au.user_id = u.id
+                WHERE au.assignment_id = ? AND au.is_active = 1
+                  AND u.department IS NOT NULL AND u.department != ''
+                GROUP BY u.department
+                HAVING COUNT(DISTINCT u.id) = (
+                    SELECT COUNT(*) FROM users
+                    WHERE department = u.department AND role IN ('examinee', 'expert') AND is_active = 1
+                )
+            """, (assignment['id'],))
+            self.selected_assignment_departments = [d['department'] for d in assigned_depts_data]
+
+            # Load assigned units (users grouped by department+unit)
+            assigned_units_data = self.db.execute_query("""
+                SELECT DISTINCT u.department, u.unit
+                FROM assignment_users au
+                JOIN users u ON au.user_id = u.id
+                WHERE au.assignment_id = ? AND au.is_active = 1
+                  AND u.department IS NOT NULL AND u.department != ''
+                  AND u.unit IS NOT NULL AND u.unit != ''
+                GROUP BY u.department, u.unit
+                HAVING COUNT(DISTINCT u.id) = (
+                    SELECT COUNT(*) FROM users
+                    WHERE department = u.department AND unit = u.unit
+                      AND role IN ('examinee', 'expert') AND is_active = 1
+                )
+            """, (assignment['id'],))
+            self.selected_assignment_units = [(u['department'], u['unit']) for u in assigned_units_data]
+
         # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
             SELECT id, full_name, username, role, department, unit
@@ -1580,7 +1674,7 @@ class QuizManagement(ft.UserControl):
                     return parts[1].strip() if current_lang == 'en' else parts[0].strip()
             return unit
 
-        user_dropdown = ft.Dropdown(
+        user_dropdown = self.create_styled_dropdown(
             label=t('search_users'),
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
@@ -1589,7 +1683,7 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
-        department_dropdown = ft.Dropdown(
+        department_dropdown = self.create_styled_dropdown(
             label=t('assign_department'),
             hint_text="Choose departments",
             options=[ft.dropdown.Option(dept, dept) for dept in department_values],
@@ -1598,7 +1692,7 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
-        unit_dropdown = ft.Dropdown(
+        unit_dropdown = self.create_styled_dropdown(
             label=t('assign_unit'),
             hint_text="Select unit",
             options=[
@@ -1618,6 +1712,73 @@ class QuizManagement(ft.UserControl):
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
             selected_chips_row,
         ], spacing=5)
+
+        # Define remove functions first (needed for chip creation)
+        def remove_user(user_id):
+            if user_id in self.selected_assignment_users:
+                self.selected_assignment_users.remove(user_id)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value and "Unit:" not in control.label.value:
+                        user_name = control.label.value
+                        # Check if this is the user to remove
+                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
+                            selected_chips_row.controls.pop(i)
+                            break
+                if self.page:
+                    self.page.update()
+
+        def remove_department(dept):
+            if dept in self.selected_assignment_departments:
+                self.selected_assignment_departments.remove(dept)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
+                        selected_chips_row.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
+        def remove_unit(combo):
+            if combo in self.selected_assignment_units:
+                self.selected_assignment_units.remove(combo)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
+                        selected_chips_row.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
+        # If editing, populate chips from loaded data
+        if is_edit:
+            # Add user chips
+            for user_id in self.selected_assignment_users:
+                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), f"User {user_id}")
+                chip = ft.Chip(
+                    label=ft.Text(user_name),
+                    on_delete=lambda e, uid=user_id: remove_user(uid),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+            # Add department chips
+            for dept in self.selected_assignment_departments:
+                chip = ft.Chip(
+                    label=ft.Text(f"Department: {dept}"),
+                    on_delete=lambda e, d=dept: remove_department(d),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+            # Add unit chips
+            for dept, unit in self.selected_assignment_units:
+                chip = ft.Chip(
+                    label=ft.Text(f"Unit: {dept} / {unit}"),
+                    on_delete=lambda e, combo=(dept, unit): remove_unit(combo),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
 
         def on_user_selection(e):
             if not e.control.value:
@@ -1660,31 +1821,6 @@ class QuizManagement(ft.UserControl):
             if self.page:
                 self.page.update()
 
-        def remove_user(user_id):
-            if user_id in self.selected_assignment_users:
-                self.selected_assignment_users.remove(user_id)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
-                        user_name = control.label.value
-                        # Check if this is the user to remove
-                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
-                            selected_chips_row.controls.pop(i)
-                            break
-                if self.page:
-                    self.page.update()
-
-        def remove_department(dept):
-            if dept in self.selected_assignment_departments:
-                self.selected_assignment_departments.remove(dept)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
-                        selected_chips_row.controls.pop(i)
-                        break
-                if self.page:
-                    self.page.update()
-
         def on_unit_selection(e):
             if not e.control.value:
                 return
@@ -1704,17 +1840,6 @@ class QuizManagement(ft.UserControl):
             e.control.value = None
             if self.page:
                 self.page.update()
-
-        def remove_unit(combo):
-            if combo in self.selected_assignment_units:
-                self.selected_assignment_units.remove(combo)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
-                        selected_chips_row.controls.pop(i)
-                        break
-                if self.page:
-                    self.page.update()
 
         user_dropdown.on_change = on_user_selection
         department_dropdown.on_change = on_department_selection
@@ -1929,10 +2054,17 @@ class QuizManagement(ft.UserControl):
 
                 # Assign users (only for create mode)
                 for user_id in self.selected_assignment_users:
-                    self.db.execute_insert("""
-                        INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                        VALUES (?, ?, ?)
-                    """, (assignment_id, user_id, self.user_data['id']))
+                    # Check if already assigned
+                    existing = self.db.execute_single("""
+                        SELECT id FROM assignment_users
+                        WHERE assignment_id = ? AND user_id = ?
+                    """, (assignment_id, user_id))
+
+                    if not existing:
+                        self.db.execute_insert("""
+                            INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                            VALUES (?, ?, ?)
+                        """, (assignment_id, user_id, self.user_data['id']))
 
                 # Assign departments (only for create mode)
                 for dept in self.selected_assignment_departments:
@@ -2021,20 +2153,27 @@ class QuizManagement(ft.UserControl):
             ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
             ft.Container(height=8),
 
-            # Security Settings
-            ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
-            ft.Row([enable_fullscreen], spacing=15, wrap=True),
-            ft.Container(height=8),
+            # Delivery Method and Security Settings in same row
+            ft.Row([
+                # Delivery Method (left side - first)
+                ft.Column([
+                    ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Divider(height=1, color=COLORS['primary']),
+                    delivery_method,
+                    variant_count,
+                    variant_note,
+                    pdf_note,
+                ], expand=True),
 
-            # Delivery Method
-            ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            delivery_method,
-            variant_count,
-            variant_note,
-            pdf_note,
+                ft.Container(width=20),  # Spacing between sections
+
+                # Security Settings (right side - second)
+                ft.Column([
+                    ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Divider(height=1, color=COLORS['primary']),
+                    ft.Row([randomize_questions, show_results, enable_fullscreen], spacing=15, wrap=True),
+                ], expand=True),
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START),
             ft.Container(height=8),
         ]
 
@@ -2199,7 +2338,7 @@ class QuizManagement(ft.UserControl):
         )
 
         # Variant count dropdown
-        variant_count = ft.Dropdown(
+        variant_count = self.create_styled_dropdown(
             label=t('pdf_variants'),
             options=[
                 ft.dropdown.Option("1", "1 Variant"),
@@ -2319,7 +2458,7 @@ class QuizManagement(ft.UserControl):
             return unit
 
         # User selection dropdown (searchable)
-        user_search_dropdown = ft.Dropdown(
+        user_search_dropdown = self.create_styled_dropdown(
             label=t('search_users'),
             hint_text="Search users by name, username, or email",
             options=[
@@ -2334,7 +2473,7 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
-        department_assign_dropdown = ft.Dropdown(
+        department_assign_dropdown = self.create_styled_dropdown(
             label=t('assign_department'),
             hint_text="Select department",
             options=[ft.dropdown.Option(dept, dept) for dept in department_values],
@@ -2343,7 +2482,7 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
-        unit_assign_dropdown = ft.Dropdown(
+        unit_assign_dropdown = self.create_styled_dropdown(
             label=t('assign_unit'),
             hint_text="Select unit",
             options=[
@@ -2637,20 +2776,27 @@ class QuizManagement(ft.UserControl):
             ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8, wrap=True),
             ft.Container(height=8),
 
-            # Delivery Method (moved up for clarity)
-            ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            delivery_method,
-            variant_count,
-            variant_note,
-            pdf_note,
-            ft.Container(height=8),
+            # Delivery Method and Security Settings in same row
+            ft.Row([
+                # Delivery Method (left side - first)
+                ft.Column([
+                    ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Divider(height=1, color=COLORS['primary']),
+                    delivery_method,
+                    variant_count,
+                    variant_note,
+                    pdf_note,
+                ], expand=True),
 
-            # Security Settings
-            ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
-            ft.Row([enable_fullscreen], spacing=15, wrap=True),
+                ft.Container(width=20),  # Spacing between sections
+
+                # Security Settings (right side - second)
+                ft.Column([
+                    ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Divider(height=1, color=COLORS['primary']),
+                    ft.Row([randomize_questions, show_results, enable_fullscreen], spacing=15, wrap=True),
+                ], expand=True),
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START),
             ft.Container(height=8),
         ]
 
@@ -2774,7 +2920,7 @@ class QuizManagement(ft.UserControl):
 
         # Variant count dropdown
         existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
-        variant_count = ft.Dropdown(
+        variant_count = self.create_styled_dropdown(
             label=t('pdf_variants'),
             options=[
                 ft.dropdown.Option("1", "1 Variant"),
@@ -2912,7 +3058,7 @@ class QuizManagement(ft.UserControl):
         medium_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, medium_q + 1)]
         hard_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, hard_q + 1)]
 
-        easy_questions_count_field = ft.Dropdown(
+        easy_questions_count_field = self.create_styled_dropdown(
             label=f"Easy (Available: {easy_q})",
             options=easy_options,
             value=str(initial_easy),
@@ -2921,7 +3067,7 @@ class QuizManagement(ft.UserControl):
             disabled=not use_pool_value
         )
 
-        medium_questions_count_field = ft.Dropdown(
+        medium_questions_count_field = self.create_styled_dropdown(
             label=f"Medium (Available: {medium_q})",
             options=medium_options,
             value=str(initial_medium),
@@ -2930,7 +3076,7 @@ class QuizManagement(ft.UserControl):
             disabled=not use_pool_value
         )
 
-        hard_questions_count_field = ft.Dropdown(
+        hard_questions_count_field = self.create_styled_dropdown(
             label=f"Hard (Available: {hard_q})",
             options=hard_options,
             value=str(initial_hard),
@@ -3018,6 +3164,49 @@ class QuizManagement(ft.UserControl):
         # User selection containers
         self.selected_assignment_users = []
         self.selected_assignment_departments = []
+        self.selected_assignment_units = []
+
+        # If editing, load currently assigned users/departments/units from database
+        if is_edit:
+            # Load assigned users
+            assigned_users_data = self.db.execute_query("""
+                SELECT DISTINCT user_id
+                FROM assignment_users
+                WHERE assignment_id = ? AND is_active = 1
+            """, (assignment['id'],))
+            self.selected_assignment_users = [u['user_id'] for u in assigned_users_data]
+
+            # Load assigned departments (users grouped by department)
+            assigned_depts_data = self.db.execute_query("""
+                SELECT DISTINCT u.department
+                FROM assignment_users au
+                JOIN users u ON au.user_id = u.id
+                WHERE au.assignment_id = ? AND au.is_active = 1
+                  AND u.department IS NOT NULL AND u.department != ''
+                GROUP BY u.department
+                HAVING COUNT(DISTINCT u.id) = (
+                    SELECT COUNT(*) FROM users
+                    WHERE department = u.department AND role IN ('examinee', 'expert') AND is_active = 1
+                )
+            """, (assignment['id'],))
+            self.selected_assignment_departments = [d['department'] for d in assigned_depts_data]
+
+            # Load assigned units (users grouped by department+unit)
+            assigned_units_data = self.db.execute_query("""
+                SELECT DISTINCT u.department, u.unit
+                FROM assignment_users au
+                JOIN users u ON au.user_id = u.id
+                WHERE au.assignment_id = ? AND au.is_active = 1
+                  AND u.department IS NOT NULL AND u.department != ''
+                  AND u.unit IS NOT NULL AND u.unit != ''
+                GROUP BY u.department, u.unit
+                HAVING COUNT(DISTINCT u.id) = (
+                    SELECT COUNT(*) FROM users
+                    WHERE department = u.department AND unit = u.unit
+                      AND role IN ('examinee', 'expert') AND is_active = 1
+                )
+            """, (assignment['id'],))
+            self.selected_assignment_units = [(u['department'], u['unit']) for u in assigned_units_data]
 
         # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
@@ -3034,7 +3223,7 @@ class QuizManagement(ft.UserControl):
             ORDER BY department
         """)
 
-        user_dropdown = ft.Dropdown(
+        user_dropdown = self.create_styled_dropdown(
             label=t('select_users'),
             hint_text="Choose users to assign",
             options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
@@ -3043,10 +3232,44 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
-        department_dropdown = ft.Dropdown(
+        department_dropdown = self.create_styled_dropdown(
             label=t('select_departments'),
             hint_text="Choose departments to assign",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
+            width=250,
+            height=56,
+            content_padding=5
+        )
+
+        # Get unit combinations for dropdown
+        department_values = sorted({u.get('department') for u in users if u.get('department')})
+        unit_combo_set = {
+            (u['department'], u['unit'])
+            for u in users
+            if u.get('department') and u.get('unit')
+        }
+        unit_combo_list = sorted(list(unit_combo_set), key=lambda combo: (combo[0], combo[1]))
+
+        # Helper function to extract unit name in current language
+        current_lang = get_language()
+        def get_unit_display_name(dept, unit):
+            """Extract unit name in current language"""
+            if " / " in unit:
+                parts = unit.split(" / ")
+                if len(parts) == 2:
+                    return parts[1].strip() if current_lang == 'en' else parts[0].strip()
+            return unit
+
+        unit_dropdown = self.create_styled_dropdown(
+            label=t('assign_unit') if hasattr(t, '__call__') else "Assign Unit",
+            hint_text="Select unit",
+            options=[
+                ft.dropdown.Option(
+                    f"{dept}|||{unit}",
+                    f"{get_unit_display_name(dept, dept)} / {get_unit_display_name(dept, unit)}"
+                )
+                for dept, unit in unit_combo_list
+            ],
             width=250,
             height=56,
             content_padding=5
@@ -3057,6 +3280,73 @@ class QuizManagement(ft.UserControl):
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
             selected_chips_row,
         ], spacing=5)
+
+        # Define remove functions first (needed for chip creation)
+        def remove_user(user_id):
+            if user_id in self.selected_assignment_users:
+                self.selected_assignment_users.remove(user_id)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value and "Unit:" not in control.label.value:
+                        user_name = control.label.value
+                        # Check if this is the user to remove
+                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
+                            selected_chips_row.controls.pop(i)
+                            break
+                if self.page:
+                    self.page.update()
+
+        def remove_department(dept):
+            if dept in self.selected_assignment_departments:
+                self.selected_assignment_departments.remove(dept)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
+                        selected_chips_row.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
+        def remove_unit(combo):
+            if combo in self.selected_assignment_units:
+                self.selected_assignment_units.remove(combo)
+                # Remove chip from UI
+                for i, control in enumerate(selected_chips_row.controls):
+                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
+                        selected_chips_row.controls.pop(i)
+                        break
+                if self.page:
+                    self.page.update()
+
+        # If editing, populate chips from loaded data
+        if is_edit:
+            # Add user chips
+            for user_id in self.selected_assignment_users:
+                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), f"User {user_id}")
+                chip = ft.Chip(
+                    label=ft.Text(user_name),
+                    on_delete=lambda e, uid=user_id: remove_user(uid),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+            # Add department chips
+            for dept in self.selected_assignment_departments:
+                chip = ft.Chip(
+                    label=ft.Text(f"Department: {dept}"),
+                    on_delete=lambda e, d=dept: remove_department(d),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+            # Add unit chips
+            for dept, unit in self.selected_assignment_units:
+                chip = ft.Chip(
+                    label=ft.Text(f"Unit: {dept} / {unit}"),
+                    on_delete=lambda e, combo=(dept, unit): remove_unit(combo),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
 
         def on_user_selection(e):
             if not e.control.value:
@@ -3099,31 +3389,6 @@ class QuizManagement(ft.UserControl):
             if self.page:
                 self.page.update()
 
-        def remove_user(user_id):
-            if user_id in self.selected_assignment_users:
-                self.selected_assignment_users.remove(user_id)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value:
-                        user_name = control.label.value
-                        # Check if this is the user to remove
-                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
-                            selected_chips_row.controls.pop(i)
-                            break
-                if self.page:
-                    self.page.update()
-
-        def remove_department(dept):
-            if dept in self.selected_assignment_departments:
-                self.selected_assignment_departments.remove(dept)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
-                        selected_chips_row.controls.pop(i)
-                        break
-                if self.page:
-                    self.page.update()
-
         def on_unit_selection(e):
             if not e.control.value:
                 return
@@ -3143,17 +3408,6 @@ class QuizManagement(ft.UserControl):
             e.control.value = None
             if self.page:
                 self.page.update()
-
-        def remove_unit(combo):
-            if combo in self.selected_assignment_units:
-                self.selected_assignment_units.remove(combo)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
-                        selected_chips_row.controls.pop(i)
-                        break
-                if self.page:
-                    self.page.update()
 
         user_dropdown.on_change = on_user_selection
         department_dropdown.on_change = on_department_selection
@@ -3335,10 +3589,17 @@ class QuizManagement(ft.UserControl):
 
                     # Assign users (only for create mode)
                     for user_id in self.selected_assignment_users:
-                        self.db.execute_insert("""
-                            INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                            VALUES (?, ?, ?)
-                        """, (assignment_id, user_id, self.user_data['id']))
+                        # Check if already assigned
+                        existing = self.db.execute_single("""
+                            SELECT id FROM assignment_users
+                            WHERE assignment_id = ? AND user_id = ?
+                        """, (assignment_id, user_id))
+
+                        if not existing:
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                                VALUES (?, ?, ?)
+                            """, (assignment_id, user_id, self.user_data['id']))
 
                     # Assign departments (only for create mode)
                     for dept in self.selected_assignment_departments:
@@ -3348,6 +3609,26 @@ class QuizManagement(ft.UserControl):
                         """, (dept,))
 
                         for user in dept_users:
+                            # Check if already assigned
+                            existing = self.db.execute_single("""
+                                SELECT id FROM assignment_users
+                                WHERE assignment_id = ? AND user_id = ?
+                            """, (assignment_id, user['id']))
+
+                            if not existing:
+                                self.db.execute_insert("""
+                                    INSERT INTO assignment_users (assignment_id, user_id, granted_by)
+                                    VALUES (?, ?, ?)
+                                """, (assignment_id, user['id'], self.user_data['id']))
+
+                    # Assign units (only for create mode)
+                    for dept, unit in self.selected_assignment_units:
+                        unit_users = self.db.execute_query("""
+                            SELECT id FROM users
+                            WHERE department = ? AND unit = ? AND role IN ('examinee', 'expert') AND is_active = 1
+                        """, (dept, unit))
+
+                        for user in unit_users:
                             # Check if already assigned
                             existing = self.db.execute_single("""
                                 SELECT id FROM assignment_users
@@ -3398,20 +3679,27 @@ class QuizManagement(ft.UserControl):
             ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
             ft.Container(height=8),
 
-            # Security Settings
-            ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            ft.Row([randomize_questions, show_results], spacing=15, wrap=True),
-            ft.Row([enable_fullscreen], spacing=15, wrap=True),
-            ft.Container(height=8),
+            # Delivery Method and Security Settings in same row
+            ft.Row([
+                # Delivery Method (left side - first)
+                ft.Column([
+                    ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Divider(height=1, color=COLORS['primary']),
+                    delivery_method,
+                    variant_count,
+                    variant_note,
+                    pdf_note,
+                ], expand=True),
 
-            # Delivery Method
-            ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            delivery_method,
-            variant_count,
-            variant_note,
-            pdf_note,
+                ft.Container(width=20),  # Spacing between sections
+
+                # Security Settings (right side - second)
+                ft.Column([
+                    ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                    ft.Divider(height=1, color=COLORS['primary']),
+                    ft.Row([randomize_questions, show_results, enable_fullscreen], spacing=15, wrap=True),
+                ], expand=True),
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START),
             ft.Container(height=8),
 
             # Random Question Selection
@@ -3541,7 +3829,7 @@ class QuizManagement(ft.UserControl):
         )
         
         # Create separate dropdowns for users and departments
-        self.user_dropdown = ft.Dropdown(
+        self.user_dropdown = self.create_styled_dropdown(
             label="Select User",
             options=user_options,
             on_change=lambda e: self.on_user_selection(e),
@@ -3549,7 +3837,7 @@ class QuizManagement(ft.UserControl):
             disabled=initial_all_users_state  # Disable if all users already selected
         )
         
-        self.department_dropdown = ft.Dropdown(
+        self.department_dropdown = self.create_styled_dropdown(
             label="Select Department", 
             options=department_options,
             on_change=lambda e: self.on_department_selection(e),
@@ -4117,7 +4405,12 @@ class QuizManagement(ft.UserControl):
 
             # Call the creation dialog but in edit mode
             self.show_assignment_creation_dialog(exam, assignment)
-    
+
+    def show_assignment_detail_dialog(self, assignment):
+        """Show comprehensive assignment details with editing capabilities"""
+        # Simply redirect to the edit dialog which now has all the info and editing capabilities
+        self.show_edit_assignment_dialog(assignment)
+
     def show_assignment_user_dialog(self, assignment):
         """Manage users for an assignment"""
         # Load users and departments for selection (include both examinees and experts)
@@ -4147,7 +4440,7 @@ class QuizManagement(ft.UserControl):
         assigned_user_ids = {user['id'] for user in assigned_users}
 
         # Dropdown for adding users
-        user_dropdown = ft.Dropdown(
+        user_dropdown = self.create_styled_dropdown(
             label="Add Users",
             hint_text="Select users to add",
             options=[
@@ -4161,7 +4454,7 @@ class QuizManagement(ft.UserControl):
             width=400
         )
 
-        department_dropdown = ft.Dropdown(
+        department_dropdown = self.create_styled_dropdown(
             label="Add Department",
             hint_text="Select department to add",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
@@ -4489,7 +4782,7 @@ class QuizManagement(ft.UserControl):
             self.preset_selected_topics[exam_id] = {'easy': 0, 'medium': 0, 'hard': 0}
 
             # Create UI for this topic
-            easy_dropdown = ft.Dropdown(
+            easy_dropdown = self.create_styled_dropdown(
                 label=f"Easy (max: {exam['easy_count']})",
                 options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['easy_count'] + 1)],
                 value="0",
@@ -4497,7 +4790,7 @@ class QuizManagement(ft.UserControl):
                 content_padding=5
             )
 
-            medium_dropdown = ft.Dropdown(
+            medium_dropdown = self.create_styled_dropdown(
                 label=f"Medium (max: {exam['medium_count']})",
                 options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['medium_count'] + 1)],
                 value="0",
@@ -4505,7 +4798,7 @@ class QuizManagement(ft.UserControl):
                 content_padding=5
             )
 
-            hard_dropdown = ft.Dropdown(
+            hard_dropdown = self.create_styled_dropdown(
                 label=f"Hard (max: {exam['hard_count']})",
                 options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['hard_count'] + 1)],
                 value="0",
@@ -4581,7 +4874,7 @@ class QuizManagement(ft.UserControl):
             update_total_questions()
 
         # Topic selection dropdown
-        topic_dropdown = ft.Dropdown(
+        topic_dropdown = self.create_styled_dropdown(
             label="Add Topic",
             hint_text="Select a topic to add",
             options=[
@@ -4607,7 +4900,7 @@ class QuizManagement(ft.UserControl):
                     self.preset_selected_topics[exam_id] = counts
 
                     # Create topic card with saved values
-                    easy_dropdown = ft.Dropdown(
+                    easy_dropdown = self.create_styled_dropdown(
                         label=f"Easy (max: {exam['easy_count']})",
                         options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['easy_count'] + 1)],
                         value=str(counts['easy']),
@@ -4615,7 +4908,7 @@ class QuizManagement(ft.UserControl):
                         content_padding=5
                     )
 
-                    medium_dropdown = ft.Dropdown(
+                    medium_dropdown = self.create_styled_dropdown(
                         label=f"Medium (max: {exam['medium_count']})",
                         options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['medium_count'] + 1)],
                         value=str(counts['medium']),
@@ -4623,7 +4916,7 @@ class QuizManagement(ft.UserControl):
                         content_padding=5
                     )
 
-                    hard_dropdown = ft.Dropdown(
+                    hard_dropdown = self.create_styled_dropdown(
                         label=f"Hard (max: {exam['hard_count']})",
                         options=[ft.dropdown.Option(str(i), str(i)) for i in range(0, exam['hard_count'] + 1)],
                         value=str(counts['hard']),
@@ -4998,7 +5291,7 @@ class QuizManagement(ft.UserControl):
                    e.description as exam_description,
                    COUNT(DISTINCT q.id) as question_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
-                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
+                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.start_time >= au.granted_at THEN au.user_id END) as completed_users_count,
                    u.full_name as creator_name
             FROM exam_assignments ea
             JOIN exams e ON ea.exam_id = e.id
@@ -5053,7 +5346,7 @@ class QuizManagement(ft.UserControl):
                        e.description as exam_description,
                        COUNT(DISTINCT q.id) as question_count,
                        COUNT(DISTINCT au.user_id) as assigned_users_count,
-                       COUNT(DISTINCT CASE WHEN es.is_completed = 1 THEN au.user_id END) as completed_users_count,
+                       COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.start_time >= au.granted_at THEN au.user_id END) as completed_users_count,
                        u.full_name as creator_name
                 FROM exam_assignments ea
                 JOIN exams e ON ea.exam_id = e.id
