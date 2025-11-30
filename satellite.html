@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Future of Space: Pro Master Deck</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;600;800&family=Inter:wght@300;400;600&display=swap');
+
+        :root {
+            --bg: #020204;
+            --text: #ffffff;
+            --text-secondary: #a1a1a6;
+            --accent: #2997ff;
+            --accent-glow: rgba(41, 151, 255, 0.6);
+            --glass: rgba(20, 20, 30, 0.65);
+            --border: rgba(255, 255, 255, 0.1);
+            --shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); }
+        
+        #canvas-wrapper { position: absolute; inset: 0; z-index: 1; background: #000; }
+        
+        /* UI Layer */
+        #ui {
+            position: absolute; inset: 0; z-index: 10; pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 2.5rem;
+        }
+
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .badge {
+            background: rgba(41, 151, 255, 0.1); color: var(--accent);
+            padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(41, 151, 255, 0.2);
+            font-size: 0.75rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
+            margin-bottom: 0.5rem; display: inline-block; backdrop-filter: blur(10px);
+        }
+        .counter { font-variant-numeric: tabular-nums; color: var(--text-secondary); font-weight: 500; font-size: 0.9rem; letter-spacing: 0.05em; }
+
+        /* Slide Card */
+        .card-container {
+            position: absolute; top: 50%; left: 5%; transform: translateY(-50%);
+            width: 520px; perspective: 1000px; pointer-events: auto;
+        }
+        
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(50px) saturate(180%); -webkit-backdrop-filter: blur(50px) saturate(180%);
+            border: 1px solid var(--border);
+            padding: 3rem; border-radius: 24px;
+            box-shadow: var(--shadow);
+            opacity: 0; transform: translateY(30px) rotateX(5deg);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 75vh; overflow-y: auto;
+        }
+        .card.active { opacity: 1; transform: translateY(0) rotateX(0); }
+
+        /* Typography */
+        h1 { 
+            font-family: 'SF Pro Display', sans-serif; font-size: 2.5rem; margin: 0 0 0.8rem 0; 
+            letter-spacing: -0.03em; line-height: 1.1; font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #ccc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        h2 { 
+            font-size: 0.9rem; color: var(--accent); font-weight: 600; margin-bottom: 2rem; 
+            text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1px solid var(--border); 
+            padding-bottom: 1rem; display: inline-block;
+        }
+        
+        .content { font-size: 1.05rem; line-height: 1.7; color: #e0e0e0; font-weight: 300; }
+        .content b { color: #fff; font-weight: 600; }
+        .content ul { padding-left: 1.2rem; margin: 0; }
+        .content li { margin-bottom: 1rem; }
+        
+        .tech-spec {
+            font-family: 'Courier New', monospace; font-size: 0.85rem; color: #64d2ff;
+            background: rgba(100, 210, 255, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(100, 210, 255, 0.2);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex; gap: 1.5rem; align-self: flex-end; pointer-events: auto;
+            align-items: center;
+        }
+        button {
+            width: 60px; height: 60px; border-radius: 50%; border: 1px solid var(--border);
+            background: rgba(255,255,255,0.05); backdrop-filter: blur(20px);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        button:hover { background: rgba(255,255,255,0.15); transform: scale(1.1); border-color: white; box-shadow: 0 0 20px var(--accent-glow); }
+        button svg { width: 24px; height: 24px; fill: white; }
+
+        .progress-container {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.05);
+        }
+        .progress-fill { 
+            height: 100%; width: 0%; 
+            background: linear-gradient(90deg, var(--accent), #64d2ff); 
+            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1); 
+            box-shadow: 0 0 15px var(--accent); 
+        }
+
+        /* Scrollbar */
+        .card::-webkit-scrollbar { width: 6px; }
+        .card::-webkit-scrollbar-track { background: transparent; }
+        .card::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.2); border-radius: 20px; }
+    </style>
+    
+    <!-- Three.js & Post Processing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <!-- Post Processing Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <!-- Simplex Noise -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-wrapper"></div>
+    
+    <div id="ui">
+        <div class="header">
+            <div>
+                <div id="chapter" class="badge">Introduction</div>
+                <div style="font-weight: 700; font-size: 1.2rem; letter-spacing: -0.02em;">AERO/SPACE</div>
+            </div>
+            <div id="counter" class="counter">01 / 26</div>
+        </div>
+
+        <div class="card-container">
+            <div id="card" class="card active">
+                <!-- Content injected via JS -->
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="prev"><svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></button>
+            <button id="next"><svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button>
+        </div>
+        <div class="progress-container"><div id="progress" class="progress-fill"></div></div>
+    </div>
+
+<script>
+    // ==========================================
+    // DATA: 26 SLIDES
+    // ==========================================
+    const slides = [
+        {
+            chapter: "Introduction", title: "Presentation Agenda", subtitle: "Strategic Overview",
+            content: "<ul><li><b>Industry Evolution:</b> Major shifts in launch & satellite tech (Last 10 Years).</li><li><b>Emerging Technologies:</b> New service models and their practical value.</li><li><b>Comparative Analysis:</b> Classic vs. Modern Satellite Systems.</li><li><b>Deep Dive:</b> The capabilities and future of DTP & SDR.</li><li><b>Market Analysis:</b> Azercosmos – Current adoption and gaps.</li></ul>",
+            stage: "GLOBE", state: "golden"
+        },
+        // --- DECK 1: The Revolution ---
+        {
+            chapter: "The Revolution", title: "10 Years of Disruption", subtitle: "Engineering & Market Shifts",
+            content: "Beyond the headlines of reusable rockets and small sats lies a deeper shift in engineering philosophy. <br><br>We will examine five key drivers: <b>Industrialized Reusability, Distributed Reliability, Cognitive Payloads, Active Debris Removal, and Dedicated Launch Markets.</b>",
+            stage: "ROCKET", state: "cycle"
+        },
+        {
+            chapter: "The Revolution", title: "Reusability: The Turnaround", subtitle: "Industrial Engineering Shift",
+            content: "<ul><li><b>The Insight:</b> The revolution isn't just the landing; it is the rapid, cost-effective refurbishment.</li><li><b>Philosophy Change:</b> Moving from 'Bespoke Craftsmanship' (single-use) to 'Robust Industrial Design' (automotive standards).</li><li><b>Result:</b> Achieving reliability through frequent iteration and automation, not single-flight perfection.</li></ul>",
+            stage: "ROCKET", state: "cycle"
+        },
+        {
+            chapter: "The Revolution", title: "Mega-Constellations", subtitle: "Distributed Reliability Models",
+            content: "<ul><li><b>Strategic Advantage:</b> Tens of thousands of nodes mean a single failure is a minor blip, not a mission loss.</li><li><b>Architectural Shift:</b> From Centralized Reliability (Big Sat) to <b>Distributed Reliability</b> (Mesh Network).</li><li><b>Business Model:</b> Transitioning from selling hardware assets to selling continuous Service Level Agreements (SLA).</li></ul>",
+            stage: "GLOBE", state: "mesh"
+        },
+        {
+            chapter: "The Revolution", title: "The Cognitive Satellite", subtitle: "AI & Autonomy in Orbit",
+            content: "<ul><li><b>Beyond Passive:</b> Satellites are evolving from passive transponders to active, intelligent systems.</li><li><b>Cognitive Radio:</b> Leveraging AI/ML on SDR platforms to autonomously optimize spectrum usage and power distribution.</li><li><b>Autonomy:</b> Making real-time decisions in orbit without waiting for ground control commands.</li></ul>",
+            stage: "BRAIN", state: "thinking" 
+        },
+        {
+            chapter: "The Revolution", title: "The Debris Paradox", subtitle: "Risk Creating New Markets",
+            content: "<ul><li><b>The Risk:</b> Mega-constellations heighten the risk of Kessler Syndrome (collisional cascading).</li><li><b>The Market:</b> Emergence of <b>Active Debris Removal (ADR)</b>.</li><li><b>Solution:</b> 'Orbital Tow Trucks' designed to rendezvous with, capture, and de-orbit defunct assets.</li></ul>",
+            stage: "DEBRIS", state: "capture"
+        },
+        {
+            chapter: "The Revolution", title: "Small Rocket Market", subtitle: "Dedicated Launch Services",
+            content: "<ul><li><b>The Gap:</b> SpaceX dominates mass cargo, but shared rides lack orbital precision.</li><li><b>The Solution:</b> Small launchers (Rocket Lab, Firefly) offer the 'Uber' model—dedicated rides.</li><li><b>Value Prop:</b> Greater flexibility, schedule control, and precise insertion into specific orbits without ride-sharing constraints.</li></ul>",
+            stage: "ROCKET", state: "launch"
+        },
+        {
+            chapter: "The Revolution", title: "Engineering Imperative", subtitle: "Adaptability",
+            content: "<b>1. Design:</b> Robust & reusable.<br><b>2. Architecture:</b> Distributed resilience.<br><b>3. Technology:</b> Software-defined systems.<br><br>The new space age is about building a dynamic, intelligent infrastructure.",
+            stage: "ROCKET", state: "cycle"
+        },
+
+        // --- DECK 2: Economy ---
+        {
+            chapter: "Space Economy", title: "The Frontier of Services", subtitle: "Beyond Broadcast",
+            content: "The industry has evolved beyond TV. Innovation enables integrated services like Optical Comms, Edge AI, and IoT.",
+            stage: "GLOBE", state: "scan"
+        },
+        {
+            chapter: "Space Economy", title: "Optical Communications", subtitle: "Lasers in Vacuum",
+            content: "<b>The Optical Mesh:</b> Observe how the laser links connect the entire constellation. Data is forwarded node-to-node.<br><br><b>Speed:</b> Terabits/sec. <br><b>Security:</b> Un-jammable beams.",
+            stage: "LASER", state: "network"
+        },
+        {
+            chapter: "Space Economy", title: "IoT & Spectral", subtitle: "Deep Insights",
+            content: "<b>Spectral Imaging:</b> Seeing beyond human vision. Using hyper-spectral sensors to detect invisible crop stress, methane leaks, or soil moisture.<br><b>IoT:</b> Tracking millions of containers globally using low-power signals.<br><br><i>Visual: Scanning the Earth to reveal the hidden data layers (heatmap) beneath the visible spectrum.</i>",
+            stage: "SPECTRAL", state: "scan"
+        },
+        {
+            chapter: "Space Economy", title: "On-Board Processing", subtitle: "Finding the Needle",
+            content: "<b>The Problem:</b> Downlink bandwidth is limited. Sending terabytes of raw ocean imagery is inefficient.<br><b>The Solution:</b> Edge Computing (FPGAs).<br><br><b>Visual:</b> Observe the raw data stream (Blue) entering the core. The system filters the noise and only transmits critical alerts (Gold) to Earth.",
+            stage: "EDGE", state: "process" 
+        },
+        {
+            chapter: "Space Economy", title: "LEO Broadband", subtitle: "Bridging the Divide",
+            content: "<b>Low Latency (~30ms):</b> Key for aviation, maritime, and rural access.<br><br>By orbiting closer (LEO), we match fiber speeds from the sky.",
+            stage: "GLOBE", state: "orbitals"
+        },
+        {
+            chapter: "Space Economy", title: "The Satellite Cloud", subtitle: "Physics of Speed",
+            content: "Light travels ~50% faster in a vacuum than in glass fiber. For high-frequency trading or AI training, space is the ultimate server room.",
+            stage: "CLOUD", state: "connect"
+        },
+        {
+            chapter: "Space Economy", title: "Intelligent Infrastructure", subtitle: "Summary",
+            content: "Space is now an integral part of the global digital economy. It is intelligent, connected, and software-defined.",
+            stage: "GLOBE", state: "golden"
+        },
+
+        // --- DECK 3: Architecture ---
+        {
+            chapter: "Architecture", title: "Digital Transparent Processor", subtitle: "The Modern 'Digital Bent Pipe'",
+            content: "<ul><li><b>Concept:</b> A flexible payload that digitizes signals for processing <i>without</i> decoding user data.</li><li><b>The Pipeline:</b> <span class='tech-spec'>RF In</span> &rarr; <span class='tech-spec'>ADC</span> (Digitize) &rarr; <span class='tech-spec'>DSP</span> (Process) &rarr; <span class='tech-spec'>DAC</span> (Reconstruct) &rarr; <span class='tech-spec'>RF Out</span>.</li><li><b>Result:</b> Signal integrity is maintained while gaining digital agility.</li></ul>",
+            stage: "DTP_OVERVIEW", state: "flow"
+        },
+        {
+            chapter: "Architecture", title: "DTP Hardware Tech", subtitle: "Radiation-Hardened Power",
+            content: "<ul><li><b>The Brain:</b> Advanced <b>ASICs</b> (Application-Specific Integrated Circuits) handle massive throughput with low power consumption.</li><li><b>The Nerves:</b> <b>Optical Interconnects</b> (Fiber Optics) replace heavy copper wiring to move Terabits/s between modules at light speed.</li></ul>",
+            stage: "DTP_TECH", state: "tech" 
+        },
+        {
+            chapter: "Architecture", title: "Bandwidth Slicing", subtitle: "From Concrete Barriers to Painted Lines",
+            content: "<b>The Old Way:</b> Fixed 36 MHz analog transponders. You buy the whole lane or nothing.<br><br><b>The DTP Way:</b> Bandwidth is sliced into programmable <b>Granules</b>. We can redraw the 'lane dividers' instantly to allocate 1 MHz or 10 MHz based on real-time traffic needs.",
+            stage: "DTP_SLICE", state: "slicing" 
+        },
+        {
+            chapter: "Architecture", title: "The Routing Matrix", subtitle: "Any Beam to Any Beam",
+            content: "<b>Digital Switch Matrix:</b> The core logic that routes individual granules.<br><br><b>Capability:</b> Instantly map an input signal from <i>North America Beam 1</i> to output <i>Europe Beam 4</i>.<br><b>Benefit:</b> 'Capacity on Demand'. Instantly shift bandwidth from an idle region to a disaster zone.",
+            stage: "DTP_ROUTE", state: "routing" 
+        },
+
+        // --- UPDATED SDR VISUALS (20-23) ---
+        {
+            chapter: "Architecture", title: "Software-Defined Radio", subtitle: "The Regenerative Brain",
+            content: "<b>The Shift:</b> Unlike the DTP's 'bent pipe', the <b>SDR</b> is a computational brain. It performs <b>Regeneration</b>.<br><br><b>Visual:</b> 'The Digital Forge'. Watch as jagged, noisy raw signal energy (Red) enters the core and is physically reconstructed into perfect data blocks (Green).",
+            stage: "SDR_FORGE", state: "regen" // NEW VISUAL
+        },
+        {
+            chapter: "Architecture", title: "SDR Advantages", subtitle: "The Shield (Error Correction)",
+            content: "<b>Feature:</b> Forward Error Correction (FEC).<br><br><b>Visual:</b> 'The Shield'. Corrupted packets hit the barrier and are instantly repaired. This allows SDRs to maintain robust links even with disadvantaged terminals (low power/small antennas).",
+            stage: "SDR_SHIELD", state: "clean" // NEW VISUAL
+        },
+        {
+            chapter: "Architecture", title: "Trade-offs: Physical", subtitle: "Power & Complexity",
+            content: "<b>The Cost of Intelligence:</b> SDRs require high-speed FPGAs.<br><br><b>Visual:</b> 'The Turbine'. This immense processing power generates significant heat and consumes more energy compared to the efficient DTP. It is a heavy engine.",
+            stage: "SDR_TURBINE", state: "heat" // NEW VISUAL
+        },
+        {
+            chapter: "Architecture", title: "Trade-offs: Functional", subtitle: "Signal Quality Comparison",
+            content: "<b>Comparison:</b><br>Top Lane (DTP): Noise In = Noise Out (Transparent).<br>Bottom Lane (SDR): Noise In = Perfect Signal Out (Regenerative).<br><br><b>Trade-off:</b> The SDR path is cleaner but takes longer (Latency).",
+            stage: "SDR_DUAL", state: "compare" // NEW VISUAL
+        },
+        
+        {
+            chapter: "Architecture", title: "The Decision Matrix", subtitle: "Strategic Selection",
+            content: "<ul><li><b>Choose DTP:</b> Commercial Broadband/HTS. <br><i>Why?</i> High throughput, dynamic bandwidth, lower cost, lower latency.</li><li><b>Choose SDR:</b> Military/Science/Advanced Constellations. <br><i>Why?</i> Maximum robustness, in-orbit standard updates, complex IP routing.</li></ul>",
+            stage: "GLOBE", state: "golden"
+        },
+        {
+            chapter: "Architecture", title: "Future Convergence", subtitle: "The Singularity",
+            content: "AI + Optical Links + Standardized Hardware.<br><br>The ultimate flexible platform where internal data links shift from copper to light.",
+            stage: "SINGULARITY", state: "merge"
+        }
+    ];
+
+    // ==========================================
+    // THREE.JS SETUP
+    // ==========================================
+    const container = document.getElementById('canvas-wrapper');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000000, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    container.appendChild(renderer.domElement);
+
+    // --- POST PROCESSING ---
+    const composer = new THREE.EffectComposer(renderer);
+    const renderPass = new THREE.RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+    bloomPass.strength = 1.2;
+    bloomPass.radius = 0.5;
+    bloomPass.threshold = 0.1;
+    composer.addPass(bloomPass);
+
+    // --- LIGHTING ---
+    const ambientLight = new THREE.AmbientLight(0x111111, 1.0);
+    scene.add(ambientLight);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    keyLight.position.set(10, 20, 10);
+    keyLight.castShadow = true;
+    scene.add(keyLight);
+    const rimLight = new THREE.SpotLight(0x2997ff, 5);
+    rimLight.position.set(-10, 10, -5);
+    rimLight.lookAt(0,0,0);
+    scene.add(rimLight);
+
+    // --- MATERIALS ---
+    const mats = {
+        hull: new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.2, metalness: 0.6 }),
+        metalDark: new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.4, metalness: 0.9 }),
+        gold: new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.2, metalness: 1.0 }),
+        solar: new THREE.MeshStandardMaterial({ color: 0x050515, roughness: 0.3, metalness: 0.5, emissive: 0x000022 }),
+        glowBlue: new THREE.MeshBasicMaterial({ color: 0x2997ff }),
+        glowRed: new THREE.MeshBasicMaterial({ color: 0xff3b30 }),
+        glowGreen: new THREE.MeshBasicMaterial({ color: 0x34c759 }),
+        laserCore: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+        laserOuter: new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 }),
+        glass: new THREE.MeshPhysicalMaterial({ color: 0xffffff, transmission: 0.9, opacity: 0.1, transparent: true, roughness: 0 }),
+        fiber: new THREE.MeshBasicMaterial({ color: 0x00ffff }),
+        heatGlow: new THREE.MeshBasicMaterial({ color: 0xff5500 })
+    };
+
+    const groups = {};
+
+    // --- 0. STARFIELD ---
+    function createStars() {
+        const starsGeo = new THREE.BufferGeometry();
+        const count = 2000;
+        const pos = new Float32Array(count * 3);
+        for(let i=0; i<count*3; i++) pos[i] = (Math.random()-0.5) * 200;
+        starsGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const starsMat = new THREE.PointsMaterial({color: 0xffffff, size: 0.2, transparent: true, opacity: 0.8});
+        return new THREE.Points(starsGeo, starsMat);
+    }
+    const stars = createStars();
+    scene.add(stars);
+
+    // --- 1. ROCKET ---
+    function createRocket() {
+        const g = new THREE.Group();
+        const bBody = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 5, 32), mats.hull);
+        const bEng = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.4, 0.5, 32), mats.metalDark); bEng.position.y = -2.5;
+        const legs = new THREE.Group();
+        for(let i=0; i<4; i++){
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 0.1), mats.metalDark);
+            leg.position.y = 1.1;
+            const pivot = new THREE.Group();
+            pivot.rotation.y = (Math.PI/2)*i; pivot.add(leg);
+            pivot.translateY(-2.5); pivot.translateZ(0.6); pivot.rotation.x = 0; 
+            legs.add(pivot);
+        }
+        const fins = new THREE.Group();
+        for(let i=0; i<4; i++){
+            const fin = new THREE.Mesh(new THREE.BoxGeometry(0.4,0.4,0.05), mats.metalDark);
+            fin.position.set(0, 2.3, 0.65);
+            const p = new THREE.Group(); p.rotation.y = (Math.PI/2)*i; p.add(fin); fins.add(p);
+        }
+        const booster = new THREE.Group(); booster.add(bBody, bEng, legs, fins);
+        const stage2 = new THREE.Group();
+        const s2Body = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 1.5, 32), mats.hull);
+        const fairing = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.5, 32), mats.hull); fairing.position.y = 1.5;
+        const s2Eng = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.5, 32), mats.metalDark); s2Eng.position.y = -1;
+        stage2.add(s2Body, fairing, s2Eng); stage2.position.y = 3.5;
+        const particles = new THREE.Group();
+        for(let i=0; i<20; i++) {
+            const p = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshBasicMaterial({color: 0xffaa00})); 
+            particles.add(p);
+        }
+        particles.visible = false;
+        g.add(booster, stage2, particles);
+        g.userData = { booster, stage2, legs, particles };
+        return g;
+    }
+    groups.rocket = createRocket();
+    scene.add(groups.rocket);
+
+    // --- 2. GLOBE ---
+    function createGlobe() {
+        const g = new THREE.Group();
+        const earth = new THREE.Mesh(new THREE.SphereGeometry(3, 64, 64), new THREE.MeshPhongMaterial({color: 0x050505, emissive: 0x000510, specular: 0x111111, shininess: 10}));
+        const grid = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(3.02, 32, 32)), new THREE.LineBasicMaterial({color: 0x2997ff, transparent: true, opacity: 0.15}));
+        const atmo = new THREE.Mesh(new THREE.SphereGeometry(3.3, 64, 64), new THREE.MeshBasicMaterial({color: 0x2997ff, transparent: true, opacity: 0.1, side: THREE.BackSide, blending: THREE.AdditiveBlending}));
+        const satShell = new THREE.Group();
+        for(let i=0; i<100; i++){
+            const s = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.06), mats.glowBlue);
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos((Math.random() * 2) - 1);
+            s.position.setFromSphericalCoords(4, phi, theta);
+            satShell.add(s);
+        }
+        g.add(earth, grid, atmo, satShell);
+        g.userData = { satShell };
+        return g;
+    }
+    groups.globe = createGlobe();
+    scene.add(groups.globe);
+
+    // --- 3. LASER MESH ---
+    function createLaser() {
+        const g = new THREE.Group();
+        const sats = [];
+        const count = 6;
+        for(let i=0; i<count; i++){
+            const angle = (i/count)*Math.PI*2;
+            const s = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.6,0.6), mats.gold);
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.5, 0.8), mats.solar); panel.rotation.x = Math.PI/2;
+            s.add(body, panel);
+            s.position.set(Math.cos(angle)*4, Math.sin(angle)*4, 0); s.lookAt(0,0,0);
+            sats.push(s); g.add(s);
+        }
+        const beams = new THREE.Group();
+        const packets = new THREE.Group();
+        for(let i=0; i<count; i++){
+            const curr = sats[i]; const next = sats[(i+1)%count];
+            const mid = new THREE.Vector3().addVectors(curr.position, next.position).multiplyScalar(0.5);
+            const dist = curr.position.distanceTo(next.position);
+            const beamGeo = new THREE.CylinderGeometry(0.03, 0.03, dist, 8); beamGeo.rotateX(Math.PI/2);
+            const beam = new THREE.Mesh(beamGeo, mats.laserOuter);
+            beam.position.copy(mid); beam.lookAt(next.position);
+            beams.add(beam);
+            const p = new THREE.Mesh(new THREE.SphereGeometry(0.15), mats.laserCore);
+            p.userData = { start: curr.position.clone(), end: next.position.clone(), offset: i*0.5 };
+            packets.add(p);
+        }
+        g.add(beams, packets);
+        g.userData = { packets };
+        return g;
+    }
+    groups.laser = createLaser();
+    scene.add(groups.laser);
+
+    // --- 4A. DTP OVERVIEW (SLIDE 16) ---
+    function createDTP() {
+        const g = new THREE.Group();
+        const rack = new THREE.Mesh(new THREE.BoxGeometry(9, 0.2, 4), mats.metalDark); rack.position.y = -1.5;
+        const modules = [];
+        for(let i=0; i<3; i++){
+            const m = new THREE.Group();
+            const case_ = new THREE.Mesh(new THREE.BoxGeometry(2, 3.5, 0.5), mats.metalDark);
+            const chip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 0.6), mats.hull); chip.position.z = 0.1;
+            m.add(case_, chip); m.position.set((i-1)*3, 0.5, 0);
+            modules.push(m); g.add(m);
+        }
+        // Fiber Optics
+        const curveMat = mats.fiber;
+        const tube1 = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(-2,0.5,0.5), new THREE.Vector3(-1.5,1.5,1), new THREE.Vector3(-1,0.5,0.5)]), 20, 0.05, 8, false), curveMat);
+        const tube2 = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(1,0.5,0.5), new THREE.Vector3(1.5,1.5,1), new THREE.Vector3(2,0.5,0.5)]), 20, 0.05, 8, false), curveMat);
+        g.add(rack, tube1, tube2);
+        
+        const parts = new THREE.Group();
+        for(let i=0; i<15; i++){ const p = new THREE.Mesh(new THREE.SphereGeometry(0.12), mats.glowBlue); parts.add(p); }
+        
+        const lineMat = new THREE.LineBasicMaterial({color: 0x2997ff});
+        const ptsIn = []; for(let i=0; i<30; i++) ptsIn.push(new THREE.Vector3(-7+i*0.1, 0, 0));
+        const waveIn = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ptsIn), lineMat);
+        const ptsOut = []; for(let i=0; i<30; i++) ptsOut.push(new THREE.Vector3(4+i*0.1, 0, 0));
+        const waveOut = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ptsOut), lineMat);
+        
+        g.add(parts, waveIn, waveOut);
+        g.userData = { parts, waveIn, waveOut }; 
+        return g;
+    }
+    groups.dtp = createDTP();
+    scene.add(groups.dtp);
+
+    // --- 4B. DTP HARDWARE TECH (SLIDE 17) ---
+    function createDTP_Hardware() {
+        const g = new THREE.Group();
+        const chipBase = new THREE.Mesh(new THREE.BoxGeometry(4, 0.2, 4), mats.metalDark);
+        const chipCore = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), mats.gold); chipCore.position.y = 0.16;
+        const fibers = new THREE.Group();
+        for(let i=0; i<8; i++) {
+            const angle = (i/8) * Math.PI * 2;
+            const x = Math.cos(angle) * 1.2;
+            const z = Math.sin(angle) * 1.2;
+            const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(x*3, -1, z*3), new THREE.Vector3(x*2, 0.5, z*2), new THREE.Vector3(x, 0.2, z)]);
+            const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.05, 8, false), mats.fiber);
+            fibers.add(tube);
+        }
+        g.add(chipBase, chipCore, fibers);
+        g.userData = { fibers };
+        return g;
+    }
+    groups.dtp_tech = createDTP_Hardware();
+    scene.add(groups.dtp_tech);
+
+    // --- 4C. DTP SLICING (SLIDE 18) ---
+    function createDTP_Slicing() {
+        const g = new THREE.Group();
+        const analogBlock = new THREE.Mesh(new THREE.BoxGeometry(6, 1, 1), mats.glass);
+        const granules = new THREE.Group();
+        for(let i=0; i<20; i++) {
+            const bar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1, 0.8), mats.glowBlue);
+            bar.position.x = (i - 9.5) * 0.28; granules.add(bar);
+        }
+        g.add(analogBlock, granules);
+        g.userData = { granules, analogBlock };
+        return g;
+    }
+    groups.dtp_slice = createDTP_Slicing();
+    scene.add(groups.dtp_slice);
+
+    // --- 4D. DTP ROUTING (SLIDE 19) ---
+    function createDTP_Routing() {
+        const g = new THREE.Group();
+        const inputNodes = new THREE.Group();
+        const outputNodes = new THREE.Group();
+        const lines = new THREE.Group();
+        for(let i=0; i<4; i++) {
+            const nIn = new THREE.Mesh(new THREE.SphereGeometry(0.2), mats.glowBlue); nIn.position.set(-3, (i-1.5)*1.5, 0); inputNodes.add(nIn);
+            const nOut = new THREE.Mesh(new THREE.SphereGeometry(0.2), mats.glowGreen); nOut.position.set(3, (i-1.5)*1.5, 0); outputNodes.add(nOut);
+        }
+        for(let i=0; i<4; i++) {
+            const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-3, (i-1.5)*1.5, 0), new THREE.Vector3(3, (i-1.5)*1.5, 0)]);
+            const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0xffffff}));
+            line.userData = { startIdx: i, targetIdx: i };
+            lines.add(line);
+        }
+        g.add(inputNodes, outputNodes, lines);
+        g.userData = { lines, outputNodes };
+        return g;
+    }
+    groups.dtp_route = createDTP_Routing();
+    scene.add(groups.dtp_route);
+
+    // --- 5A. SDR FORGE (SLIDE 20) - THE BRAIN ---
+    function createSDR_Forge() {
+        const g = new THREE.Group();
+        const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1.5, 1), mats.metalDark);
+        const rings = new THREE.Group();
+        for(let i=0; i<3; i++){
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(2 + i*0.5, 0.05, 16, 100), mats.glowBlue);
+            ring.rotation.x = Math.PI/2;
+            ring.rotation.y = (Math.PI/3)*i;
+            rings.add(ring);
+        }
+        const beamIn = new THREE.Line(new THREE.BufferGeometry().setFromPoints(new Array(30).fill(0).map((_,i)=>new THREE.Vector3(-6+i*0.15, 0, 0))), new THREE.LineBasicMaterial({color: 0xff3b30}));
+        const beamOut = new THREE.Line(new THREE.BufferGeometry().setFromPoints(new Array(30).fill(0).map((_,i)=>new THREE.Vector3(1.5+i*0.15, 0, 0))), new THREE.LineBasicMaterial({color: 0x34c759}));
+        g.add(core, rings, beamIn, beamOut);
+        g.userData = { rings, beamIn, beamOut };
+        return g;
+    }
+    groups.sdr_forge = createSDR_Forge();
+    scene.add(groups.sdr_forge);
+
+    // --- 5B. SDR SHIELD (SLIDE 21) - FEC ---
+    function createSDR_Shield() {
+        const g = new THREE.Group();
+        // Hex Grid Wall
+        const wallGeo = new THREE.PlaneGeometry(6, 4, 10, 6);
+        const wall = new THREE.LineSegments(new THREE.WireframeGeometry(wallGeo), new THREE.LineBasicMaterial({color: 0x2997ff, transparent:true, opacity:0.3}));
+        wall.rotation.y = -Math.PI/4;
+        // Particles
+        const particles = new THREE.Group();
+        for(let i=0; i<30; i++){
+            const p = new THREE.Mesh(new THREE.SphereGeometry(0.1), mats.glowRed);
+            p.userData = { speed: Math.random()*0.1 + 0.05, offset: Math.random()*10 };
+            particles.add(p);
+        }
+        g.add(wall, particles);
+        g.userData = { particles };
+        return g;
+    }
+    groups.sdr_shield = createSDR_Shield();
+    scene.add(groups.sdr_shield);
+
+    // --- 5C. SDR TURBINE (SLIDE 22) - POWER ---
+    function createSDR_Turbine() {
+        const g = new THREE.Group();
+        const turbine = new THREE.Group();
+        // Blades
+        for(let i=0; i<12; i++){
+            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3, 0.1), mats.metalDark);
+            blade.rotation.z = (i/12)*Math.PI*2;
+            blade.translateY(1.5);
+            turbine.add(blade);
+        }
+        // Glowing Core
+        const core = new THREE.Mesh(new THREE.TorusGeometry(1, 0.3, 16, 32), mats.heatGlow);
+        turbine.add(core);
+        g.add(turbine);
+        g.userData = { turbine };
+        return g;
+    }
+    groups.sdr_turbine = createSDR_Turbine();
+    scene.add(groups.sdr_turbine);
+
+    // --- 5D. SDR DUAL (SLIDE 23) - COMPARISON ---
+    function createSDR_Dual() {
+        const g = new THREE.Group();
+        // Top Lane (Glass Pipe)
+        const pipe1 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 8, 16, 1, true), mats.glass); pipe1.rotation.z = Math.PI/2; pipe1.position.y = 1.5;
+        // Bottom Lane (Tech Pipe)
+        const pipe2 = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 8, 16, 1, true), mats.wireframe); pipe2.rotation.z = Math.PI/2; pipe2.position.y = -1.5;
+        // Particles
+        const p1 = new THREE.Group(); // DTP
+        const p2 = new THREE.Group(); // SDR
+        for(let i=0; i<20; i++){
+            const part1 = new THREE.Mesh(new THREE.SphereGeometry(0.1), mats.glowBlue);
+            const part2 = new THREE.Mesh(new THREE.SphereGeometry(0.1), mats.glowRed); // Starts red
+            p1.add(part1); p2.add(part2);
+        }
+        g.add(pipe1, pipe2, p1, p2);
+        g.userData = { p1, p2 };
+        return g;
+    }
+    groups.sdr_dual = createSDR_Dual();
+    scene.add(groups.sdr_dual);
+
+
+    // --- 6. BRAIN ---
+    function createBrain() {
+        const g = new THREE.Group();
+        const satGeo = new THREE.BoxGeometry(4, 2, 2);
+        const satWire = new THREE.LineSegments(new THREE.WireframeGeometry(satGeo), new THREE.LineBasicMaterial({color: 0x444444, transparent: true, opacity: 0.3}));
+        g.add(satWire);
+        const particleCount = 1000;
+        const pGeo = new THREE.BufferGeometry();
+        const pPos = new Float32Array(particleCount * 3);
+        const pSizes = new Float32Array(particleCount);
+        for(let i=0; i<particleCount; i++){
+            const r = 1.2 * Math.cbrt(Math.random());
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos((Math.random() * 2) - 1);
+            pPos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+            pPos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+            pPos[i*3+2] = r * Math.cos(phi);
+            pSizes[i] = Math.random();
+        }
+        pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+        pGeo.setAttribute('size', new THREE.BufferAttribute(pSizes, 1));
+        const brainMat = new THREE.ShaderMaterial({
+            uniforms: { time: { value: 0 }, color: { value: new THREE.Color(0x2997ff) } },
+            vertexShader: `
+                uniform float time; attribute float size; varying float vAlpha;
+                void main() {
+                    vec3 pos = position;
+                    float pulse = sin(time * 3.0 + position.x * 2.0 + position.y * 2.0) * 0.5 + 0.5;
+                    pos *= 1.0 + pulse * 0.1; vAlpha = 0.3 + pulse * 0.7;
+                    vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                    gl_PointSize = size * (300.0 / -mvPosition.z);
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color; varying float vAlpha;
+                void main() {
+                    float r = distance(gl_PointCoord, vec2(0.5));
+                    if (r > 0.5) discard;
+                    float glow = 1.0 - (r * 2.0);
+                    gl_FragColor = vec4(color, vAlpha * glow);
+                }
+            `,
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+        });
+        const brainPoints = new THREE.Points(pGeo, brainMat);
+        g.add(brainPoints);
+        const lineGeo = new THREE.BufferGeometry();
+        const linePos = [];
+        for(let i=0; i<100; i++) {
+            const idx1 = Math.floor(Math.random() * particleCount);
+            const idx2 = Math.floor(Math.random() * particleCount);
+            linePos.push(pPos[idx1*3], pPos[idx1*3+1], pPos[idx1*3+2]);
+            linePos.push(pPos[idx2*3], pPos[idx2*3+1], pPos[idx2*3+2]);
+        }
+        lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending });
+        const synapses = new THREE.LineSegments(lineGeo, lineMat);
+        g.add(synapses);
+        g.userData = { brainMat, synapses };
+        return g;
+    }
+    groups.brain = createBrain();
+    scene.add(groups.brain);
+
+    // --- 7. SPECTRAL EARTH ---
+    function createSpectralEarth() {
+        const g = new THREE.Group();
+        const sphere = new THREE.Mesh(new THREE.SphereGeometry(3, 64, 64), new THREE.MeshPhongMaterial({color: 0x050505, emissive: 0x000010, shininess: 10}));
+        const grid = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(3.02, 32, 32)), new THREE.LineBasicMaterial({color: 0x444444, transparent: true, opacity: 0.2}));
+        const heatGeo = new THREE.SphereGeometry(3.05, 64, 64);
+        const heatMat = new THREE.ShaderMaterial({
+            uniforms: { time: { value: 0 }, scanHeight: { value: 0 } },
+            vertexShader: `
+                varying vec3 vPos; varying vec3 vNormal;
+                void main() { vPos = position; vNormal = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+            `,
+            fragmentShader: `
+                uniform float scanHeight; varying vec3 vPos; varying vec3 vNormal;
+                vec3 getHeatmapColor(vec3 p) {
+                    float val = sin(p.x * 5.0) * sin(p.z * 5.0);
+                    vec3 col = mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), smoothstep(-1.0, 0.0, val));
+                    col = mix(col, vec3(1.0, 0.0, 0.0), smoothstep(0.0, 1.0, val));
+                    return col;
+                }
+                void main() {
+                    float dist = abs(vPos.y - scanHeight);
+                    float scanLine = smoothstep(0.1, 0.0, dist);
+                    float reveal = smoothstep(0.5, 0.0, dist); 
+                    vec3 heatColor = getHeatmapColor(vPos);
+                    vec3 finalColor = heatColor * reveal + vec3(1.0) * scanLine;
+                    gl_FragColor = vec4(finalColor, reveal * 0.8);
+                }
+            `,
+            transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+        });
+        const heatShell = new THREE.Mesh(heatGeo, heatMat);
+        const ringGeo = new THREE.TorusGeometry(3.2, 0.02, 16, 100);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const scanRing = new THREE.Mesh(ringGeo, ringMat);
+        scanRing.rotation.x = Math.PI / 2;
+        g.add(sphere, grid, heatShell, scanRing);
+        g.userData = { heatMat, scanRing };
+        return g;
+    }
+    groups.spectral = createSpectralEarth();
+    scene.add(groups.spectral);
+
+    // --- 8. EDGE PROCESSOR ---
+    function createEdgeProcessor() {
+        const g = new THREE.Group();
+        const funnelGeo = new THREE.CylinderGeometry(0.5, 3, 3, 32, 4, true);
+        const funnel = new THREE.LineSegments(new THREE.WireframeGeometry(funnelGeo), new THREE.LineBasicMaterial({color: 0x444444, transparent: true, opacity: 0.2}));
+        funnel.position.y = 2;
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.1, 16, 32), mats.glowBlue);
+        ring.position.y = 0.5; ring.rotation.x = Math.PI / 2;
+        const inCount = 400;
+        const inGeo = new THREE.BufferGeometry();
+        const inPos = new Float32Array(inCount * 3);
+        for(let i=0; i<inCount; i++) { inPos[i*3] = (Math.random()-0.5)*5; inPos[i*3+1] = Math.random()*4+1; inPos[i*3+2] = (Math.random()-0.5)*5; }
+        inGeo.setAttribute('position', new THREE.BufferAttribute(inPos, 3));
+        const inMat = new THREE.PointsMaterial({color: 0x2997ff, size: 0.08, transparent: true, opacity: 0.6});
+        const inParts = new THREE.Points(inGeo, inMat);
+        const outCount = 20;
+        const outGeo = new THREE.BufferGeometry();
+        const outPos = new Float32Array(outCount * 3);
+        for(let i=0; i<outCount; i++) { outPos[i*3] = 0; outPos[i*3+1] = -Math.random()*3; outPos[i*3+2] = 0; }
+        outGeo.setAttribute('position', new THREE.BufferAttribute(outPos, 3));
+        const outMat = new THREE.PointsMaterial({color: 0xffaa00, size: 0.2, transparent: true, opacity: 1.0});
+        const outParts = new THREE.Points(outGeo, outMat);
+        g.add(funnel, ring, inParts, outParts);
+        g.userData = { inParts, outParts, ring };
+        return g;
+    }
+    groups.edge = createEdgeProcessor();
+    scene.add(groups.edge);
+
+    // 9. LEGACY
+    const debrisG = new THREE.Group();
+    const junk = new THREE.Group();
+    for(let i=0; i<60; i++){
+        const j = new THREE.Mesh(new THREE.DodecahedronGeometry(Math.random()*0.2+0.1), mats.metalDark);
+        j.position.set((Math.random()-0.5)*12, (Math.random()-0.5)*6, (Math.random()-0.5)*6);
+        junk.add(j);
+    }
+    const arm = new THREE.Group(); 
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), mats.hull);
+    const claw = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.05, 8, 20), mats.glowRed); claw.position.z=1;
+    arm.add(base, claw); debrisG.add(junk, arm); debrisG.userData={junk, arm};
+    groups.debris = debrisG; scene.add(debrisG);
+
+    const cloudG = new THREE.Group();
+    const cMesh = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(3, 2)), new THREE.LineBasicMaterial({color: 0x2997ff, transparent:true, opacity:0.2}));
+    cloudG.add(cMesh); groups.cloud = cloudG; scene.add(cloudG);
+
+    const chipG = new THREE.Group();
+    const b = new THREE.Mesh(new THREE.BoxGeometry(6, 0.2, 6), mats.metalDark);
+    const lns = new THREE.Group();
+    for(let i=0; i<20; i++){ const l = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,2), mats.glowBlue); l.position.set((Math.random()-0.5)*5, 0.2, (Math.random()-0.5)*5); lns.add(l); }
+    chipG.add(b, lns); chipG.userData = {lines: lns};
+    groups.chip = chipG; scene.add(chipG);
+
+
+    // Hide All Initially
+    Object.values(groups).forEach(g => g.visible = false);
+
+    // ==========================================
+    // ANIMATION LOOP
+    // ==========================================
+    let currentIndex = 0;
+    const clock = new THREE.Clock();
+    let mouseX=0, mouseY=0;
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const time = clock.getElapsedTime();
+        TWEEN.update();
+
+        // Starfield Move
+        stars.rotation.y = time * 0.02;
+
+        // Parallax
+        camera.position.x += (mouseX - camera.position.x) * 0.05;
+        camera.position.y += (mouseY - camera.position.y) * 0.05;
+        camera.lookAt(0,0,0);
+
+        const data = slides[currentIndex];
+
+        // 1. ROCKET
+        if(groups.rocket.visible){
+            const {booster, stage2, legs, particles} = groups.rocket.userData;
+            const t = time % 12;
+            particles.visible = false;
+            if(t < 3) {
+                const h = -5 + t*t*0.8; groups.rocket.position.set(0, h, 0); groups.rocket.rotation.set(0,0,0);
+                booster.position.y = 0; stage2.position.y = 3.5; legs.children.forEach(l => l.rotation.x = 0);
+                particles.visible = true; particles.position.set(0, h-3, 0);
+                particles.children.forEach(p => { p.position.set((Math.random()-0.5)*0.5, (Math.random()-0.5)*2, (Math.random()-0.5)*0.5); p.scale.setScalar(Math.random()); });
+            }
+            else if(t < 5) { const dt = t-3; groups.rocket.position.y = 2; stage2.position.y = 3.5 + dt*5; booster.position.y = -dt*0.5; }
+            else if(t < 7) { const dt = t-5; booster.rotation.z = Math.PI * (dt/2); }
+            else if(t < 10) { const dt = t-7; booster.rotation.z = Math.PI; groups.rocket.position.y = 2 - dt*2.4; if(dt>1.5) legs.children.forEach(l => l.rotation.x = THREE.MathUtils.lerp(0, 2.0, (dt-1.5)*2)); particles.visible = true; particles.position.y = groups.rocket.position.y - 3; }
+            else { groups.rocket.position.y = -5; legs.children.forEach(l => l.rotation.x = 2.0); particles.visible = false; }
+        }
+
+        // 2. GLOBE
+        if(groups.globe.visible){
+            groups.globe.rotation.y = time * 0.05; groups.globe.userData.satShell.rotation.y = -time * 0.1;
+            const color = (data.state==="golden") ? mats.gold : (data.state==="heatmap" && Math.floor(time*4)%2===0 ? mats.glowRed : mats.glowBlue);
+            groups.globe.userData.satShell.children.forEach(s => s.material = color);
+        }
+
+        // 3. BRAIN
+        if(groups.brain.visible) {
+            groups.brain.rotation.y = time * 0.1;
+            groups.brain.userData.brainMat.uniforms.time.value = time;
+            groups.brain.userData.synapses.material.opacity = 0.1 + Math.sin(time * 5) * 0.1;
+        }
+
+        // 4. LASER
+        if(groups.laser.visible){
+            groups.laser.rotation.z = time * 0.05;
+            groups.laser.userData.packets.children.forEach((p,i)=>{ const tLoc = (time*2 + p.userData.offset)%1; p.position.lerpVectors(p.userData.start, p.userData.end, tLoc); });
+        }
+
+        // 5. SPECTRAL
+        if(groups.spectral.visible) {
+            const scanY = Math.sin(time * 0.5) * 3.0;
+            groups.spectral.userData.heatMat.uniforms.time.value = time;
+            groups.spectral.userData.heatMat.uniforms.scanHeight.value = scanY;
+            groups.spectral.userData.scanRing.position.y = scanY;
+            groups.spectral.rotation.y = time * 0.05;
+        }
+
+        // 6. EDGE
+        if(groups.edge.visible) {
+            const { inParts, outParts, ring } = groups.edge.userData;
+            ring.rotation.z = time;
+            const inP = inParts.geometry.attributes.position;
+            for(let i=0; i<inP.count; i++){ let y = inP.getY(i); y -= 0.05; if(y < 0.5) y = 4.5; inP.setY(i, y); }
+            inP.needsUpdate = true;
+            const outP = outParts.geometry.attributes.position;
+            for(let i=0; i<outP.count; i++){ let y = outP.getY(i); y -= 0.1; if(y < -3) y = 0.5; outP.setY(i, y); }
+            outP.needsUpdate = true;
+        }
+
+        // 7A. DTP (OVERVIEW)
+        if(groups.dtp.visible){
+            const posIn = groups.dtp.userData.waveIn.geometry.attributes.position; for(let i=0; i<posIn.count; i++) posIn.setY(i, Math.sin(i + time*10)*0.5); posIn.needsUpdate = true;
+            groups.dtp.userData.parts.children.forEach((p,i)=>{ let t = (time + i*0.2)%3; let x = -3.5 + (t/3)*7; let y = 0.5; p.position.set(x, y, 0.2); });
+        }
+
+        // 7B. DTP TECH
+        if(groups.dtp_tech.visible){
+            groups.dtp_tech.userData.fibers.children.forEach(f => {
+                f.material.opacity = 0.5 + Math.sin(time * 5) * 0.3;
+            });
+        }
+
+        // 7C. DTP SLICE
+        if(groups.dtp_slice.visible){
+            groups.dtp_slice.userData.granules.children.forEach((bar, i) => {
+                bar.scale.y = 1 + Math.sin(time * 3 + i) * 0.5;
+                bar.material = Math.sin(time + i) > 0 ? mats.glowBlue : mats.glowGreen;
+            });
+        }
+
+        // 7D. DTP ROUTE
+        if(groups.dtp_route.visible){
+            const lines = groups.dtp_route.userData.lines.children;
+            if(Math.floor(time) % 2 === 0) {
+                lines.forEach((l, i) => {
+                    if(Math.random() > 0.95) l.userData.targetIdx = Math.floor(Math.random() * 4);
+                    const targetY = (l.userData.targetIdx - 1.5) * 1.5;
+                    const currentPos = l.geometry.attributes.position;
+                    const currentY = currentPos.getY(1);
+                    const newY = THREE.MathUtils.lerp(currentY, targetY, 0.1);
+                    currentPos.setY(1, newY);
+                    currentPos.needsUpdate = true;
+                });
+            }
+        }
+
+        // 8A. SDR FORGE
+        if(groups.sdr_forge.visible){
+            const { rings, beamIn, beamOut } = groups.sdr_forge.userData;
+            rings.rotation.y = time * 0.5;
+            rings.rotation.z = time * 0.2;
+            
+            const posIn = beamIn.geometry.attributes.position;
+            for(let i=0; i<posIn.count; i++) posIn.setY(i, Math.sin(i + time*20) * (Math.random()));
+            posIn.needsUpdate = true;
+
+            const posOut = beamOut.geometry.attributes.position;
+            for(let i=0; i<posOut.count; i++) posOut.setY(i, 0); // Perfect line
+            posOut.needsUpdate = true;
+        }
+
+        // 8B. SDR SHIELD
+        if(groups.sdr_shield.visible){
+            const parts = groups.sdr_shield.userData.particles;
+            parts.children.forEach(p => {
+                p.position.x -= p.userData.speed;
+                if(p.position.x < -2) { // Hit shield
+                    p.material = mats.glowGreen;
+                }
+                if(p.position.x < -4) { // Reset
+                    p.position.x = 4;
+                    p.material = mats.glowRed;
+                }
+            });
+        }
+
+        // 8C. SDR TURBINE
+        if(groups.sdr_turbine.visible){
+            groups.sdr_turbine.userData.turbine.rotation.z = -time * 5.0;
+        }
+
+        // 8D. SDR DUAL
+        if(groups.sdr_dual.visible){
+            const { p1, p2 } = groups.sdr_dual.userData;
+            p1.children.forEach((p, i) => {
+                let t = (time + i * 0.2) % 4;
+                let x = -4 + t * 2;
+                p.position.set(x, 1.5, (Math.random()-0.5)*0.2); // Always jittery
+            });
+            p2.children.forEach((p, i) => {
+                let t = (time + i * 0.2) % 4;
+                let x = -4 + t * 2;
+                let z = (Math.random()-0.5)*0.2;
+                if (x > 0) { // Regenerated
+                    p.material = mats.glowGreen;
+                    z = 0;
+                } else {
+                    p.material = mats.glowRed;
+                }
+                p.position.set(x, -1.5, z);
+            });
+        }
+
+        // 9. OTHERS
+        if(groups.chip.visible) groups.chip.userData.lines.children.forEach(l => { l.position.x += 0.1; if(l.position.x>2.5) l.position.x=-2.5; });
+        if(groups.debris.visible) { groups.debris.rotation.y = time*0.05; groups.debris.userData.arm.rotation.z = Math.sin(time)*0.5; }
+        if(groups.cloud.visible) groups.cloud.rotation.y = time*0.1;
+
+        // RENDER WITH BLOOM
+        composer.render();
+    }
+    animate();
+
+    // UI Logic
+    function updateSlide(i) {
+        if(i<0) i=0; if(i>=slides.length) i=slides.length-1;
+        currentIndex = i;
+        const d = slides[i];
+
+        // Update Text
+        const card = document.getElementById('card');
+        card.classList.remove('active');
+        setTimeout(() => {
+            card.innerHTML = `<h1>${d.title}</h1><h2>${d.subtitle}</h2><div class='content'>${d.content}</div>`;
+            card.classList.add('active');
+        }, 400);
+
+        // Update UI
+        document.getElementById('chapter').innerText = d.chapter;
+        document.getElementById('counter').innerText = (i+1).toString().padStart(2,'0') + " / " + slides.length;
+        document.getElementById('progress').style.width = ((i+1)/slides.length)*100 + "%";
+
+        // Switch Scene
+        Object.values(groups).forEach(g => g.visible = false);
+        
+        let target = {x:0, y:0, z:8};
+        
+        if(d.stage === "ROCKET") { groups.rocket.visible = true; target = {x:0, y:2, z:14}; }
+        else if(d.stage === "GLOBE") { groups.globe.visible = true; target = {x:0, y:0, z:9}; }
+        else if(d.stage === "LASER") { groups.laser.visible = true; target = {x:0, y:0, z:10}; }
+        else if(d.stage === "DTP_OVERVIEW") { groups.dtp.visible = true; target = {x:0, y:1, z:8}; }
+        else if(d.stage === "DTP_TECH") { groups.dtp_tech.visible = true; target = {x:0, y:1, z:6}; }
+        else if(d.stage === "DTP_SLICE") { groups.dtp_slice.visible = true; target = {x:0, y:0, z:7}; }
+        else if(d.stage === "DTP_ROUTE") { groups.dtp_route.visible = true; target = {x:0, y:0, z:8}; }
+        else if(d.stage === "SDR") { groups.sdr.visible = true; target = {x:0, y:0, z:7}; }
+        else if(d.stage === "SDR_FORGE") { groups.sdr_forge.visible = true; target = {x:0, y:0, z:8}; }
+        else if(d.stage === "SDR_SHIELD") { groups.sdr_shield.visible = true; target = {x:0, y:0, z:6}; }
+        else if(d.stage === "SDR_TURBINE") { groups.sdr_turbine.visible = true; target = {x:0, y:0, z:7}; }
+        else if(d.stage === "SDR_DUAL") { groups.sdr_dual.visible = true; target = {x:0, y:0, z:7}; }
+        else if(d.stage === "CHIP") { groups.chip.visible = true; target = {x:0, y:4, z:0}; }
+        else if(d.stage === "DEBRIS") { groups.debris.visible = true; target = {x:0, y:0, z:9}; }
+        else if(d.stage === "CLOUD") { groups.cloud.visible = true; target = {x:0, y:0, z:8}; }
+        else if(d.stage === "BRAIN") { groups.brain.visible = true; target = {x:0, y:0, z:7}; } 
+        else if(d.stage === "SPECTRAL") { groups.spectral.visible = true; target = {x:0, y:0, z:9}; } 
+        else if(d.stage === "EDGE") { groups.edge.visible = true; target = {x:0, y:2, z:8}; }
+
+        new TWEEN.Tween(camera.position).to(target, 1000).easing(TWEEN.Easing.Quadratic.Out).start();
+    }
+
+    document.getElementById('next').addEventListener('click', ()=>updateSlide(currentIndex+1));
+    document.getElementById('prev').addEventListener('click', ()=>updateSlide(currentIndex-1));
+    document.addEventListener('keydown', (e) => {
+        if(e.key==="ArrowRight") updateSlide(currentIndex+1);
+        if(e.key==="ArrowLeft") updateSlide(currentIndex-1);
+    });
+    document.addEventListener('mousemove', (e) => {
+        mouseX = (e.clientX - window.innerWidth/2) * 0.002;
+        mouseY = (e.clientY - window.innerHeight/2) * 0.002;
+    });
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    updateSlide(0);
+
+</script>
+</body>
+</html>

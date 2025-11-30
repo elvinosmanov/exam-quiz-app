@@ -431,6 +431,7 @@ This project follows an **extended thinking approach** with clear collaboration 
 
 #### Question-Asking Policy
 - **Do not hesitate to ask me questions** - Clarification is always preferred over assumptions
+- **Each time after a request, explain what you will try to do and ask questions if you have any** - Do not start implementation before receiving confirmation
 - Ask about unclear requirements, ambiguous specifications, or implementation details
 - Request confirmation before making significant architectural changes
 - Seek guidance when multiple valid approaches exist
@@ -476,6 +477,106 @@ This project follows an **extended thinking approach** with clear collaboration 
 3. **Collaborative Approach**: Treat development as a collaborative conversation
 4. **Quality Focus**: Deliver exactly what was requested, done well
 5. **Communication**: Keep dialogue open throughout the development process
+
+## Recent Bug Fixes & Improvements
+
+### Exam Assignment Management (2025-11-28)
+
+#### Fixed: Edit Dialog Not Showing Assigned Users
+**Issue**: When clicking the edit icon for an exam assignment, the dialog would open but the list of assigned users/departments/units was empty, even though users were actually assigned.
+
+**Root Cause**: The code initialized empty lists for `selected_assignment_users`, `selected_assignment_departments`, and `selected_assignment_units` but never populated them from the database when in edit mode.
+
+**Solution**: Added code in both single-template and multi-template assignment dialogs to:
+1. Load currently assigned users from `assignment_users` table
+2. Load assigned departments (when all users in a department are assigned)
+3. Load assigned units (when all users in a unit are assigned)
+4. Populate chips display with the loaded data
+5. Added missing `unit_dropdown` definition in single-template dialog
+
+**Files Modified**:
+- `quiz_app/views/admin/quiz_management.py` (lines ~3023-3063 and ~1556-1595)
+
+#### Improved: Row Click to View/Edit Assignment Details
+**Feature**: Clicking on any row in the exam assignments table now opens the edit dialog, providing a more intuitive user experience.
+
+**Implementation**:
+- Added `on_select_changed` handler to DataRow in assignment table
+- Created `show_assignment_detail_dialog` method that redirects to edit dialog
+- **Removed the edit icon button** - editing is now done by clicking the row directly
+- Simplified UX: One click to view and edit all assignment details
+
+**Benefits**:
+- More intuitive interface (click row to see details)
+- Fewer buttons/icons cluttering the interface
+- Consistent with modern UI/UX patterns
+- Edit dialog already shows comprehensive information about:
+  - Assignment settings (name, duration, passing score, etc.)
+  - Assigned users with chips display
+  - Assigned departments and units
+  - Question pool configuration
+  - Delivery method and PDF variants
+  - Deadline settings
+
+**Files Modified**:
+- `quiz_app/views/admin/quiz_management.py` (line ~602, ~4303-4306, ~539-546 removed)
+
+#### Fixed: UNIQUE Constraint Error When Editing Assignments
+**Issue**: After implementing the edit dialog fix, users encountered a `sqlite3.IntegrityError: UNIQUE constraint failed: assignment_users.assignment_id, assignment_users.user_id` error when saving assignment edits.
+
+**Root Cause**: When editing an assignment, the code was trying to insert users who were already assigned (from the loaded data), which violated the database UNIQUE constraint on the `assignment_users` table.
+
+**Solution**:
+- Added existence checks before inserting users in both single-template and multi-template dialogs
+- Ensured all user assignment code (individual users, departments, and units) checks for existing assignments before inserting
+- Added missing unit assignment functionality to single-template dialog
+
+**Files Modified**:
+- `quiz_app/views/admin/quiz_management.py` (lines ~1998-2008, ~3519-3529, ~3551-3569)
+
+#### Improved: Question Count Fields Changed to Dropdowns in Edit Dialog
+**Issue**: In the multi-template assignment edit dialog, question counts (easy/medium/hard) were shown as text input fields, making it easy to enter invalid values.
+
+**Solution**:
+- Changed TextField controls to Dropdown controls for question counts
+- Dropdowns show only valid options (0 to available count for each difficulty level)
+- Automatically queries the database to get available question counts per difficulty
+- Prevents users from entering invalid values or counts exceeding available questions
+
+**Benefits**:
+- Better UX - users can't accidentally enter invalid numbers
+- Shows available question counts clearly
+- Consistent with the create dialog which already uses dropdowns
+- Prevents errors from entering counts higher than available questions
+
+**Files Modified**:
+- `quiz_app/views/admin/quiz_management.py` (lines ~1277-1321)
+
+#### Improved: Consistent Dropdown Styling Across the App
+**Issue**: Default Flet dropdown controls had generic, inconsistent styling that didn't match the app's Material Design 3 theme.
+
+**Solution**:
+- Created a `create_styled_dropdown()` helper function with consistent styling
+- Applied filled style with themed colors
+- Added proper border colors, radius, and padding
+- Replaced all 35+ dropdown instances to use the helper function
+
+**Styling Applied**:
+- Filled background with subtle primary color opacity
+- Themed border colors (secondary default, primary when focused)
+- Rounded corners (8px border radius)
+- Consistent text size and padding
+- Easy to customize in one central location
+
+**Benefits**:
+- Professional, polished appearance
+- Matches app's overall design language
+- Consistent user experience across all dropdowns
+- Easy to maintain - change styling in one place
+- Can still override individual dropdown properties when needed
+
+**Files Modified**:
+- `quiz_app/views/admin/quiz_management.py` (lines ~96-127, all dropdown instances)
 
 ## License
 

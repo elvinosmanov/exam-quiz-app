@@ -2457,32 +2457,25 @@ class QuizManagement(ft.UserControl):
                     return parts[1].strip() if current_lang == 'en' else parts[0].strip()
             return unit
 
-        # User selection dropdown (searchable)
-        user_search_dropdown = self.create_styled_dropdown(
+        user_dropdown = self.create_styled_dropdown(
             label=t('search_users'),
-            hint_text="Search users by name, username, or email",
-            options=[
-                ft.dropdown.Option(
-                    key=str(user['id']),
-                    text=f"{user['full_name']} ({user['username']})"
-                )
-                for user in users
-            ],
+            hint_text="Choose users to assign",
+            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
             expand=True,
             height=56,
             content_padding=5
         )
 
-        department_assign_dropdown = self.create_styled_dropdown(
+        department_dropdown = self.create_styled_dropdown(
             label=t('assign_department'),
-            hint_text="Select department",
+            hint_text="Choose departments",
             options=[ft.dropdown.Option(dept, dept) for dept in department_values],
             expand=True,
             height=56,
             content_padding=5
         )
 
-        unit_assign_dropdown = self.create_styled_dropdown(
+        unit_dropdown = self.create_styled_dropdown(
             label=t('assign_unit'),
             hint_text="Select unit",
             options=[
@@ -2502,70 +2495,6 @@ class QuizManagement(ft.UserControl):
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
             selected_chips_row,
         ], spacing=5)
-
-        def on_user_selection(e):
-            """Handle user selection from dropdown"""
-            if not e.control.value:
-                return
-
-            user_id = int(e.control.value)
-            if user_id not in self.selected_assignment_users:
-                self.selected_assignment_users.append(user_id)
-
-                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
-
-                chip = ft.Chip(
-                    label=ft.Text(user_name),
-                    on_delete=lambda _, uid=user_id: remove_user(uid),
-                    delete_icon_color=COLORS['error'],
-                    data=('user', user_id)
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
-
-        def on_department_assign(e):
-            if not e.control.value:
-                return
-
-            dept = e.control.value
-            if dept not in self.selected_assignment_departments:
-                self.selected_assignment_departments.append(dept)
-
-                chip = ft.Chip(
-                    label=ft.Text(f"Department: {dept}"),
-                    on_delete=lambda _, d=dept: remove_department(d),
-                    delete_icon_color=COLORS['error'],
-                    data=('dept', dept)
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
-
-        def on_unit_assign(e):
-            if not e.control.value:
-                return
-
-            dept, unit = e.control.value.split("|||")
-            key = (dept, unit)
-            if key not in self.selected_assignment_units:
-                self.selected_assignment_units.append(key)
-
-                chip = ft.Chip(
-                    label=ft.Text(f"Unit: {dept} / {unit}"),
-                    on_delete=lambda _, combo=key: remove_unit(combo),
-                    delete_icon_color=COLORS['error'],
-                    data=('unit', key[0], key[1])
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
 
         def remove_user(user_id):
             if user_id in self.selected_assignment_users:
@@ -2597,9 +2526,78 @@ class QuizManagement(ft.UserControl):
             if self.page:
                 self.page.update()
 
-        user_search_dropdown.on_change = on_user_selection
-        department_assign_dropdown.on_change = on_department_assign
-        unit_assign_dropdown.on_change = on_unit_assign
+        def on_user_selection(selected_key):
+            """Handle user selection from SearchBar"""
+            user_id = int(selected_key)
+            if user_id not in self.selected_assignment_users:
+                self.selected_assignment_users.append(user_id)
+
+                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
+
+                chip = ft.Chip(
+                    label=ft.Text(user_name),
+                    on_delete=lambda _, uid=user_id: remove_user(uid),
+                    delete_icon_color=COLORS['error'],
+                    data=('user', user_id)
+                )
+                selected_chips_row.controls.append(chip)
+
+            if self.page:
+                self.page.update()
+
+        def on_department_assign(selected_key):
+            """Handle department selection from SearchBar"""
+            dept = selected_key
+            if dept not in self.selected_assignment_departments:
+                self.selected_assignment_departments.append(dept)
+
+                chip = ft.Chip(
+                    label=ft.Text(f"Department: {dept}"),
+                    on_delete=lambda _, d=dept: remove_department(d),
+                    delete_icon_color=COLORS['error'],
+                    data=('dept', dept)
+                )
+                selected_chips_row.controls.append(chip)
+
+            if self.page:
+                self.page.update()
+
+        def on_unit_assign(selected_key):
+            """Handle unit selection from SearchBar"""
+            dept, unit = selected_key.split("|||")
+            key = (dept, unit)
+            if key not in self.selected_assignment_units:
+                self.selected_assignment_units.append(key)
+
+                chip = ft.Chip(
+                    label=ft.Text(f"Unit: {dept} / {unit}"),
+                    on_delete=lambda _, combo=key: remove_unit(combo),
+                    delete_icon_color=COLORS['error'],
+                    data=('unit', key[0], key[1])
+                )
+                selected_chips_row.controls.append(chip)
+
+            if self.page:
+                self.page.update()
+
+        # Create SearchableDropdowns
+        user_search_dropdown = SearchableDropdown(
+            items=user_items,
+            hint_text=t('search_users'),
+            on_select=on_user_selection
+        )
+
+        department_assign_dropdown = SearchableDropdown(
+            items=department_items,
+            hint_text=t('assign_department'),
+            on_select=on_department_assign
+        )
+
+        unit_assign_dropdown = SearchableDropdown(
+            items=unit_items,
+            hint_text=t('assign_unit'),
+            on_select=on_unit_assign
+        )
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
@@ -2810,13 +2808,13 @@ class QuizManagement(ft.UserControl):
                 color=COLORS['text_secondary']
             ),
             ft.Container(height=8),
-            # All 3 dropdowns in the same row
-            ft.Row([
-                user_search_dropdown,
-                ft.Container(width=12),
-                department_assign_dropdown,
-                ft.Container(width=12),
-                unit_assign_dropdown
+            # All 3 search bars stacked vertically
+            ft.Column([
+                user_search_dropdown.search_bar,
+                ft.Container(height=8),
+                department_assign_dropdown.search_bar,
+                ft.Container(height=8),
+                unit_assign_dropdown.search_bar
             ], spacing=0),
             ft.Container(height=12),
             # Selected items only

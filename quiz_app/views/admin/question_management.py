@@ -89,6 +89,8 @@ class QuestionManagement(ft.UserControl):
             text=t('add_question'),
             icon=ft.icons.ADD,
             on_click=self.show_add_question_dialog,
+            disabled=True,  # Initially disabled
+            tooltip=t('select_exam_to_import'),
             style=ft.ButtonStyle(
                 bgcolor={
                     ft.MaterialState.DEFAULT: COLORS['primary'],
@@ -105,21 +107,43 @@ class QuestionManagement(ft.UserControl):
             text=t('bulk_import'),
             icon=ft.icons.UPLOAD_FILE,
             on_click=self.show_bulk_import_dialog,
-            style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
+            disabled=True,  # Initially disabled
+            tooltip=t('select_exam_to_import'),
+            style=ft.ButtonStyle(
+                bgcolor={
+                    ft.MaterialState.DEFAULT: COLORS['success'],
+                    ft.MaterialState.DISABLED: ft.colors.with_opacity(0.2, COLORS['success'])
+                },
+                color={
+                    ft.MaterialState.DEFAULT: ft.colors.WHITE,
+                    ft.MaterialState.DISABLED: ft.colors.WHITE70
+                }
+            )
         )
-        
+
         self.download_template_btn = ft.ElevatedButton(
             text=t('download_template'),
             icon=ft.icons.DOWNLOAD,
             on_click=self.download_template,
             style=ft.ButtonStyle(bgcolor=COLORS['secondary'], color=ft.colors.WHITE)
         )
-        
+
         self.export_questions_btn = ft.ElevatedButton(
             text=t('export_questions'),
             icon=ft.icons.FILE_DOWNLOAD,
             on_click=self.export_questions,
-            style=ft.ButtonStyle(bgcolor=COLORS['warning'], color=ft.colors.WHITE)
+            disabled=True,  # Initially disabled
+            tooltip=t('select_exam_to_export'),
+            style=ft.ButtonStyle(
+                bgcolor={
+                    ft.MaterialState.DEFAULT: COLORS['warning'],
+                    ft.MaterialState.DISABLED: ft.colors.with_opacity(0.2, COLORS['warning'])
+                },
+                color={
+                    ft.MaterialState.DEFAULT: ft.colors.WHITE,
+                    ft.MaterialState.DISABLED: ft.colors.WHITE70
+                }
+            )
         )
 
         self.create_exam_btn = ft.ElevatedButton(
@@ -134,6 +158,7 @@ class QuestionManagement(ft.UserControl):
             icon=ft.icons.REMOVE_RED_EYE,
             on_click=self.show_observers_dialog,
             disabled=True,
+            tooltip=t('select_exam_to_manage_observers'),
             style=ft.ButtonStyle(
                 bgcolor={
                     ft.MaterialState.DEFAULT: COLORS['info'],
@@ -151,6 +176,7 @@ class QuestionManagement(ft.UserControl):
         self.bulk_import_dialog = None
         self.exam_dialog = None
         self.observers_dialog = None
+        self.delete_topic_dialog = None
         
         # Observer management state
         self.current_observers = []
@@ -165,14 +191,15 @@ class QuestionManagement(ft.UserControl):
             # Set the exam selector value
             self.exam_selector.value = str(exam_id)
             self.selected_exam_id = exam_id
-            
+
             # Load questions for the selected exam
             self.load_questions()
-            
+
             # Update observer button availability
             self.update_observers_button_state()
             self.update_add_question_button_state()
-            
+            self.update_import_export_buttons_state()
+
             # Update the UI if it's already mounted
             if hasattr(self, 'page') and self.page:
                 self.update()
@@ -275,6 +302,7 @@ class QuestionManagement(ft.UserControl):
         self.refresh_exam_selector_options()
         self.update_observers_button_state()
         self.update_add_question_button_state()
+        self.update_import_export_buttons_state()
 
     def refresh_exam_selector_options(self):
         """Update the exam dropdown with the latest exam list"""
@@ -297,10 +325,12 @@ class QuestionManagement(ft.UserControl):
                 self.update_table()
                 self.update_observers_button_state()
                 self.update_add_question_button_state()
+                self.update_import_export_buttons_state()
 
         if self.page:
             self.exam_selector.update()
         self.update_add_question_button_state()
+        self.update_import_export_buttons_state()
 
     def update_observers_button_state(self):
         """Enable or disable observer button based on exam selection"""
@@ -310,11 +340,23 @@ class QuestionManagement(ft.UserControl):
         selected_exam = self.get_selected_exam()
         can_manage = bool(
             selected_exam and (
-                self.user_data.get('role') == 'admin' or 
+                self.user_data.get('role') == 'admin' or
                 selected_exam.get('created_by') == self.user_data.get('id')
             )
         )
         self.manage_observers_btn.disabled = not can_manage
+
+        # Update tooltip based on state
+        if not selected_exam:
+            # No exam selected
+            self.manage_observers_btn.tooltip = t('select_exam_to_manage_observers')
+        elif not can_manage:
+            # Exam selected but user doesn't have permission
+            self.manage_observers_btn.tooltip = t('observer_manage_forbidden')
+        else:
+            # User has permission
+            self.manage_observers_btn.tooltip = None
+
         if self.page:
             self.manage_observers_btn.update()
 
@@ -358,12 +400,37 @@ class QuestionManagement(ft.UserControl):
         self.add_question_btn.disabled = not self.user_can_add_questions()
         if self.page and getattr(self.add_question_btn, 'page', None):
             self.add_question_btn.update()
-    
+
+    def update_import_export_buttons_state(self):
+        """Enable/disable import and export buttons based on exam selection"""
+        has_exam = bool(self.selected_exam_id)
+
+        # Update add question button
+        if hasattr(self, 'add_question_btn') and self.add_question_btn:
+            self.add_question_btn.disabled = not has_exam
+            self.add_question_btn.tooltip = None if has_exam else t('select_exam_to_import')
+            if self.page and getattr(self.add_question_btn, 'page', None):
+                self.add_question_btn.update()
+
+        # Update bulk import button
+        if hasattr(self, 'bulk_import_btn') and self.bulk_import_btn:
+            self.bulk_import_btn.disabled = not has_exam
+            self.bulk_import_btn.tooltip = None if has_exam else t('select_exam_to_import')
+            if self.page and getattr(self.bulk_import_btn, 'page', None):
+                self.bulk_import_btn.update()
+
+        # Update export questions button
+        if hasattr(self, 'export_questions_btn') and self.export_questions_btn:
+            self.export_questions_btn.disabled = not has_exam
+            self.export_questions_btn.tooltip = None if has_exam else t('select_exam_to_export')
+            if self.page and getattr(self.export_questions_btn, 'page', None):
+                self.export_questions_btn.update()
+
     def exam_selected(self, e):
         old_exam_id = self.selected_exam_id
         self.selected_exam_id = int(e.control.value) if e.control.value else None
         print(f"DEBUG: Exam selected changed from {old_exam_id} to {self.selected_exam_id}")
-        
+
         if self.selected_exam_id:
             print(f"DEBUG: Loading questions for exam {self.selected_exam_id}")
             self.load_questions()
@@ -373,9 +440,10 @@ class QuestionManagement(ft.UserControl):
             self.questions_data = []
             self.update_table()
             self.hide_question_pool_stats()
-        
+
         self.update_observers_button_state()
         self.update_add_question_button_state()
+        self.update_import_export_buttons_state()
     
     def load_questions(self):
         if not self.selected_exam_id:
@@ -534,15 +602,34 @@ class QuestionManagement(ft.UserControl):
             medium_requested = exam_data.get('medium_questions_count', 0)
             hard_requested = exam_data.get('hard_questions_count', 0)
             total_requested = easy_requested + medium_requested + hard_requested
-            
+
             # Validate configuration
             is_valid, error_msg = selector.validate_question_pool_config(exam_data)
-            
+
             # Create status badges for each difficulty
             easy_status = self._create_difficulty_badge(t('easy'), stats['easy'], easy_requested)
             medium_status = self._create_difficulty_badge(t('medium'), stats['medium'], medium_requested)
             hard_status = self._create_difficulty_badge(t('hard'), stats['hard'], hard_requested)
-            
+
+            # Check if user can delete this topic
+            selected_exam = self.get_selected_exam()
+            can_delete = bool(
+                selected_exam and (
+                    self.user_data.get('role') == 'admin' or
+                    selected_exam.get('created_by') == self.user_data.get('id')
+                )
+            )
+
+            # Create delete button for the pool config view
+            delete_button = ft.IconButton(
+                icon=ft.icons.DELETE_OUTLINE,
+                icon_color=COLORS['error'],
+                tooltip=t('delete_topic') if can_delete else t('no_permission_delete_topic'),
+                disabled=not can_delete,
+                on_click=self.show_delete_topic_dialog,
+                icon_size=20
+            )
+
             # Overall status
             if is_valid:
                 overall_status = ft.Container(
@@ -558,13 +645,14 @@ class QuestionManagement(ft.UserControl):
                     padding=ft.padding.symmetric(horizontal=12, vertical=6),
                     border_radius=6
                 )
-            
+
             content = ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.SHUFFLE, color=COLORS['primary']),
                     ft.Text(t('question_pool_config'), size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
                     ft.Container(expand=True),
-                    overall_status
+                    overall_status,
+                    delete_button
                 ], spacing=8),
                 ft.Container(height=5),
                 ft.Row([
@@ -581,14 +669,35 @@ class QuestionManagement(ft.UserControl):
             
         else:
             # Regular exam - show simple stats
+            # Check if user can delete this topic
+            selected_exam = self.get_selected_exam()
+            can_delete = bool(
+                selected_exam and (
+                    self.user_data.get('role') == 'admin' or
+                    selected_exam.get('created_by') == self.user_data.get('id')
+                )
+            )
+
+            # Create delete button for the overview
+            delete_button = ft.IconButton(
+                icon=ft.icons.DELETE_OUTLINE,
+                icon_color=COLORS['error'],
+                tooltip=t('delete_topic') if can_delete else t('no_permission_delete_topic'),
+                disabled=not can_delete,
+                on_click=self.show_delete_topic_dialog,
+                icon_size=20
+            )
+
             content = ft.Column([
                 ft.Row([
                     ft.Icon(ft.icons.LIST_ALT, color=COLORS['text_secondary']),
                     ft.Text(t('question_bank_overview'), size=16, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
+                    ft.Container(expand=True),
+                    delete_button
                 ], spacing=8),
                 ft.Container(height=5),
                 ft.Row([
-                    ft.Text(t('total_questions').format(stats['total']), size=14, color=COLORS['text_secondary']),
+                    ft.Text(t('total_questions') + f": {stats['total']}", size=14, color=COLORS['text_secondary']),
                     ft.Text(f"{t('easy')}: {stats['easy']}", size=14, color=COLORS['text_secondary']),
                     ft.Text(f"{t('medium')}: {stats['medium']}", size=14, color=COLORS['text_secondary']),
                     ft.Text(f"{t('hard')}: {stats['hard']}", size=14, color=COLORS['text_secondary'])
@@ -602,9 +711,11 @@ class QuestionManagement(ft.UserControl):
         self.question_pool_stats.padding = ft.padding.all(15)
         self.question_pool_stats.border_radius = 8
         self.question_pool_stats.border = ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['primary']))
-        
-        if self.page:
-            self.page.update()
+
+        # Update the container and parent
+        if hasattr(self, 'page') and self.page:
+            self.question_pool_stats.update()
+            self.update()
     
     def _create_difficulty_badge(self, label, available, requested):
         """Create a badge showing difficulty level statistics"""
@@ -641,8 +752,9 @@ class QuestionManagement(ft.UserControl):
     def hide_question_pool_stats(self):
         """Hide the question pool statistics"""
         self.question_pool_stats.visible = False
-        if self.page:
-            self.page.update()
+        if hasattr(self, 'page') and self.page:
+            self.question_pool_stats.update()
+            self.update()
     
     def apply_filters(self, e):
         """Apply both search and type filters together"""
@@ -1457,8 +1569,9 @@ class QuestionManagement(ft.UserControl):
         self.page.update()
     
     def show_bulk_import_dialog(self, e):
+        # Note: Button should be disabled if no exam is selected
+        # but keeping this check as safety measure
         if not self.selected_exam_id:
-            self.show_error_dialog(t('please_select_exam'))
             return
 
         # File picker for upload
@@ -1550,10 +1663,11 @@ class QuestionManagement(ft.UserControl):
             self.show_error_dialog(t('error_downloading_template').format(str(ex)))
     
     def export_questions(self, e):
+        # Note: Button should be disabled if no exam is selected
+        # but keeping this check as safety measure
         if not self.selected_exam_id:
-            self.show_error_dialog(t('please_select_exam'))
             return
-        
+
         try:
             import pandas as pd
             from datetime import datetime
@@ -2068,6 +2182,171 @@ class QuestionManagement(ft.UserControl):
         self.exam_dialog.open = True
         self.page.update()
 
+    def show_delete_topic_dialog(self, e):
+        """Show confirmation dialog to delete the selected topic/exam"""
+        if not self.selected_exam_id:
+            self.show_error_dialog(t('please_select_exam'))
+            return
+
+        selected_exam = self.get_selected_exam()
+        if not selected_exam:
+            self.show_error_dialog(t('please_select_exam'))
+            return
+
+        # Check permissions - only admin or topic owner can delete
+        if self.user_data.get('role') != 'admin' and selected_exam.get('created_by') != self.user_data.get('id'):
+            self.show_error_dialog(t('no_permission_delete_topic'))
+            return
+
+        # Check if there are questions associated with this topic
+        questions_count = self.db.execute_query(
+            "SELECT COUNT(*) as count FROM questions WHERE exam_id = ?",
+            (self.selected_exam_id,)
+        )
+        question_count = questions_count[0]['count'] if questions_count else 0
+
+        # Check if this topic is used in any presets
+        preset_usage = self.db.execute_query("""
+            SELECT DISTINCT ept.id, ept.name
+            FROM exam_preset_templates ept
+            INNER JOIN preset_template_exams pte ON ept.id = pte.template_id
+            WHERE pte.exam_id = ?
+            ORDER BY ept.name
+        """, (self.selected_exam_id,))
+
+        # Build warning message
+        warning_message = t('delete_topic_confirmation').format(title=selected_exam['title'])
+
+        # Add question count warning
+        if question_count > 0:
+            warning_message += f"\n\n{t('delete_topic_warning_questions').format(count=question_count)}"
+
+        # Add preset warning
+        if preset_usage:
+            preset_count = len(preset_usage)
+            warning_message += f"\n\n{t('delete_topic_warning_presets').format(count=preset_count)}"
+            for preset in preset_usage:
+                warning_message += f"\n  • {preset['name']}"
+            warning_message += f"\n\n{t('delete_topic_preset_impact')}"
+
+        error_text = ft.Text("", color=COLORS['error'], visible=False)
+
+        def confirm_delete(ev):
+            try:
+                # Delete all related data in the correct order (due to foreign keys)
+                # 1. Delete user answers
+                self.db.execute_update("""
+                    DELETE FROM user_answers
+                    WHERE session_id IN (
+                        SELECT id FROM exam_sessions WHERE exam_id = ?
+                    )
+                """, (self.selected_exam_id,))
+
+                # 2. Delete exam sessions
+                self.db.execute_update(
+                    "DELETE FROM exam_sessions WHERE exam_id = ?",
+                    (self.selected_exam_id,)
+                )
+
+                # 3. Delete exam permissions
+                self.db.execute_update(
+                    "DELETE FROM exam_permissions WHERE exam_id = ?",
+                    (self.selected_exam_id,)
+                )
+
+                # 4. Delete question options
+                self.db.execute_update("""
+                    DELETE FROM question_options
+                    WHERE question_id IN (
+                        SELECT id FROM questions WHERE exam_id = ?
+                    )
+                """, (self.selected_exam_id,))
+
+                # 5. Delete questions
+                self.db.execute_update(
+                    "DELETE FROM questions WHERE exam_id = ?",
+                    (self.selected_exam_id,)
+                )
+
+                # 6. Delete exam observers
+                self.db.execute_update(
+                    "DELETE FROM exam_observers WHERE exam_id = ?",
+                    (self.selected_exam_id,)
+                )
+
+                # 7. Finally, delete the exam itself
+                self.db.execute_update(
+                    "DELETE FROM exams WHERE id = ?",
+                    (self.selected_exam_id,)
+                )
+
+                # Close dialog
+                self.delete_topic_dialog.open = False
+                if self.page:
+                    self.page.update()
+
+                # Reset selection
+                self.selected_exam_id = None
+
+                # Reload exams and refresh UI
+                self.load_exams()
+                self.exam_selector.options = [
+                    ft.dropdown.Option(str(exam['id']), exam['title'])
+                    for exam in self.exams_data
+                ]
+                self.exam_selector.value = None
+                self.questions_data = []
+                self.update_table()
+                self.hide_question_pool_stats()
+                self.update_observers_button_state()
+                self.update_add_question_button_state()
+                self.update_import_export_buttons_state()
+
+                if self.page:
+                    self.update()
+
+            except Exception as ex:
+                error_text.value = f"{t('error_deleting_topic')}: {str(ex)}"
+                error_text.visible = True
+                self.delete_topic_dialog.update()
+
+        def cancel_delete(ev):
+            self.delete_topic_dialog.open = False
+            self.page.update()
+
+        self.delete_topic_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, color=COLORS['error'], size=30),
+                ft.Text(t('delete_topic'), size=20, weight=ft.FontWeight.BOLD)
+            ]),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text(warning_message, size=14),
+                    ft.Container(height=10),
+                    error_text
+                ], spacing=10, tight=True),
+                width=500
+            ),
+            actions=[
+                ft.TextButton(t('cancel'), on_click=cancel_delete),
+                ft.ElevatedButton(
+                    t('delete'),
+                    on_click=confirm_delete,
+                    style=ft.ButtonStyle(
+                        bgcolor=COLORS['error'],
+                        color=ft.colors.WHITE
+                    ),
+                    icon=ft.icons.DELETE_FOREVER
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = self.delete_topic_dialog
+        self.delete_topic_dialog.open = True
+        self.page.update()
+
     def show_observers_dialog(self, e):
         """Display dialog for managing topic observers"""
         if not self.selected_exam_id:
@@ -2088,7 +2367,7 @@ class QuestionManagement(ft.UserControl):
         self.observer_candidates = self.load_observer_candidates(selected_exam.get('created_by'))
         self.observer_dropdown = ft.Dropdown(
             label=t('select_observer'),
-            width=350
+            width=500
         )
         self.observers_message_text = ft.Text("", visible=False, color=COLORS['error'])
         add_button = ft.ElevatedButton(
@@ -2097,7 +2376,7 @@ class QuestionManagement(ft.UserControl):
             on_click=self.handle_add_observer,
             style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
         )
-        self.observers_list_column = ft.Column(spacing=8, expand=True, scroll=ft.ScrollMode.AUTO)
+        self.observers_list_column = ft.Column(spacing=8, scroll=ft.ScrollMode.AUTO)
         self.update_observers_dropdown()
         self.populate_observers_list()
 
@@ -2123,11 +2402,12 @@ class QuestionManagement(ft.UserControl):
                     bgcolor=COLORS['surface'],
                     padding=ft.padding.all(10),
                     border_radius=8,
-                    height=220
+                    width=750,
+                    height=300
                 )
-            ], spacing=12, tight=True),
-            width=640,
-            height=380
+            ], spacing=12),
+            width=750,
+            height=480
         )
 
         def close_dialog(ev):
@@ -2176,6 +2456,45 @@ class QuestionManagement(ft.UserControl):
             print(f"Error loading observer candidates: {ex}")
             return []
 
+    def get_dept_unit_abbreviation(self, dept_or_unit_name):
+        """Get abbreviation for department or unit from config ORGANIZATIONAL_STRUCTURE"""
+        if not dept_or_unit_name:
+            return ''
+
+        from quiz_app.config import ORGANIZATIONAL_STRUCTURE
+        from quiz_app.utils.localization import get_language
+
+        current_lang = get_language()
+        abbr_key = f'abbr_{current_lang}'
+
+        # Try both language keys since database might have either Az or En names
+        for lang in ['az', 'en']:
+            lang_key = f'name_{lang}'
+
+            # Search in departments
+            for dept_key, dept_data in ORGANIZATIONAL_STRUCTURE.items():
+                # Check if it's a department match
+                if dept_data.get(lang_key) == dept_or_unit_name:
+                    return dept_data.get(abbr_key, dept_or_unit_name)
+
+                # Check in sections
+                for section_key, section_data in dept_data.get('sections', {}).items():
+                    if section_data.get(lang_key) == dept_or_unit_name:
+                        return section_data.get(abbr_key, dept_or_unit_name)
+
+                    # Check in units under sections
+                    for unit in section_data.get('units', []):
+                        if unit.get(lang_key) == dept_or_unit_name:
+                            return unit.get(abbr_key, dept_or_unit_name)
+
+                # Check in direct units under department
+                for unit in dept_data.get('units', []):
+                    if unit.get(lang_key) == dept_or_unit_name:
+                        return unit.get(abbr_key, dept_or_unit_name)
+
+        # If not found in config, return original name
+        return dept_or_unit_name
+
     def update_observers_dropdown(self):
         """Refresh dropdown options with available observers"""
         if not self.observer_dropdown:
@@ -2187,8 +2506,8 @@ class QuestionManagement(ft.UserControl):
             if candidate['id'] in assigned_ids:
                 continue
 
-            dept = candidate.get('department') or ''
-            unit = candidate.get('unit') or ''
+            dept = self.get_dept_unit_abbreviation(candidate.get('department') or '')
+            unit = self.get_dept_unit_abbreviation(candidate.get('unit') or '')
             descriptor = ""
             if dept or unit:
                 parts = [part for part in [dept, unit] if part]
@@ -2227,8 +2546,8 @@ class QuestionManagement(ft.UserControl):
             )
         else:
             for observer in self.current_observers:
-                dept = observer.get('department') or ''
-                unit = observer.get('unit') or ''
+                dept = self.get_dept_unit_abbreviation(observer.get('department') or '')
+                unit = self.get_dept_unit_abbreviation(observer.get('unit') or '')
                 dept_unit = ' / '.join([val for val in [dept, unit] if val]) or '-'
 
                 observer_row = ft.Container(

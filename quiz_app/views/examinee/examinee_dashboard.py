@@ -186,25 +186,30 @@ class ExamineeDashboard(ft.UserControl):
         
         # Recent activity
         recent_exams = self.get_recent_exam_sessions()
-        
+
         recent_activity = ft.Column([
             ft.Text(t('recent_activity'), size=18, weight=ft.FontWeight.BOLD),
             ft.Divider(),
-            *[ft.ListTile(
-                leading=ft.Icon(
-                    ft.icons.CHECK_CIRCLE if exam['is_completed'] else ft.icons.TIMER,
-                    color=COLORS['success'] if exam['is_completed'] else COLORS['warning']
-                ),
-                title=ft.Text(exam['exam_title']),
-                subtitle=ft.Text(
-                    self.get_exam_score_display(exam)
-                ),
-                trailing=ft.Text(
-                    t('exam_completed') if exam['is_completed'] else t('exam_in_progress')
-                )
-            ) for exam in recent_exams[:5]]
+            ft.Container(
+                content=ft.Column([
+                    *[ft.ListTile(
+                        leading=ft.Icon(
+                            ft.icons.CHECK_CIRCLE if exam['is_completed'] else ft.icons.TIMER,
+                            color=COLORS['success'] if exam['is_completed'] else COLORS['warning']
+                        ),
+                        title=ft.Text(exam['exam_title']),
+                        subtitle=ft.Text(
+                            self.get_exam_score_display(exam)
+                        ),
+                        trailing=ft.Text(
+                            t('exam_completed') if exam['is_completed'] else t('exam_in_progress')
+                        )
+                    ) for exam in recent_exams[:5]]
+                ], spacing=5, scroll=ft.ScrollMode.AUTO),
+                expand=True  # Expand to fill available space
+            )
         ], spacing=5)
-        
+
         content = ft.Column([
             ft.Text(t('dashboard'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
             ft.Divider(),
@@ -219,9 +224,10 @@ class ExamineeDashboard(ft.UserControl):
                     spread_radius=1,
                     blur_radius=5,
                     color=ft.colors.with_opacity(0.1, ft.colors.BLACK)
-                )
+                ),
+                expand=True  # Expand to fill available space
             )
-        ], spacing=10)
+        ], spacing=10, expand=True)
         
         self.set_content(content)
     

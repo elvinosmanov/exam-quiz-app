@@ -65,11 +65,16 @@ class AdminDashboard(BaseAdminLayout):
         activity_list = ft.Column([
             ft.Text(t("recent_activity"), size=18, weight=ft.FontWeight.BOLD),
             ft.Divider(),
-            *[ft.ListTile(
-                leading=ft.Icon(ft.icons.CIRCLE, size=8, color=COLORS['primary']),
-                title=ft.Text(activity['description']),
-                subtitle=ft.Text(activity['timestamp'])
-            ) for activity in recent_activity[:10]]
+            ft.Container(
+                content=ft.Column([
+                    *[ft.ListTile(
+                        leading=ft.Icon(ft.icons.CIRCLE, size=8, color=COLORS['primary']),
+                        title=ft.Text(activity['description']),
+                        subtitle=ft.Text(activity['timestamp'])
+                    ) for activity in recent_activity[:10]]
+                ], spacing=5, scroll=ft.ScrollMode.AUTO),
+                expand=True  # Expand to fill available space
+            )
         ], spacing=5)
 
         # Build content
@@ -87,9 +92,10 @@ class AdminDashboard(BaseAdminLayout):
                     spread_radius=1,
                     blur_radius=5,
                     color=ft.colors.with_opacity(0.1, ft.colors.BLACK)
-                )
+                ),
+                expand=True  # Expand to fill available space
             )
-        ], spacing=10)
+        ], spacing=10, expand=True)
 
         self.set_content(content)
 
