@@ -66,6 +66,19 @@ class QuestionManagement(ft.UserControl):
             on_change=self.apply_filters,
             width=200
         )
+
+        # Status filter
+        self.status_filter = ft.Dropdown(
+            label=t('filter_by_status'),
+            options=[
+                ft.dropdown.Option("all", t('all')),
+                ft.dropdown.Option("active", t('active')),
+                ft.dropdown.Option("inactive", t('inactive'))
+            ],
+            value="all",
+            on_change=self.apply_filters,
+            width=150
+        )
         
         # Questions table
         self.questions_table = ft.DataTable(
@@ -227,7 +240,8 @@ class QuestionManagement(ft.UserControl):
             ft.Row([
                 self.exam_selector,
                 self.search_field,
-                self.type_filter
+                self.type_filter,
+                self.status_filter
             ], spacing=20),
             
             # Question Pool Statistics
@@ -534,15 +548,18 @@ class QuestionManagement(ft.UserControl):
             can_edit = perm_manager.can_edit_content(question.get('exam_created_by'), self.user_data)
 
             # Build action buttons based on permissions
-            action_buttons = [
-                ft.IconButton(
-                    icon=ft.icons.VISIBILITY,
-                    tooltip=t('view_question'),
-                    on_click=lambda e, q=question: self.view_question(q)
-                )
-            ]
+            action_buttons = []
 
             if can_edit:
+                # Add toggle status button (like exam management)
+                action_buttons.append(
+                    ft.IconButton(
+                        icon=ft.icons.TOGGLE_ON if question['is_active'] else ft.icons.TOGGLE_OFF,
+                        tooltip=t('toggle_status'),
+                        icon_color=COLORS['success'] if question['is_active'] else COLORS['text_secondary'],
+                        on_click=lambda e, q=question: self.toggle_question_status(q)
+                    )
+                )
                 action_buttons.extend([
                     ft.IconButton(
                         icon=ft.icons.EDIT,
@@ -568,7 +585,8 @@ class QuestionManagement(ft.UserControl):
                         ft.DataCell(ft.Text(str(question['points']))),
                         ft.DataCell(ft.Text(status, color=status_color)),
                         ft.DataCell(ft.Row(action_buttons, spacing=5))
-                    ]
+                    ],
+                    on_select_changed=lambda e, q=question: self.view_question(q)
                 )
             )
         
@@ -757,7 +775,7 @@ class QuestionManagement(ft.UserControl):
             self.update()
     
     def apply_filters(self, e):
-        """Apply both search and type filters together"""
+        """Apply search, type, and status filters together"""
         if not self.selected_exam_id:
             return
 
@@ -777,6 +795,13 @@ class QuestionManagement(ft.UserControl):
         question_type = self.type_filter.value
         if question_type != "all":
             filtered_questions = [q for q in filtered_questions if q['question_type'] == question_type]
+
+        # Apply status filter
+        status_filter = self.status_filter.value
+        if status_filter == "active":
+            filtered_questions = [q for q in filtered_questions if q['is_active'] == 1]
+        elif status_filter == "inactive":
+            filtered_questions = [q for q in filtered_questions if q['is_active'] == 0]
 
         # Update displayed data
         self.questions_data = filtered_questions
@@ -1003,10 +1028,10 @@ class QuestionManagement(ft.UserControl):
                         ]
                         self.db.execute_update(query, params)
                     else:
-                        # Create new question
+                        # Create new question (default status is Active)
                         query = """
-                            INSERT INTO questions (exam_id, question_text, question_type, difficulty_level, points, explanation, image_path)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO questions (exam_id, question_text, question_type, difficulty_level, points, explanation, image_path, is_active)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
                         """
                         params = [
                             question_data['exam_id'],
@@ -1517,6 +1542,38 @@ class QuestionManagement(ft.UserControl):
         preview_dialog.open = True
         self.page.update()
     
+    def toggle_question_status(self, question):
+        """Toggle question active/inactive status"""
+        try:
+            new_status = 0 if question['is_active'] else 1
+            self.db.execute_update(
+                "UPDATE questions SET is_active = ? WHERE id = ?",
+                (new_status, question['id'])
+            )
+
+            # Reload questions to reflect the change
+            self.load_questions()
+
+        except Exception as ex:
+            print(f"Error toggling question status: {ex}")
+            # Show error dialog
+            error_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(t('error')),
+                content=ft.Text(f"{t('error_updating_status')}: {str(ex)}"),
+                actions=[
+                    ft.TextButton(t('ok'), on_click=lambda e: self.close_error_dialog(error_dialog))
+                ]
+            )
+            self.page.dialog = error_dialog
+            error_dialog.open = True
+            self.page.update()
+
+    def close_error_dialog(self, dialog):
+        """Close error dialog"""
+        dialog.open = False
+        self.page.update()
+
     def delete_question(self, question):
         def confirm_delete(e):
             # Delete associated image file if it exists
@@ -1671,89 +1728,99 @@ class QuestionManagement(ft.UserControl):
         try:
             import pandas as pd
             from datetime import datetime
-            import os
-            
+
             # Get exam info
             exam = self.db.execute_single("SELECT title FROM exams WHERE id = ?", (self.selected_exam_id,))
             exam_title = exam['title'] if exam else f"Exam_{self.selected_exam_id}"
-            
+
             # Get questions for the selected exam
             questions = self.db.execute_query("""
-                SELECT * FROM questions 
-                WHERE exam_id = ? 
+                SELECT * FROM questions
+                WHERE exam_id = ?
                 ORDER BY order_index, created_at
             """, (self.selected_exam_id,))
-            
+
             if not questions:
                 self.show_error_dialog(t('no_questions_found_exam'))
                 return
-            
-            # Convert to template format
-            export_data = []
-            for question in questions:
-                # Get options for choice-based questions
-                options = {}
-                if question['question_type'] in ['single_choice', 'multiple_choice', 'true_false']:
-                    question_options = self.db.execute_query("""
-                        SELECT * FROM question_options 
-                        WHERE question_id = ? 
-                        ORDER BY order_index
-                    """, (question['id'],))
-                    
-                    correct_answers = []
-                    for i, opt in enumerate(question_options):
-                        options[f'option_{i+1}'] = opt['option_text']
-                        if opt['is_correct']:
-                            correct_answers.append(opt['option_text'])
-                    
-                    # Set correct answer format
-                    if question['question_type'] == 'multiple_choice':
-                        correct_answer = ', '.join(correct_answers)
-                    else:
-                        correct_answer = correct_answers[0] if correct_answers else ''
-                else:
-                    correct_answer = question['correct_answer'] or ''
-                
-                # Build row data
-                row_data = {
-                    'question_text': question['question_text'],
-                    'question_type': question['question_type'],
-                    'difficulty_level': question['difficulty_level'],
-                    'points': question['points'],
-                    'correct_answer': correct_answer,
-                    'explanation': question['explanation'] or ''
-                }
-                
-                # Add option columns
-                for i in range(1, 7):
-                    row_data[f'option_{i}'] = options.get(f'option_{i}', '')
-                
-                export_data.append(row_data)
-            
-            # Create DataFrame
-            df = pd.DataFrame(export_data)
-            
-            # Save to Downloads folder
+
+            # Create file picker callback
+            def on_save_result(e: ft.FilePickerResultEvent):
+                if e.path:
+                    try:
+                        # Convert to template format
+                        export_data = []
+                        for question in questions:
+                            # Get options for choice-based questions
+                            options = {}
+                            if question['question_type'] in ['single_choice', 'multiple_choice', 'true_false']:
+                                question_options = self.db.execute_query("""
+                                    SELECT * FROM question_options
+                                    WHERE question_id = ?
+                                    ORDER BY order_index
+                                """, (question['id'],))
+
+                                correct_answers = []
+                                for i, opt in enumerate(question_options):
+                                    options[f'option_{i+1}'] = opt['option_text']
+                                    if opt['is_correct']:
+                                        correct_answers.append(opt['option_text'])
+
+                                # Set correct answer format
+                                if question['question_type'] == 'multiple_choice':
+                                    correct_answer = ', '.join(correct_answers)
+                                else:
+                                    correct_answer = correct_answers[0] if correct_answers else ''
+                            else:
+                                correct_answer = question['correct_answer'] or ''
+
+                            # Build row data
+                            row_data = {
+                                'question_text': question['question_text'],
+                                'question_type': question['question_type'],
+                                'difficulty_level': question['difficulty_level'],
+                                'points': question['points'],
+                                'correct_answer': correct_answer,
+                                'explanation': question['explanation'] or ''
+                            }
+
+                            # Add option columns
+                            for i in range(1, 7):
+                                row_data[f'option_{i}'] = options.get(f'option_{i}', '')
+
+                            export_data.append(row_data)
+
+                        # Create DataFrame and save
+                        df = pd.DataFrame(export_data)
+                        df.to_excel(e.path, index=False)
+
+                        # Show success message
+                        success_dialog = ft.AlertDialog(
+                            modal=True,
+                            title=ft.Text(t('questions_exported_title')),
+                            content=ft.Text(t('questions_exported_message').format(len(questions), e.path)),
+                            actions=[ft.TextButton("OK", on_click=lambda e: self.close_success_dialog())]
+                        )
+                        self.page.dialog = success_dialog
+                        success_dialog.open = True
+                        self.page.update()
+                    except Exception as ex:
+                        self.show_error_dialog(t('error_exporting_questions').format(str(ex)))
+
+            # Create and show file picker
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             safe_exam_title = "".join(c for c in exam_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            filename = f"questions_{safe_exam_title}_{timestamp}.xlsx"
-            
-            downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
-            file_path = os.path.join(downloads_path, filename)
-            
-            df.to_excel(file_path, index=False)
-            
-            # Show success message
-            success_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text(t('questions_exported_title')),
-                content=ft.Text(t('questions_exported_message').format(len(questions), file_path)),
-                actions=[ft.TextButton("OK", on_click=lambda e: self.close_success_dialog())]
-            )
-            self.page.dialog = success_dialog
-            success_dialog.open = True
+            default_filename = f"questions_{safe_exam_title}_{timestamp}.xlsx"
+
+            save_file_dialog = ft.FilePicker(on_result=on_save_result)
+            self.page.overlay.append(save_file_dialog)
             self.page.update()
-            
+
+            save_file_dialog.save_file(
+                file_name=default_filename,
+                allowed_extensions=["xlsx"]
+            )
+
         except Exception as ex:
             self.show_error_dialog(t('error_exporting_questions').format(str(ex)))
     

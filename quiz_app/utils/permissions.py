@@ -31,7 +31,7 @@ class UnitPermissionManager:
         """
         self.db = db
 
-    def get_content_query_filter(self, user_data, table_alias=None):
+    def get_content_query_filter(self, user_data, table_alias=None, created_by_column='created_by'):
         """
         Generate SQL WHERE clause and parameters for filtering content by unit
 
@@ -41,6 +41,7 @@ class UnitPermissionManager:
         Args:
             user_data (dict): User data with keys: id, role, department, unit
             table_alias (str, optional): Table alias for created_by column (e.g., 'ea', 'e')
+            created_by_column (str): Name of the created_by column (default: 'created_by')
 
         Returns:
             tuple: (where_clause: str, params: list)
@@ -60,6 +61,10 @@ class UnitPermissionManager:
             >>> get_content_query_filter({'role': 'expert', 'id': 2, 'department': 'IT', 'unit': 'Software'}, 'ea')
             (" AND ea.created_by IN (SELECT id FROM users WHERE department = ? AND unit = ?)", ['IT', 'Software'])
 
+            # Expert with custom created_by column
+            >>> get_content_query_filter({'role': 'expert', 'id': 2, 'department': 'IT', 'unit': 'Software'}, 'pt', 'created_by_user_id')
+            (" AND pt.created_by_user_id IN (SELECT id FROM users WHERE department = ? AND unit = ?)", ['IT', 'Software'])
+
             # Expert without department/unit (fallback to owner only)
             >>> get_content_query_filter({'role': 'expert', 'id': 2, 'department': None, 'unit': None})
             (" AND created_by = ?", [2])
@@ -70,7 +75,7 @@ class UnitPermissionManager:
         unit = user_data.get('unit', '')
 
         # Add table alias prefix if provided
-        created_by_col = f"{table_alias}.created_by" if table_alias else "created_by"
+        created_by_col = f"{table_alias}.{created_by_column}" if table_alias else created_by_column
 
         # 1. Admin sees everything - no filter
         if role == 'admin':
@@ -353,3 +358,135 @@ def get_content_filter(user_data, db):
     """
     manager = UnitPermissionManager(db)
     return manager.get_content_query_filter(user_data)
+
+def get_dept_unit_abbreviation(department, section, unit, language='en'):
+    """
+    Get abbreviation for department/section/unit from config
+    Priority: Unit > Section > Department
+
+    Args:
+        department (str): Department name (in either language)
+        section (str): Section name (in either language) or None
+        unit (str): Unit name (in either language) or None
+        language (str): Language code ('en' or 'az')
+
+    Returns:
+        str: Abbreviation in the specified language, or "N/A" if not found
+    """
+    from quiz_app.config import ORGANIZATIONAL_STRUCTURE, get_department_key, get_section_key
+
+    if not department:
+        return "N/A"
+
+    # Get department key
+    dept_key = get_department_key(department)
+    if not dept_key:
+        return "N/A"
+
+    dept_data = ORGANIZATIONAL_STRUCTURE.get(dept_key, {})
+    abbr_key = 'abbr_en' if language == 'en' else 'abbr_az'
+
+    # Priority 1: Check for unit abbreviation
+    if unit:
+        # Check if unit is in sections
+        if section:
+            section_key = get_section_key(department, section)
+            if section_key:
+                sections = dept_data.get("sections", {})
+                section_data = sections.get(section_key, {})
+                units = section_data.get("units", [])
+                for unit_data in units:
+                    if unit_data.get('name_az') == unit or unit_data.get('name_en') == unit:
+                        return unit_data.get(abbr_key, "N/A")
+
+        # Check if unit is directly under department
+        units = dept_data.get("units", [])
+        for unit_data in units:
+            if unit_data.get('name_az') == unit or unit_data.get('name_en') == unit:
+                return unit_data.get(abbr_key, "N/A")
+
+    # Priority 2: Check for section abbreviation
+    if section:
+        section_key = get_section_key(department, section)
+        if section_key:
+            sections = dept_data.get("sections", {})
+            section_data = sections.get(section_key, {})
+            return section_data.get(abbr_key, "N/A")
+
+    # Priority 3: Return department abbreviation
+    return dept_data.get(abbr_key, "N/A")
+
+def get_dept_unit_full_name(department, section, unit, language='en'):
+    """
+    Get full hierarchical name showing department and unit/section
+    Format: "Department Name / Unit Name" or "Department Name / Section Name"
+
+    Args:
+        department (str): Department name (in either language)
+        section (str): Section name (in either language) or None
+        unit (str): Unit name (in either language) or None
+        language (str): Language code ('en' or 'az')
+
+    Returns:
+        str: Full hierarchical name in the specified language, or "N/A" if not found
+    """
+    from quiz_app.config import ORGANIZATIONAL_STRUCTURE, get_department_key, get_section_key
+
+    if not department:
+        return "N/A"
+
+    # Get department key
+    dept_key = get_department_key(department)
+    if not dept_key:
+        return "N/A"
+
+    dept_data = ORGANIZATIONAL_STRUCTURE.get(dept_key, {})
+    name_key = 'name_en' if language == 'en' else 'name_az'
+
+    # Get department full name
+    dept_full_name = dept_data.get(name_key, "N/A")
+
+    # If unit exists, show "Department / Unit"
+    if unit:
+        # Check if unit is in sections
+        if section:
+            section_key = get_section_key(department, section)
+            if section_key:
+                sections = dept_data.get("sections", {})
+                section_data = sections.get(section_key, {})
+                units = section_data.get("units", [])
+                for unit_data in units:
+                    if (unit_data.get('name_az') == unit or
+                        unit_data.get('name_en') == unit or
+                        unit_data.get('abbr_az') == unit or
+                        unit_data.get('abbr_en') == unit):
+                        unit_full_name = unit_data.get(name_key, unit)
+                        return f"{dept_full_name} / {unit_full_name}"
+
+        # Check if unit is directly under department
+        units = dept_data.get("units", [])
+        for unit_data in units:
+            if (unit_data.get('name_az') == unit or
+                unit_data.get('name_en') == unit or
+                unit_data.get('abbr_az') == unit or
+                unit_data.get('abbr_en') == unit):
+                unit_full_name = unit_data.get(name_key, unit)
+                return f"{dept_full_name} / {unit_full_name}"
+
+        # If unit not found in config, show with raw unit name
+        return f"{dept_full_name} / {unit}"
+
+    # If section exists (but no unit), show "Department / Section"
+    if section:
+        section_key = get_section_key(department, section)
+        if section_key:
+            sections = dept_data.get("sections", {})
+            section_data = sections.get(section_key, {})
+            section_full_name = section_data.get(name_key, section)
+            return f"{dept_full_name} / {section_full_name}"
+
+        # If section not found in config, show with raw section name
+        return f"{dept_full_name} / {section}"
+
+    # If only department, return department name
+    return dept_full_name

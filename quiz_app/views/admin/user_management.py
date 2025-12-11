@@ -3,6 +3,12 @@ from quiz_app.utils.auth import AuthManager
 from quiz_app.config import COLORS, get_departments, get_sections_for_department, get_units_for_department, ORGANIZATIONAL_STRUCTURE
 from quiz_app.utils.permissions import UnitPermissionManager
 from quiz_app.utils.localization import t, get_language
+from quiz_app.utils.password_generator import generate_secure_password, send_password_email
+from quiz_app.config import (
+    AUTO_GENERATE_PASSWORD, EMAIL_ENABLED, SMTP_SERVER, SMTP_PORT,
+    SENDER_EMAIL, SENDER_PASSWORD, APP_URL, GENERATED_PASSWORD_LENGTH
+)
+import pyperclip
 
 class UserManagement(ft.UserControl):
     def __init__(self, db, user_data=None):
@@ -164,39 +170,44 @@ class UserManagement(ft.UserControl):
             unit = self.user_data.get('unit')
 
             # Build query based on hierarchical level
+            # SAFETY FIX: Experts should NOT see themselves in the list (prevent accidental self-removal)
+            expert_user_id = self.user_data.get('id')
+
             if unit:
                 # Most specific: Department + Section + Unit
-                # Show only examinees in this specific unit
-                self.all_users_data = self.db.execute_query("""
-                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
-                    FROM users
-                    WHERE role = 'examinee'
-                    AND department = ?
-                    AND (section = ? OR section IS NULL)
-                    AND (unit = ? OR unit IS NULL)
-                    ORDER BY created_at DESC
-                """, (department, section or '', unit))
-            elif section:
-                # Medium specific: Department + Section
-                # Show all examinees in this section (all units under this section)
-                self.all_users_data = self.db.execute_query("""
-                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
-                    FROM users
-                    WHERE role = 'examinee'
-                    AND department = ?
-                    AND (section = ? OR section IS NULL)
-                    ORDER BY created_at DESC
-                """, (department, section))
-            else:
-                # Least specific: Department only (department-level expert)
-                # Show all users (experts and examinees) in entire department
+                # Show all users (experts + examinees) in this specific unit, excluding self
                 self.all_users_data = self.db.execute_query("""
                     SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
                     FROM users
                     WHERE (role = 'expert' OR role = 'examinee')
                     AND department = ?
+                    AND unit = ?
+                    AND id != ?
                     ORDER BY created_at DESC
-                """, (department,))
+                """, (department, unit, expert_user_id))
+            elif section:
+                # Medium specific: Department + Section
+                # Show all users (experts + examinees) in this section, excluding self
+                self.all_users_data = self.db.execute_query("""
+                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
+                    FROM users
+                    WHERE (role = 'expert' OR role = 'examinee')
+                    AND department = ?
+                    AND section = ?
+                    AND id != ?
+                    ORDER BY created_at DESC
+                """, (department, section, expert_user_id))
+            else:
+                # Least specific: Department only (department-level expert)
+                # Show all users (experts and examinees) in entire department, excluding self
+                self.all_users_data = self.db.execute_query("""
+                    SELECT id, username, full_name, email, role, department, section, unit, is_active, created_at
+                    FROM users
+                    WHERE (role = 'expert' OR role = 'examinee')
+                    AND department = ?
+                    AND id != ?
+                    ORDER BY created_at DESC
+                """, (department, expert_user_id))
         else:
             # Admins see all users
             self.all_users_data = self.db.execute_query("""
@@ -299,12 +310,17 @@ class UserManagement(ft.UserControl):
             value=user['full_name'] if is_edit else ""
         )
 
+        # Auto-generate password for new users
+        auto_password = generate_secure_password(GENERATED_PASSWORD_LENGTH) if not is_edit else ""
+
         password_field = ft.TextField(
             label=t('password') if not is_edit else t('new_password'),
             password=True,
-            can_reveal_password=True
+            can_reveal_password=True,
+            value=auto_password,
+            hint_text="Auto-generated secure password (you can edit)" if not is_edit else None
         )
-        
+
         # Role dropdown - restrict based on expert level
         if self.user_data['role'] == 'expert':
             # Check if this is a department-level expert
@@ -625,8 +641,17 @@ class UserManagement(ft.UserControl):
                 self.user_dialog.update()
                 return
 
-            if not is_edit and not password_field.value:
+            # Password validation for new users (should always have value since auto-generated)
+            if not is_edit and not password_field.value.strip():
                 error_text.value = t('password_required')
+                error_text.visible = True
+                self.user_dialog.update()
+                return
+
+            # Server-side role validation (SECURITY FIX)
+            valid_roles = ['admin', 'expert', 'examinee']
+            if role_dropdown.value not in valid_roles:
+                error_text.value = f"Invalid role: {role_dropdown.value}. Must be admin, expert, or examinee."
                 error_text.visible = True
                 self.user_dialog.update()
                 return
@@ -674,32 +699,54 @@ class UserManagement(ft.UserControl):
                     if password_field.value:
                         self.auth_manager.update_password(user['id'], password_field.value)
                 else:
-                    # Create new user
+                    # Create new user (password already auto-generated and pre-filled)
+                    user_password = password_field.value.strip()
+
                     user_id = self.auth_manager.create_user(
                         username_field.value.strip(),
                         email_field.value.strip(),
-                        password_field.value,
+                        user_password,
                         full_name_field.value.strip(),
                         role_dropdown.value,
                         dept_value or None,
                         section_value or None,
                         unit_value or None
                     )
-                    
+
                     if not user_id:
                         error_text.value = t('user_already_exists')
                         error_text.visible = True
                         self.user_dialog.update()
                         return
-                
-                # Close dialog and refresh
+
+                    # Set password_change_required flag for new users
+                    self.db.execute_update(
+                        "UPDATE users SET password_change_required = 1 WHERE id = ?",
+                        (user_id,)
+                    )
+
+                    # Close dialog
+                    self.user_dialog.open = False
+                    if self.page:
+                        self.page.update()
+
+                    # Show success dialog with password
+                    self.show_password_success_dialog(
+                        username_field.value.strip(),
+                        user_password,
+                        email_field.value.strip(),
+                        full_name_field.value.strip()
+                    )
+                    return  # Success dialog will handle reload
+
+                # For edit mode: Close dialog and refresh
                 self.user_dialog.open = False
                 if self.page:
                     self.page.update()
-                
+
                 # Reload users and update UI
                 self.load_users()
-                
+
                 # Force update of the entire user management component
                 if self.page:
                     self.update()
@@ -713,21 +760,24 @@ class UserManagement(ft.UserControl):
             self.user_dialog.open = False
             self.page.update()
         
+        # Build dialog content
+        dialog_content_items = [
+            username_field,
+            email_field,
+            full_name_field,
+            password_field,
+            role_dropdown,
+            department_dropdown,
+            section_dropdown,
+            unit_dropdown,
+            error_text
+        ]
+
         self.user_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(title),
             content=ft.Container(
-                content=ft.Column([
-                    username_field,
-                    email_field,
-                    full_name_field,
-                    password_field,
-                    role_dropdown,
-                    department_dropdown,
-                    section_dropdown,
-                    unit_dropdown,
-                    error_text
-                ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+                content=ft.Column(dialog_content_items, spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
                 width=500,
                 padding=ft.padding.all(10)
             ),
@@ -790,4 +840,147 @@ class UserManagement(ft.UserControl):
 
     def close_error_dialog(self, dialog):
         dialog.open = False
+        self.page.update()
+
+    def show_password_success_dialog(self, username, password, email, full_name):
+        """
+        Show dialog with generated password and option to send email via Outlook
+        """
+        from quiz_app.utils.password_email import open_email_draft
+
+        # Password display (copyable, revealed)
+        password_display = ft.TextField(
+            value=password,
+            read_only=True,
+            password=False,  # Show password
+            border_color=COLORS['success'],
+            text_size=16,
+            width=350
+        )
+
+        def copy_password(e):
+            try:
+                pyperclip.copy(password)
+                copy_btn.icon = ft.icons.CHECK
+                copy_btn.icon_color = COLORS['success']
+                copy_btn.tooltip = "Copied!"
+                copy_btn.update()
+                self.page.show_snack_bar(ft.SnackBar(
+                    content=ft.Text("✓ Password copied to clipboard"),
+                    bgcolor=COLORS['success']
+                ))
+            except Exception as ex:
+                self.page.show_snack_bar(ft.SnackBar(
+                    content=ft.Text(f"Failed to copy: {str(ex)}"),
+                    bgcolor=COLORS['error']
+                ))
+
+        copy_btn = ft.IconButton(
+            icon=ft.icons.COPY,
+            tooltip="Copy password",
+            on_click=copy_password,
+            icon_color=COLORS['primary']
+        )
+
+        def open_email_clicked(e):
+            success = open_email_draft(email, username, password, full_name)
+            if success:
+                self.page.show_snack_bar(ft.SnackBar(
+                    content=ft.Text(f"✓ Email draft opened in Outlook for {email}"),
+                    bgcolor=COLORS['success']
+                ))
+            else:
+                self.page.show_snack_bar(ft.SnackBar(
+                    content=ft.Text("Failed to open email client"),
+                    bgcolor=COLORS['error']
+                ))
+
+        def close_success_dialog(e):
+            success_dialog.open = False
+            self.page.update()
+            # Reload users and update UI
+            self.load_users()
+            self.update()
+
+        success_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=28),
+                ft.Text("User Created Successfully!", weight=ft.FontWeight.BOLD)
+            ], spacing=10),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("The user account has been created. Please share these credentials:", size=14),
+                    ft.Divider(height=20),
+
+                    # Username
+                    ft.Row([
+                        ft.Text("Username:", weight=ft.FontWeight.BOLD, size=14, width=120),
+                        ft.Text(username, size=14, selectable=True)
+                    ]),
+
+                    # Password with copy button
+                    ft.Row([
+                        ft.Text("Password:", weight=ft.FontWeight.BOLD, size=14, width=120),
+                        ft.Container(
+                            content=ft.Row([
+                                password_display,
+                                copy_btn
+                            ], spacing=5),
+                            expand=True
+                        )
+                    ]),
+
+                    ft.Divider(height=10),
+
+                    # Warning box
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.WARNING_AMBER, color=COLORS['warning'], size=20),
+                                ft.Text(
+                                    "Security Notice",
+                                    weight=ft.FontWeight.BOLD,
+                                    color=COLORS['warning'],
+                                    size=14
+                                )
+                            ], spacing=10),
+                            ft.Text(
+                                "• User MUST change password on first login",
+                                size=12,
+                                color=COLORS['text_primary']
+                            ),
+                            ft.Text(
+                                "• Password will be required to be changed immediately",
+                                size=12,
+                                color=COLORS['text_primary']
+                            ),
+                            ft.Text(
+                                "• Keep this password secure until delivered to user",
+                                size=12,
+                                color=COLORS['text_primary']
+                            )
+                        ], spacing=5),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['warning']),
+                        padding=15,
+                        border_radius=8,
+                        border=ft.border.all(1, COLORS['warning'])
+                    ),
+                ], spacing=10, tight=True),
+                width=500
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "Open Email in Outlook",
+                    icon=ft.icons.EMAIL_OUTLINED,
+                    on_click=open_email_clicked,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                ),
+                ft.TextButton("Close", on_click=close_success_dialog)
+            ],
+            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+        )
+
+        self.page.dialog = success_dialog
+        success_dialog.open = True
         self.page.update()

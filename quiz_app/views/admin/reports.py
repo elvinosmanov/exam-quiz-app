@@ -156,18 +156,6 @@ class Reports(ft.UserControl):
                                 icon=ft.icons.PICTURE_AS_PDF,
                                 on_click=self.show_export_pdf_dialog,
                                 style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
-                            ),
-                            ft.ElevatedButton(
-                                text=t('export_excel'),
-                                icon=ft.icons.TABLE_VIEW,
-                                on_click=self.export_excel,
-                                style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
-                            ),
-                            ft.ElevatedButton(
-                                text=t('refresh'),
-                                icon=ft.icons.REFRESH,
-                                on_click=self.refresh_data,
-                                style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                             )
                         ], spacing=10)
                     ])
@@ -2085,80 +2073,6 @@ class Reports(ft.UserControl):
             
         except Exception as ex:
             self.show_message("Export Error", f"Failed to export PDF: {str(ex)}")
-    
-    def export_excel(self, e):
-        """Export data as Excel"""
-        try:
-            # Get detailed data for Excel export
-            sessions_data = self.db.execute_query("""
-                SELECT
-                    u.username,
-                    u.full_name,
-                    u.department,
-                    COALESCE(ea.assignment_name, e.title) as exam_title,
-                    es.score,
-                    es.duration_seconds,
-                    es.start_time,
-                    es.end_time
-                FROM exam_sessions es
-                JOIN users u ON es.user_id = u.id
-                JOIN exams e ON es.exam_id = e.id
-                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
-                WHERE es.is_completed = 1
-                ORDER BY es.end_time DESC
-            """)
-            
-            if sessions_data:
-                df = pd.DataFrame(sessions_data)
-                
-                # Format data
-                if 'duration_seconds' in df.columns:
-                    df['duration_minutes'] = df['duration_seconds'] / 60
-                
-                import os
-                filename = f"exam_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                filepath = os.path.join(self.temp_dir, filename)
-                
-                df.to_excel(filepath, index=False)
-                
-                self.show_message("Excel Export", f"Data exported successfully!\nFile saved as: {filename}")
-            else:
-                self.show_message("Excel Export", "No data available to export.")
-                
-        except Exception as ex:
-            self.show_message("Export Error", f"Failed to export Excel: {str(ex)}")
-    
-    def refresh_data(self, e):
-        """Refresh all analytics data"""
-        try:
-            print("[DEBUG] Refreshing analytics data...")
-
-            # Clear existing chart images
-            self.chart_images.clear()
-
-            # Reload data and regenerate charts
-            self.load_analytics_data()
-            self.generate_charts()
-
-            # Force rebuild of the entire component
-            if hasattr(self, 'page') and self.page:
-                # Rebuild the entire UI
-                self.controls.clear()
-                new_content = self.build()
-                self.controls.append(new_content)
-                self.update()
-                print("[DEBUG] UI rebuilt with refreshed data")
-
-            self.show_message("Refresh", "Analytics data refreshed successfully!\nAll charts have been regenerated.")
-        except Exception as ex:
-            print(f"[ERROR] Error refreshing data: {ex}")
-            import traceback
-            traceback.print_exc()
-            # Show error to user
-            try:
-                self.show_message("Refresh Error", f"Failed to refresh data: {str(ex)}")
-            except:
-                pass
     
     def get_exam_filter_options(self):
         """Get exam/assignment options for filter dropdowns (used by User Progress)"""

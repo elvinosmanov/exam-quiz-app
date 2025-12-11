@@ -24,3 +24,4 @@ Pillow==10.1.0
 # Additional utilities
 python-dateutil==2.9.0.post0
 pytz==2025.2
+pyperclip==1.8.2  # For copy to clipboard functionality

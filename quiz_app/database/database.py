@@ -1,12 +1,15 @@
 import sqlite3
 import os
+import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from quiz_app.config import DATABASE_PATH
 
+logger = logging.getLogger(__name__)
+
 class Database:
-    def __init__(self):
-        self.db_path = DATABASE_PATH
+    def __init__(self, db_path: Optional[str] = None):
+        self.db_path = db_path or DATABASE_PATH
         
     def get_connection(self):
         conn = sqlite3.connect(self.db_path)
@@ -36,6 +39,44 @@ class Database:
             cursor.execute(query, params)
             conn.commit()
             return cursor.rowcount
+
+    @staticmethod
+    def _validate_identifier(name: str):
+        if not name or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+                           for ch in name):
+            raise ValueError(f"Invalid identifier: {name}")
+
+    def _column_exists(self, table: str, column: str) -> bool:
+        self._validate_identifier(table)
+        self._validate_identifier(column)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({table})")
+            return any(row[1] == column for row in cursor.fetchall())
+
+    def ensure_column_exists(self, table: str, column: str, definition: str) -> bool:
+        """
+        Guarantee that a column exists on a table, adding it if missing.
+
+        Returns:
+            bool: True if the column was added, False if it already existed.
+        """
+        if self._column_exists(table, column):
+            return False
+
+        if not definition or not definition.strip():
+            raise ValueError("Column definition must be provided")
+
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+                conn.commit()
+            logger.info("Added missing column %s.%s", table, column)
+            return True
+        except sqlite3.OperationalError as exc:
+            logger.error("Failed to add column %s.%s: %s", table, column, exc)
+            raise
 
 # Database schema creation
 def create_tables():
@@ -74,6 +115,19 @@ def create_tables():
             cursor.execute('ALTER TABLE users ADD COLUMN unit TEXT')
         except sqlite3.OperationalError:
             # Column already exists
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE users ADD COLUMN language_preference TEXT DEFAULT "en"')
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
+
+        # Set default language preference for existing users who don't have it
+        try:
+            cursor.execute('UPDATE users SET language_preference = "en" WHERE language_preference IS NULL')
+            conn.commit()
+        except:
             pass
 
         # Exams table
@@ -352,6 +406,52 @@ def create_tables():
             )
         ''')
 
+        # Exam Preset Templates table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS exam_preset_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                created_by_user_id INTEGER NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by_user_id) REFERENCES users (id)
+            )
+        ''')
+
+        # Add is_active column to exam_preset_templates if it doesn't exist
+        db.ensure_column_exists('exam_preset_templates', 'is_active', 'BOOLEAN DEFAULT 1')
+
+        # Junction table for preset templates and exam topics
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS preset_template_exams (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                exam_id INTEGER NOT NULL,
+                easy_count INTEGER DEFAULT 0,
+                medium_count INTEGER DEFAULT 0,
+                hard_count INTEGER DEFAULT 0,
+                FOREIGN KEY (template_id) REFERENCES exam_preset_templates (id) ON DELETE CASCADE,
+                FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+                UNIQUE(template_id, exam_id)
+            )
+        ''')
+
+        # Preset Observers table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS preset_observers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                preset_id INTEGER NOT NULL,
+                observer_id INTEGER NOT NULL,
+                granted_by INTEGER NOT NULL,
+                granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (preset_id) REFERENCES exam_preset_templates (id) ON DELETE CASCADE,
+                FOREIGN KEY (observer_id) REFERENCES users (id) ON DELETE CASCADE,
+                FOREIGN KEY (granted_by) REFERENCES users (id),
+                UNIQUE(preset_id, observer_id)
+            )
+        ''')
+
         # Add language_preference column to users table if it doesn't exist
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN language_preference TEXT DEFAULT 'en'")
@@ -405,6 +505,15 @@ def init_database():
     """Initialize the database with tables and default data"""
     create_tables()
     create_default_admin()
+
+    # Run organizational structure migration
+    try:
+        from quiz_app.database.migration_organizational_structure import run_migration
+        db = Database()
+        run_migration(db)
+    except Exception as e:
+        print(f"Warning: Organizational structure migration failed: {e}")
+
     print(f"Database initialized at: {DATABASE_PATH}")
 
 if __name__ == "__main__":

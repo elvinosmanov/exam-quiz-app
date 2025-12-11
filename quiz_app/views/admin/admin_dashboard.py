@@ -6,9 +6,11 @@ from quiz_app.views.admin.question_management import QuestionManagement
 from quiz_app.views.admin.grading import Grading
 from quiz_app.views.admin.reports import Reports
 from quiz_app.views.admin.settings import Settings
+from quiz_app.views.common.help_view import HelpView
 from quiz_app.database.database import Database
 from quiz_app.config import COLORS
 from quiz_app.utils.localization import t
+from quiz_app.utils.permissions import UnitPermissionManager
 
 class AdminDashboard(BaseAdminLayout):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -45,6 +47,8 @@ class AdminDashboard(BaseAdminLayout):
             self.show_reports()
         elif route == "settings":
             self.show_settings()
+        elif route == "help":
+            self.show_help()
         else:
             print(f"[DEBUG] Unknown route: {route}")
     
@@ -174,7 +178,8 @@ class AdminDashboard(BaseAdminLayout):
                     {"title": t("question_bank"), "icon": ft.icons.HELP, "route": "questions"},
                     {"title": t("grading"), "icon": ft.icons.GRADING, "route": "grading"},
                     {"title": t("reports"), "icon": ft.icons.ANALYTICS, "route": "reports"},
-                    {"title": t("settings"), "icon": ft.icons.SETTINGS, "route": "settings"}
+                    {"title": t("settings"), "icon": ft.icons.SETTINGS, "route": "settings"},
+                    {"title": t("help"), "icon": ft.icons.HELP_OUTLINE, "route": "help"}
                 ]
 
                 # Rebuild navigation rail
@@ -213,7 +218,11 @@ class AdminDashboard(BaseAdminLayout):
             on_language_change=on_language_change
         )
         self.set_content(settings_view)
-    
+
+    def show_help(self):
+        help_view = HelpView(user_role='admin')
+        self.set_content(help_view)
+
     def get_dashboard_stats(self):
         # Check cache first (Performance Fix #6)
         from datetime import datetime, timedelta
@@ -221,14 +230,82 @@ class AdminDashboard(BaseAdminLayout):
             if datetime.now() - self._stats_cache_time < timedelta(seconds=self._cache_duration):
                 return self._stats_cache
 
-        # Optimized: Single query instead of 4 separate queries (Performance Fix #3)
-        result = self.db.execute_single("""
-            SELECT
-                (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_users,
-                (SELECT COUNT(*) FROM exams WHERE is_active = 1) as total_exams,
-                (SELECT COUNT(*) FROM exam_sessions WHERE status = 'in_progress') as active_sessions,
-                (SELECT COUNT(*) FROM exam_sessions WHERE is_completed = 1) as completed_exams
-        """)
+        # Get permission manager for filtering
+        perm_manager = UnitPermissionManager(self.db)
+        role = self.user_data.get('role')
+
+        # Admin sees all data, expert sees only their department/unit
+        if role == 'admin':
+            # Original query for admin - no filtering
+            result = self.db.execute_single("""
+                SELECT
+                    (SELECT COUNT(*) FROM users WHERE is_active = 1) as total_users,
+                    (SELECT COUNT(*) FROM exams WHERE is_active = 1) as total_exams,
+                    (SELECT COUNT(*) FROM exam_sessions WHERE status = 'in_progress') as active_sessions,
+                    (SELECT COUNT(*) FROM exam_sessions WHERE is_completed = 1) as completed_exams
+            """)
+        else:
+            # Expert - filter by department and unit
+            department = self.user_data.get('department', '')
+            section = self.user_data.get('section')
+            unit = self.user_data.get('unit', '')
+
+            # Build dynamic query based on expert level
+            if department and not section and not unit:
+                # Department-level expert: see entire department
+                result = self.db.execute_single("""
+                    SELECT
+                        (SELECT COUNT(*) FROM users WHERE is_active = 1 AND department = ?) as total_users,
+                        (SELECT COUNT(*) FROM exams e
+                         JOIN users u ON e.created_by = u.id
+                         WHERE e.is_active = 1 AND u.department = ?) as total_exams,
+                        (SELECT COUNT(*) FROM exam_sessions es
+                         JOIN users u ON es.user_id = u.id
+                         WHERE es.status = 'in_progress' AND u.department = ?) as active_sessions,
+                        (SELECT COUNT(*) FROM exam_sessions es
+                         JOIN users u ON es.user_id = u.id
+                         WHERE es.is_completed = 1 AND u.department = ?) as completed_exams
+                """, (department, department, department, department))
+            elif department and section and not unit:
+                # Section-level expert: see entire section
+                result = self.db.execute_single("""
+                    SELECT
+                        (SELECT COUNT(*) FROM users WHERE is_active = 1 AND department = ? AND section = ?) as total_users,
+                        (SELECT COUNT(*) FROM exams e
+                         JOIN users u ON e.created_by = u.id
+                         WHERE e.is_active = 1 AND u.department = ? AND u.section = ?) as total_exams,
+                        (SELECT COUNT(*) FROM exam_sessions es
+                         JOIN users u ON es.user_id = u.id
+                         WHERE es.status = 'in_progress' AND u.department = ? AND u.section = ?) as active_sessions,
+                        (SELECT COUNT(*) FROM exam_sessions es
+                         JOIN users u ON es.user_id = u.id
+                         WHERE es.is_completed = 1 AND u.department = ? AND u.section = ?) as completed_exams
+                """, (department, section, department, section, department, section, department, section))
+            elif department and unit:
+                # Unit-level expert: see only their unit
+                result = self.db.execute_single("""
+                    SELECT
+                        (SELECT COUNT(*) FROM users WHERE is_active = 1 AND department = ? AND unit = ?) as total_users,
+                        (SELECT COUNT(*) FROM exams e
+                         JOIN users u ON e.created_by = u.id
+                         WHERE e.is_active = 1 AND u.department = ? AND u.unit = ?) as total_exams,
+                        (SELECT COUNT(*) FROM exam_sessions es
+                         JOIN users u ON es.user_id = u.id
+                         WHERE es.status = 'in_progress' AND u.department = ? AND u.unit = ?) as active_sessions,
+                        (SELECT COUNT(*) FROM exam_sessions es
+                         JOIN users u ON es.user_id = u.id
+                         WHERE es.is_completed = 1 AND u.department = ? AND u.unit = ?) as completed_exams
+                """, (department, unit, department, unit, department, unit, department, unit))
+            else:
+                # Fallback: no department/unit - show only own data
+                user_id = self.user_data.get('id')
+                result = self.db.execute_single("""
+                    SELECT
+                        1 as total_users,
+                        (SELECT COUNT(*) FROM exams WHERE is_active = 1 AND created_by = ?) as total_exams,
+                        (SELECT COUNT(*) FROM exam_sessions WHERE status = 'in_progress' AND user_id = ?) as active_sessions,
+                        (SELECT COUNT(*) FROM exam_sessions WHERE is_completed = 1 AND user_id = ?) as completed_exams
+                """, (user_id, user_id, user_id))
 
         stats = {
             'total_users': result['total_users'],
@@ -249,8 +326,36 @@ class AdminDashboard(BaseAdminLayout):
 
         activity_list = []
 
-        # Get latest exam completions (last 20)
-        recent_completions = self.db.execute_query("""
+        # Get permission filter
+        role = self.user_data.get('role')
+        department = self.user_data.get('department', '')
+        section = self.user_data.get('section')
+        unit = self.user_data.get('unit', '')
+
+        # Build WHERE clause based on role and expert level
+        if role == 'admin':
+            # Admin sees all activity
+            user_filter = ""
+            user_filter_params = []
+        elif department and not section and not unit:
+            # Department-level expert
+            user_filter = "AND u.department = ?"
+            user_filter_params = [department]
+        elif department and section and not unit:
+            # Section-level expert
+            user_filter = "AND u.department = ? AND u.section = ?"
+            user_filter_params = [department, section]
+        elif department and unit:
+            # Unit-level expert
+            user_filter = "AND u.department = ? AND u.unit = ?"
+            user_filter_params = [department, unit]
+        else:
+            # Fallback: show only own activity
+            user_filter = "AND u.id = ?"
+            user_filter_params = [self.user_data.get('id')]
+
+        # Get latest exam completions (last 20) with filtering
+        recent_completions = self.db.execute_query(f"""
             SELECT
                 u.full_name,
                 COALESCE(ea.assignment_name, e.title) as exam_title,
@@ -262,9 +367,10 @@ class AdminDashboard(BaseAdminLayout):
             JOIN exams e ON es.exam_id = e.id
             LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
             WHERE es.is_completed = 1 AND es.end_time IS NOT NULL
+            {user_filter}
             ORDER BY es.end_time DESC
             LIMIT 20
-        """)
+        """, tuple(user_filter_params))
 
         for completion in recent_completions:
             status_emoji = "✅" if completion['status'] == 'PASS' else "❌"
@@ -273,8 +379,8 @@ class AdminDashboard(BaseAdminLayout):
                 'timestamp': completion['end_time'][:16] if completion['end_time'] else 'N/A'
             })
 
-        # Get exams needing manual grading (essay/short answer questions)
-        pending_grading = self.db.execute_query("""
+        # Get exams needing manual grading (essay/short answer questions) with filtering
+        pending_grading = self.db.execute_query(f"""
             SELECT DISTINCT
                 u.full_name,
                 COALESCE(ea.assignment_name, e.title) as exam_title,
@@ -289,10 +395,11 @@ class AdminDashboard(BaseAdminLayout):
             WHERE es.is_completed = 1
               AND q.question_type IN ('short_answer', 'essay')
               AND (ua.is_correct IS NULL OR ua.is_correct = 0)
+              {user_filter}
             GROUP BY es.id
             ORDER BY es.end_time DESC
             LIMIT 10
-        """)
+        """, tuple(user_filter_params))
 
         for grading in pending_grading:
             activity_list.append({

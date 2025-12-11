@@ -37,6 +37,25 @@ DATABASE_PATH = os.path.join(DATA_DIR, 'quiz_app.db')
 SECRET_KEY = "your-secret-key-change-in-production"
 SESSION_TIMEOUT = 3600  # 1 hour in seconds
 
+# User role constants (SECURITY FIX)
+ROLE_ADMIN = 'admin'
+ROLE_EXPERT = 'expert'
+ROLE_EXAMINEE = 'examinee'
+VALID_ROLES = [ROLE_ADMIN, ROLE_EXPERT, ROLE_EXAMINEE]
+
+# Email settings for sending credentials
+EMAIL_ENABLED = False  # Set to True to enable email sending
+SMTP_SERVER = "smtp.gmail.com"  # Change to your SMTP server
+SMTP_PORT = 587  # TLS port
+SENDER_EMAIL = "noreply@example.com"  # Change to your email
+SENDER_PASSWORD = ""  # Set your email password (use app password for Gmail)
+APP_URL = "http://localhost:5000"  # Change to your app URL
+
+# Password settings
+AUTO_GENERATE_PASSWORD = True  # Auto-generate secure passwords for new users
+GENERATED_PASSWORD_LENGTH = 12  # Length of auto-generated passwords
+FORCE_PASSWORD_CHANGE_ON_FIRST_LOGIN = True  # Require password change on first login
+
 # File upload settings
 UPLOAD_FOLDER = os.path.join(DATA_DIR, 'assets', 'images')
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -344,16 +363,22 @@ def get_departments(language='en'):
 
 def get_department_key(department_name):
     """
-    Get department key from department name (supports both languages)
+    Get department key from department name (supports both languages and abbreviations)
 
     Args:
-        department_name (str): Department name in either language
+        department_name (str): Department name or abbreviation in either language
 
     Returns:
         str: Department key, or None if not found
     """
+    if not department_name:
+        return None
+
     for key, data in ORGANIZATIONAL_STRUCTURE.items():
-        if data.get('name_az') == department_name or data.get('name_en') == department_name:
+        if (data.get('name_az') == department_name or
+            data.get('name_en') == department_name or
+            data.get('abbr_az') == department_name or
+            data.get('abbr_en') == department_name):
             return key
     return None
 
@@ -381,15 +406,18 @@ def get_sections_for_department(department_name, language='en'):
 
 def get_section_key(department_name, section_name):
     """
-    Get section key from section name
+    Get section key from section name (supports both languages and abbreviations)
 
     Args:
-        department_name (str): Department name (in either language)
-        section_name (str): Section name (in either language)
+        department_name (str): Department name or abbreviation (in either language)
+        section_name (str): Section name or abbreviation (in either language)
 
     Returns:
         str: Section key, or None if not found
     """
+    if not section_name:
+        return None
+
     dept_key = get_department_key(department_name)
     if not dept_key:
         return None
@@ -398,7 +426,10 @@ def get_section_key(department_name, section_name):
     sections = dept_data.get("sections", {})
 
     for key, data in sections.items():
-        if data.get('name_az') == section_name or data.get('name_en') == section_name:
+        if (data.get('name_az') == section_name or
+            data.get('name_en') == section_name or
+            data.get('abbr_az') == section_name or
+            data.get('abbr_en') == section_name):
             return key
     return None
 

@@ -9,6 +9,7 @@ from quiz_app.database.database import init_database, Database
 from quiz_app.views.auth.login_view import LoginView
 from quiz_app.utils.session import SessionManager
 from quiz_app.utils.localization import set_language
+from quiz_app.config import ROLE_ADMIN, ROLE_EXPERT, ROLE_EXAMINEE, VALID_ROLES
 
 # Pre-import dashboard views for faster loading (Fix: Performance Issue #3)
 from quiz_app.views.admin.admin_dashboard import AdminDashboard
@@ -144,14 +145,31 @@ class QuizApp:
         page.update()
 
         user_data = self.current_user_data
-        role = user_data['role']
+        role = user_data.get('role', '').lower()
+
+        # Validate role - must be one of: admin, expert, examinee (SECURITY FIX)
+        if role not in VALID_ROLES:
+            # Invalid role - log out and show error
+            print(f"[SECURITY] Invalid role detected: {role} for user {user_data.get('username')}")
+            page.clean()
+            page.add(ft.Container(
+                content=ft.Text(
+                    "Invalid user role. Please contact administrator.",
+                    color=ft.colors.RED,
+                    size=16
+                ),
+                padding=20
+            ))
+            page.update()
+            self.logout()
+            return
 
         # Determine which dashboard to show
-        if role == 'admin':
+        if role == ROLE_ADMIN:
             # Admin always sees admin dashboard
             dashboard = AdminDashboard(self.session_manager, user_data, self.logout)
 
-        elif role == 'expert':
+        elif role == ROLE_EXPERT:
             # Expert can switch between expert and examinee views
             if self.expert_view_mode == 'examinee':
                 # Show examinee dashboard with view switcher

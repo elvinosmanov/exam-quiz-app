@@ -2,10 +2,13 @@ import flet as ft
 import random
 import json
 import os
+import logging
 from datetime import datetime, timedelta, date
 from quiz_app.config import COLORS
-from quiz_app.utils.permissions import UnitPermissionManager
+from quiz_app.utils.permissions import UnitPermissionManager, get_dept_unit_abbreviation
 from quiz_app.utils.localization import t, get_language
+
+logger = logging.getLogger(__name__)
 
 class QuizManagement(ft.UserControl):
     def __init__(self, db, user_data):
@@ -111,7 +114,8 @@ class QuizManagement(ft.UserControl):
             'focused_border_color': COLORS['primary'],
             'border_radius': 4,
             'text_size': 14,
-            'height': 56,
+            'bgcolor': ft.colors.WHITE,  # White background
+            'filled': False,  # No filled style
         }
 
         # Merge with kwargs (kwargs take precedence)
@@ -151,9 +155,19 @@ class QuizManagement(ft.UserControl):
                 # Save the PDF to the selected location
                 import shutil
                 shutil.move(self.pending_pdf_data['temp_path'], e.path)
-                self.show_message(t('success'), f"{t('file_saved')}: {e.path}")
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"{t('file_saved')}: {e.path}"),
+                    bgcolor=COLORS['success']
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
             except Exception as ex:
-                self.show_message(t('error'), f"{t('file_save_error')}: {str(ex)}")
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"{t('file_save_error')}: {str(ex)}"),
+                    bgcolor=COLORS['error']
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
                 # Try to clean up temp file on error
                 if os.path.exists(self.pending_pdf_data['temp_path']):
                     try:
@@ -179,7 +193,12 @@ class QuizManagement(ft.UserControl):
                 allowed_extensions=["pdf"]
             )
         except Exception as ex:
-            self.show_message(t('error'), f"{t('file_save_error')}: {str(ex)}")
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(f"{t('file_save_error')}: {str(ex)}"),
+                bgcolor=COLORS['error']
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
 
     def save_next_exam_pdf(self):
         """Save the next PDF in the queue"""
@@ -875,13 +894,44 @@ class QuizManagement(ft.UserControl):
 
     def show_add_assignment_dialog(self, e):
         """Show dialog to create a new assignment - with option to use preset template or manual selection"""
-        # Load all available exam templates
-        exam_templates = self.db.execute_query("""
-            SELECT id, title, description,
-                   (SELECT COUNT(*) FROM questions WHERE exam_id = exams.id AND is_active = 1) as question_count
-            FROM exams
-            ORDER BY title
-        """)
+        try:
+            self.db.ensure_column_exists('exam_preset_templates', 'is_active', 'BOOLEAN DEFAULT 1')
+        except Exception as exc:
+            logger.warning("Unable to ensure exam_preset_templates.is_active: %s", exc)
+
+        # Load available exam templates with permission filtering
+        perm_manager = UnitPermissionManager(self.db)
+        filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data, table_alias='e')
+
+        # Base query for exams created by user's unit
+        base_query = """
+            SELECT e.id, e.title, e.description,
+                   (SELECT COUNT(*) FROM questions WHERE exam_id = e.id AND is_active = 1) as question_count
+            FROM exams e
+            WHERE e.is_active = 1 {filter_clause}
+            ORDER BY e.title
+        """.format(filter_clause=filter_clause)
+
+        exam_templates = self.db.execute_query(base_query, tuple(filter_params))
+
+        # Include exams where expert is an observer
+        if self.user_data.get('role') == 'expert' and self.user_data.get('id'):
+            observer_query = """
+                SELECT e.id, e.title, e.description,
+                       (SELECT COUNT(*) FROM questions WHERE exam_id = e.id AND is_active = 1) as question_count
+                FROM exam_observers eo
+                JOIN exams e ON eo.exam_id = e.id
+                WHERE eo.observer_id = ? AND e.is_active = 1
+                ORDER BY e.title
+            """
+            observer_exams = self.db.execute_query(observer_query, (self.user_data['id'],))
+
+            # Merge observer exams, avoiding duplicates
+            if observer_exams:
+                existing_ids = {exam['id'] for exam in exam_templates}
+                for observer_exam in observer_exams:
+                    if observer_exam['id'] not in existing_ids:
+                        exam_templates.append(observer_exam)
 
         if not exam_templates:
             self.page.snack_bar = ft.SnackBar(
@@ -892,15 +942,45 @@ class QuizManagement(ft.UserControl):
             self.page.update()
             return
 
-        # Load preset templates
-        preset_templates = self.db.execute_query("""
+        # Load preset templates with permission filtering
+        preset_filter_clause, preset_filter_params = perm_manager.get_content_query_filter(
+            self.user_data,
+            table_alias='pt',
+            created_by_column='created_by_user_id'
+        )
+
+        preset_base_query = """
             SELECT pt.id, pt.name, pt.description,
                    SUM(pte.easy_count + pte.medium_count + pte.hard_count) as total_questions
             FROM exam_preset_templates pt
             LEFT JOIN preset_template_exams pte ON pt.id = pte.template_id
+            WHERE pt.is_active = 1 {filter_clause}
             GROUP BY pt.id
             ORDER BY pt.name
-        """)
+        """.format(filter_clause=preset_filter_clause)
+
+        preset_templates = self.db.execute_query(preset_base_query, tuple(preset_filter_params))
+
+        # Include preset templates where expert is an observer
+        if self.user_data.get('role') == 'expert' and self.user_data.get('id'):
+            preset_observer_query = """
+                SELECT pt.id, pt.name, pt.description,
+                       SUM(pte.easy_count + pte.medium_count + pte.hard_count) as total_questions
+                FROM preset_observers po
+                JOIN exam_preset_templates pt ON po.preset_id = pt.id
+                LEFT JOIN preset_template_exams pte ON pt.id = pte.template_id
+                WHERE po.observer_id = ? AND pt.is_active = 1
+                GROUP BY pt.id
+                ORDER BY pt.name
+            """
+            observer_presets = self.db.execute_query(preset_observer_query, (self.user_data['id'],))
+
+            # Merge observer presets, avoiding duplicates
+            if observer_presets:
+                existing_preset_ids = {preset['id'] for preset in preset_templates}
+                for observer_preset in observer_presets:
+                    if observer_preset['id'] not in existing_preset_ids:
+                        preset_templates.append(observer_preset)
 
         # Track selection mode
         self.assignment_mode = ft.RadioGroup(
@@ -962,14 +1042,27 @@ class QuizManagement(ft.UserControl):
             ft.Text("Preset Template Details:", size=13, weight=ft.FontWeight.BOLD),
         ], spacing=5, visible=self.assignment_mode.value == "preset")
 
-        # Container for selected exam cards (manual mode) with question pool configuration
-        selected_exams_container = ft.Column([
+        # Header for selected exams (above the cards)
+        selected_exams_header = ft.Column([
             ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
             ft.Text("(Configure questions per exam by difficulty)", size=12, color=COLORS['text_secondary'], italic=True)
-        ], spacing=5, visible=self.assignment_mode.value == "manual")
+        ], spacing=5)
+
+        # Container for selected exam cards in two-column layout (manual mode)
+        selected_exams_cards = ft.ResponsiveRow([], spacing=10, run_spacing=10)
+
+        # Wrapper container
+        selected_exams_container = ft.Column([
+            selected_exams_header,
+            ft.Container(height=10),
+            selected_exams_cards
+        ], spacing=0, visible=self.assignment_mode.value == "manual")
 
         # Store question pool configurations for each exam {exam_id: {easy, medium, hard, dropdowns}}
         self.exam_pool_configs = {}
+
+        # Error text for inline validation messages
+        error_text = ft.Text("", color=COLORS['error'], size=13, visible=False, weight=ft.FontWeight.BOLD)
 
         def on_preset_selected(e):
             """Handle preset template selection"""
@@ -1101,7 +1194,7 @@ class QuizManagement(ft.UserControl):
                     'hard_max': hard_available
                 }
 
-                # Create card for selected exam
+                # Create card for selected exam with responsive column sizing
                 exam_card = ft.Container(
                     content=ft.Column([
                         ft.Row([
@@ -1120,9 +1213,10 @@ class QuizManagement(ft.UserControl):
                     padding=ft.padding.all(12),
                     bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
                     border_radius=8,
-                    border=ft.border.all(1, COLORS['secondary'])
+                    border=ft.border.all(1, COLORS['secondary']),
+                    col={"xs": 12, "sm": 12, "md": 6, "lg": 6, "xl": 6}
                 )
-                selected_exams_container.controls.append(exam_card)
+                selected_exams_cards.controls.append(exam_card)
 
             # Clear dropdown
             e.control.value = None
@@ -1136,20 +1230,10 @@ class QuizManagement(ft.UserControl):
             if exam_id in self.exam_pool_configs:
                 del self.exam_pool_configs[exam_id]
 
-            # Rebuild UI
-            selected_exams_container.controls.clear()
-            selected_exams_container.controls.extend([
-                ft.Text("Selected Exam Templates:", size=14, weight=ft.FontWeight.BOLD),
-                ft.Text("(Configure questions per exam by difficulty)", size=12, color=COLORS['text_secondary'], italic=True)
-            ])
+            # Rebuild UI - clear only the cards container
+            selected_exams_cards.controls.clear()
 
-            # Re-add remaining cards by re-triggering the add logic
-            for exam in self.selected_exam_templates:
-                # Need to recreate the card since we cleared everything
-                # This is a bit inefficient but ensures consistency
-                pass  # Cards will be recreated on next selection or we keep reference
-
-            # Actually, let's just rebuild from scratch using stored configs
+            # Rebuild cards from scratch using stored configs
             for ex_id in list(self.exam_pool_configs.keys()):
                 exam = next((e for e in self.selected_exam_templates if e['id'] == ex_id), None)
                 if exam:
@@ -1175,9 +1259,10 @@ class QuizManagement(ft.UserControl):
                         padding=ft.padding.all(12),
                         bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
                         border_radius=8,
-                        border=ft.border.all(1, COLORS['secondary'])
+                        border=ft.border.all(1, COLORS['secondary']),
+                        col={"xs": 12, "sm": 12, "md": 6, "lg": 6, "xl": 6}
                     )
-                    selected_exams_container.controls.append(exam_card)
+                    selected_exams_cards.controls.append(exam_card)
 
             select_dialog.update()
 
@@ -1187,14 +1272,15 @@ class QuizManagement(ft.UserControl):
             """Handle assignment creation based on selected mode"""
             mode = self.assignment_mode.value
 
+            # Clear any previous errors
+            error_text.value = ""
+            error_text.visible = False
+
             if mode == "preset":
                 if not self.selected_preset_id:
-                    self.page.snack_bar = ft.SnackBar(
-                        content=ft.Text("Please select a preset template"),
-                        bgcolor=COLORS['error']
-                    )
-                    self.page.snack_bar.open = True
-                    self.page.update()
+                    error_text.value = "⚠️ Please select a preset template"
+                    error_text.visible = True
+                    select_dialog.update()
                     return
 
                 # Load exam templates from preset
@@ -1216,12 +1302,9 @@ class QuizManagement(ft.UserControl):
 
             elif mode == "manual":
                 if not self.selected_exam_templates:
-                    self.page.snack_bar = ft.SnackBar(
-                        content=ft.Text("Please select at least one exam template"),
-                        bgcolor=COLORS['error']
-                    )
-                    self.page.snack_bar.open = True
-                    self.page.update()
+                    error_text.value = "⚠️ Please select at least one exam template"
+                    error_text.visible = True
+                    select_dialog.update()
                     return
 
                 # Validate that at least one exam has questions configured
@@ -1233,12 +1316,9 @@ class QuizManagement(ft.UserControl):
                     total_questions += easy_count + medium_count + hard_count
 
                 if total_questions == 0:
-                    self.page.snack_bar = ft.SnackBar(
-                        content=ft.Text("Please configure at least one question for selected exams"),
-                        bgcolor=COLORS['error']
-                    )
-                    self.page.snack_bar.open = True
-                    self.page.update()
+                    error_text.value = "⚠️ Please configure at least one question for selected exams"
+                    error_text.visible = True
+                    select_dialog.update()
                     return
 
                 select_dialog.open = False
@@ -1252,16 +1332,51 @@ class QuizManagement(ft.UserControl):
 
         select_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Create New Assignment"),
+            title=ft.Row([
+                ft.Icon(ft.icons.ASSIGNMENT, color=COLORS['primary'], size=28),
+                ft.Text(
+                    "Create New Assignment",
+                    size=20,
+                    weight=ft.FontWeight.BOLD
+                )
+            ], spacing=12),
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("Assignment Method:", size=15, weight=ft.FontWeight.BOLD),
-                    self.assignment_mode,
-                    ft.Divider(),
-                    preset_dropdown,
-                    preset_info_container,
-                    exam_dropdown,
-                    selected_exams_container
+                    # Assignment Method Section
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.SETTINGS, size=18, color=COLORS['primary']),
+                                ft.Text("Assignment Method:", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
+                            ], spacing=8),
+                            ft.Divider(height=1, color=COLORS['primary']),
+                            ft.Container(height=5),
+                            self.assignment_mode,
+                        ], spacing=8),
+                        padding=12,
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.02, COLORS['primary']),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.1, COLORS['primary']))
+                    ),
+
+                    ft.Container(height=10),
+
+                    # Selection Section
+                    ft.Container(
+                        content=ft.Column([
+                            preset_dropdown,
+                            preset_info_container,
+                            exam_dropdown,
+                            selected_exams_container
+                        ], spacing=10),
+                        padding=12,
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.02, COLORS['success']),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.1, COLORS['success']))
+                    ),
+
+                    # Error message display (visible when there's an error)
+                    error_text,
                 ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
                 width=self.page.width - 200 if self.page.width > 200 else 600,
                 height=self.page.height - 200 if self.page.height > 200 else 500
@@ -1270,6 +1385,7 @@ class QuizManagement(ft.UserControl):
                 ft.TextButton(t('cancel'), on_click=close_dialog),
                 ft.ElevatedButton(
                     "Continue",
+                    icon=ft.icons.ARROW_FORWARD,
                     on_click=on_create_assignment,
                     style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
                 )
@@ -1292,6 +1408,10 @@ class QuizManagement(ft.UserControl):
         from datetime import datetime, date
 
         is_edit = assignment is not None
+
+        # Store exams and pool_configs for back button functionality
+        self._temp_selected_exams = exams
+        self._temp_pool_configs = pool_configs
 
         # If in edit mode and pool_configs not provided, load from exams data
         # (exams parameter contains easy_count, medium_count, hard_count from database)
@@ -1443,7 +1563,7 @@ class QuizManagement(ft.UserControl):
 
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
-            label=t('duration'),
+            label=t('duration_minutes'),
             value=str(assignment['duration_minutes']) if is_edit else self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -1452,7 +1572,7 @@ class QuizManagement(ft.UserControl):
         )
 
         passing_score_field = ft.TextField(
-            label=t('passing_score'),
+            label=t('passing_score_percent'),
             value=str(assignment['passing_score']) if is_edit else self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -1648,7 +1768,7 @@ class QuizManagement(ft.UserControl):
 
         # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
-            SELECT id, full_name, username, role, department, unit
+            SELECT id, full_name, username, role, department, section, unit
             FROM users
             WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
@@ -1674,15 +1794,201 @@ class QuizManagement(ft.UserControl):
                     return parts[1].strip() if current_lang == 'en' else parts[0].strip()
             return unit
 
-        user_dropdown = self.create_styled_dropdown(
-            label=t('search_users'),
-            hint_text="Choose users to assign",
-            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
-            expand=True,
-            height=56,
-            content_padding=5
+        # Filter state
+        filter_department = ft.Ref[ft.Dropdown]()
+        filter_unit = ft.Ref[ft.Dropdown]()
+        user_search_field = ft.Ref[ft.TextField]()
+        search_results_column = ft.Ref[ft.Column]()
+
+        # Import abbreviation helper functions
+        from quiz_app.utils.localization import get_department_abbreviation, get_unit_abbreviation
+
+        # Create filter dropdowns with white background
+        department_filter = self.create_styled_dropdown(
+            ref=filter_department,
+            label=t('filter_by_department'),
+            options=[ft.dropdown.Option("", t('all'))] + [
+                ft.dropdown.Option(dept, get_department_abbreviation(dept, current_lang))
+                for dept in department_values
+            ],
+            width=220,
+            content_padding=10,
+            text_size=14,
+            value="",
+            suffix_icon=ft.icons.ARROW_DROP_DOWN
         )
 
+        # Get unit combinations for unit filter
+        unit_filter = self.create_styled_dropdown(
+            ref=filter_unit,
+            label=t('filter_by_unit'),
+            options=[ft.dropdown.Option("", t('all'))] + [
+                ft.dropdown.Option(
+                    f"{dept}|||{unit}",
+                    get_unit_abbreviation(dept, get_unit_display_name(dept, unit), current_lang)
+                )
+                for dept, unit in unit_combo_list
+            ],
+            width=220,
+            content_padding=10,
+            text_size=14,
+            value="",
+            icon=None  # Remove default icon to avoid double arrows
+        )
+
+        # Autocomplete search field
+        def get_filtered_users(search_text=""):
+            """Filter users based on department, unit, and search text"""
+            filtered = users
+
+            # Filter by department
+            if filter_department.current and filter_department.current.value:
+                filtered = [u for u in filtered if u.get('department') == filter_department.current.value]
+
+            # Filter by unit
+            if filter_unit.current and filter_unit.current.value:
+                dept, unit = filter_unit.current.value.split("|||") if "|||" in filter_unit.current.value else ("", "")
+                if dept and unit:
+                    filtered = [u for u in filtered if u.get('department') == dept and u.get('unit') == unit]
+
+            # Filter by search text
+            if search_text:
+                search_lower = search_text.lower()
+                filtered = [
+                    u for u in filtered
+                    if search_lower in u['full_name'].lower() or search_lower in u.get('username', '').lower()
+                ]
+
+            return filtered[:20]  # Limit to 20 results for performance
+
+        def update_search_results(e=None):
+            """Update the search results list"""
+            if not search_results_column.current:
+                return
+
+            search_text = user_search_field.current.value if user_search_field.current else ""
+            filtered_users = get_filtered_users(search_text)
+
+            # Clear previous results
+            search_results_column.current.controls.clear()
+
+            if not search_text and not (filter_department.current and filter_department.current.value) and not (filter_unit.current and filter_unit.current.value):
+                # No search or filters - show hint
+                search_results_column.current.controls.append(
+                    ft.Container(
+                        
+                        content=ft.Text("Start typing or use filters to search for users", color=COLORS['text_secondary'], size=12, expand=True),
+                        padding=10
+                    )
+                )
+            elif len(filtered_users) == 0:
+                # No results
+                search_results_column.current.controls.append(
+                    ft.Container(
+                        content=ft.Text("No users found", color=COLORS['text_secondary'], size=12),
+                        padding=10
+                    )
+                )
+            else:
+                # Show results
+                for user in filtered_users:
+                    if user['id'] in self.selected_assignment_users:
+                        continue  # Skip already selected users
+
+                    # Build department + unit display
+                    dept_unit_display = ""
+                    if user.get('department') and user.get('unit'):
+                        dept_unit_display = f"{user.get('department')} / {user.get('unit')}"
+                    elif user.get('department'):
+                        dept_unit_display = user.get('department')
+                    elif user.get('unit'):
+                        dept_unit_display = user.get('unit')
+                    else:
+                        dept_unit_display = "N/A"
+
+                    result_item = ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.PERSON, size=16, color=COLORS['primary']),
+                            ft.Text(f"{user['full_name']} ({dept_unit_display})", size=13),
+                        ], spacing=8),
+                        padding=8,
+                        border_radius=4,
+                        ink=True,
+                        on_click=lambda e, u=user: add_user_from_search(u),
+                        bgcolor=ft.colors.TRANSPARENT,
+                        on_hover=lambda e: setattr(e.control, 'bgcolor', COLORS['background'] if e.data == "true" else ft.colors.TRANSPARENT) or e.control.update()
+                    )
+                    search_results_column.current.controls.append(result_item)
+
+                # Show "showing X of Y" message if there are more results
+                total_matching = len(get_filtered_users(search_text) if not search_text else [u for u in users if search_text.lower() in u['full_name'].lower() or search_text.lower() in u.get('username', '').lower()])
+                if len(filtered_users) < total_matching:
+                    search_results_column.current.controls.append(
+                        ft.Container(
+                            content=ft.Text(f"Showing {len(filtered_users)} of {total_matching} users (refine search to see more)",
+                                          color=COLORS['text_secondary'], size=11, italic=True),
+                            padding=ft.padding.only(left=10, top=5)
+                        )
+                    )
+
+            if self.page:
+                self.page.update()
+
+        def add_user_from_search(user):
+            """Add user to selection from search results"""
+            user_id = user['id']
+            if user_id not in self.selected_assignment_users:
+                self.selected_assignment_users.append(user_id)
+
+                # Add chip
+                user_name = f"{user['full_name']} ({get_dept_unit_abbreviation(user.get('department'), user.get('section'), user.get('unit'), current_lang)})"
+                chip = ft.Chip(
+                    label=ft.Text(user_name),
+                    on_delete=lambda e, uid=user_id: remove_user(uid),
+                    delete_icon_color=COLORS['error']
+                )
+                selected_chips_row.controls.append(chip)
+
+                # Clear search and refresh results
+                if user_search_field.current:
+                    user_search_field.current.value = ""
+                update_search_results()
+
+                if self.page:
+                    self.page.update()
+
+        # Search text field (matching padding and text size with dropdowns for alignment)
+        user_search = ft.TextField(
+            ref=user_search_field,
+            label=t('search_users'),
+            hint_text="Type name to search...",
+            prefix_icon=ft.icons.SEARCH,
+            border_color=COLORS['secondary'],
+            focused_border_color=COLORS['primary'],
+            expand=True,
+            content_padding=10,
+            text_size=14,
+            on_change=update_search_results
+        )
+
+        # Search results container (always full width - never shrinks)
+        search_results = ft.Container(
+            content=ft.Column(
+                ref=search_results_column,
+                controls=[],
+                spacing=2,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            border=ft.border.all(1, COLORS['secondary']),
+            border_radius=8,
+            padding=5,
+            height=250,
+            width=float('inf'),  # Always expand to maximum available width
+            expand=True,
+            visible=True
+        )
+
+        # Department dropdown for bulk assignment (keep for backward compatibility)
         department_dropdown = self.create_styled_dropdown(
             label=t('assign_department'),
             hint_text="Choose departments",
@@ -1707,10 +2013,21 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
+        # Update filter change handlers
+        department_filter.on_change = update_search_results
+        filter_unit.on_change = update_search_results
+
+        # Initialize search results with hint message on first load
+        update_search_results()
+
         selected_chips_row = ft.Row(spacing=8, wrap=True)
         selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
-            selected_chips_row,
+            ft.Container(
+                content=selected_chips_row,
+                padding=ft.padding.only(top=5, bottom=5),
+                
+            ),
         ], spacing=5)
 
         # Define remove functions first (needed for chip creation)
@@ -1721,10 +2038,12 @@ class QuizManagement(ft.UserControl):
                 for i, control in enumerate(selected_chips_row.controls):
                     if isinstance(control, ft.Chip) and "Department:" not in control.label.value and "Unit:" not in control.label.value:
                         user_name = control.label.value
-                        # Check if this is the user to remove
-                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
+                        # Check if this is the user to remove by matching the start of the chip label
+                        if user_name.startswith(next((u['full_name'] for u in users if u['id'] == user_id), '')):
                             selected_chips_row.controls.pop(i)
                             break
+                # Refresh search results to show the removed user again
+                update_search_results()
                 if self.page:
                     self.page.update()
 
@@ -1754,7 +2073,7 @@ class QuizManagement(ft.UserControl):
         if is_edit:
             # Add user chips
             for user_id in self.selected_assignment_users:
-                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), f"User {user_id}")
+                user_name = next((f"{u['full_name']} ({get_dept_unit_abbreviation(u.get('department'), u.get('section'), u.get('unit'), current_lang)})" for u in users if u['id'] == user_id), f"User {user_id}")
                 chip = ft.Chip(
                     label=ft.Text(user_name),
                     on_delete=lambda e, uid=user_id: remove_user(uid),
@@ -1779,28 +2098,6 @@ class QuizManagement(ft.UserControl):
                     delete_icon_color=COLORS['error']
                 )
                 selected_chips_row.controls.append(chip)
-
-        def on_user_selection(e):
-            if not e.control.value:
-                return
-
-            user_id = int(e.control.value)
-            if user_id not in self.selected_assignment_users:
-                self.selected_assignment_users.append(user_id)
-
-                # Find user name
-                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
-
-                chip = ft.Chip(
-                    label=ft.Text(user_name),
-                    on_delete=lambda e, uid=user_id: remove_user(uid),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
 
         def on_department_selection(e):
             if not e.control.value:
@@ -1841,7 +2138,6 @@ class QuizManagement(ft.UserControl):
             if self.page:
                 self.page.update()
 
-        user_dropdown.on_change = on_user_selection
         department_dropdown.on_change = on_department_selection
         unit_dropdown.on_change = on_unit_selection
 
@@ -1988,6 +2284,12 @@ class QuizManagement(ft.UserControl):
                         DELETE FROM pdf_exports WHERE exam_id = ?
                     """, (assignment_id,))
 
+                    # Update assignment_users in edit mode by removing all and re-adding
+                    self.db.execute_update("""
+                        DELETE FROM assignment_users WHERE assignment_id = ?
+                    """, (assignment_id,))
+
+
                 else:
                     # Create new assignment (use first exam as primary, others stored in junction table)
                     primary_exam_id = exams[0]['id']
@@ -2051,8 +2353,8 @@ class QuizManagement(ft.UserControl):
                                 INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
                                 VALUES (?, ?, ?)
                             """, (assignment_id, exam['id'], order_idx))
-
-                # Assign users (only for create mode)
+                
+                # Assign users (for both create and edit mode)
                 for user_id in self.selected_assignment_users:
                     # Check if already assigned
                     existing = self.db.execute_single("""
@@ -2137,12 +2439,21 @@ class QuizManagement(ft.UserControl):
             assignment_dialog.open = False
             self.page.update()
 
+        def go_back(e):
+            """Go back to exam template selection dialog"""
+            assignment_dialog.open = False
+            self.page.update()
+            # Reopen the exam selection dialog (only for create mode, not edit mode)
+            if not is_edit:
+                self.show_add_assignment_dialog(None)
+
         # Add date picker to page overlay
         if self.page:
             self.page.overlay.append(self.assignment_deadline_picker)
 
         # Build dialog content
         dialog_content_controls = [
+            ft.Container(height=10),  # Padding above assignment name
             assignment_name_field,
             ft.Container(height=10),
 
@@ -2182,21 +2493,56 @@ class QuizManagement(ft.UserControl):
             ft.Text("Assign to Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
             ft.Divider(height=1, color=COLORS['primary']),
             ft.Text(
-                "Select users, departments, or units to assign this exam.",
+                "Search for individual users or assign entire departments/units.",
                 size=12,
                 color=COLORS['text_secondary']
             ),
-            ft.Container(height=8),
-            ft.Row([
-                user_dropdown,
-                ft.Container(width=12),
-                department_dropdown,
-                ft.Container(width=12),
-                unit_dropdown
-            ], spacing=0),
-            ft.Container(height=12),
+            ft.Container(height=5),
+
+            # Selected users/departments/units (always visible at top)
             selected_items_container,
+            ft.Container(height=8),
+
+            # Search section with filters - COMPACT LAYOUT (search on left, filters on right)
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("🔍 Search Individual Users", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Container(height=6),
+                    # One row: Search field (left, expands) + Filters (right, fixed width)
+                    ft.Row([
+                        user_search,  # Expands to fill space
+                        ft.Container(width=10),
+                        department_filter,  # Fixed width 220px
+                        ft.Container(width=10),
+                        unit_filter,  # Fixed width 220px
+                    ], spacing=0, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Container(height=6),
+                    search_results,  # Full width results
+                ], spacing=0),
+                border=ft.border.all(1, COLORS['secondary']),
+                border_radius=8,
+                padding=10,
+            ),
+
             ft.Container(height=10),
+
+            # Bulk assignment section
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("👥 Bulk Assignment (Departments/Units)", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Container(height=6),
+                    ft.Row([
+                        department_dropdown,
+                        ft.Container(width=10),
+                        unit_dropdown
+                    ], spacing=0),
+                ], spacing=0),
+                border=ft.border.all(1, COLORS['secondary']),
+                border_radius=8,
+                padding=10,
+            ),
+
+            ft.Container(height=8),
         ], visible=True)
 
         apply_delivery_method_state(delivery_method.value == "pdf_export")
@@ -2207,6 +2553,26 @@ class QuizManagement(ft.UserControl):
         dialog_title = f"Edit Multi-Template Assignment ({len(exams)} exams)" if is_edit else f"Create Multi-Template Assignment ({len(exams)} exams)"
         button_text = t('update') + " " + t('assignment') if is_edit else t('create_assignment')
 
+        # Build actions list with conditional Back button (only show in create mode)
+        dialog_actions = []
+        if not is_edit:
+            # Add Back button for create mode
+            dialog_actions.append(
+                ft.TextButton(
+                    t('back'),
+                    icon=ft.icons.ARROW_BACK,
+                    on_click=go_back
+                )
+            )
+        dialog_actions.extend([
+            ft.TextButton(t('cancel'), on_click=close_dialog),
+            ft.ElevatedButton(
+                button_text,
+                on_click=save_assignment,
+                style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+            )
+        ])
+
         assignment_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(dialog_title),
@@ -2215,15 +2581,8 @@ class QuizManagement(ft.UserControl):
                 width=self.page.width - 200 if self.page.width > 200 else 900,
                 height=self.page.height - 150 if self.page.height > 150 else 650
             ),
-            actions=[
-                ft.TextButton(t('cancel'), on_click=close_dialog),
-                ft.ElevatedButton(
-                    button_text,
-                    on_click=save_assignment,
-                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
-                )
-            ],
-            actions_alignment=ft.MainAxisAlignment.END
+            actions=dialog_actions,
+            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN if not is_edit else ft.MainAxisAlignment.END
         )
 
         self.page.dialog = assignment_dialog
@@ -2233,6 +2592,13 @@ class QuizManagement(ft.UserControl):
     def show_assignment_creation_dialog_from_preset(self, preset_config, preset_name):
         """Show assignment dialog using preset template configuration"""
         from datetime import datetime, date
+
+        # Preset-based assignments are always in create mode (no edit)
+        is_edit = False
+
+        # Store preset info for back button functionality
+        self._temp_preset_config = preset_config
+        self._temp_preset_name = preset_name
 
         # Calculate total questions from preset
         total_questions = sum(c['easy_count'] + c['medium_count'] + c['hard_count'] for c in preset_config)
@@ -2286,7 +2652,7 @@ class QuizManagement(ft.UserControl):
 
         # Duration, Passing Score, Max Attempts
         duration_field = ft.TextField(
-            label=t('duration'),
+            label=t('duration_minutes'),
             value=self.default_exam_duration,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2295,7 +2661,7 @@ class QuizManagement(ft.UserControl):
         )
 
         passing_score_field = ft.TextField(
-            label=t('passing_score'),
+            label=t('passing_score_percent'),
             value=self.default_passing_score,
             keyboard_type=ft.KeyboardType.NUMBER,
             content_padding=5,
@@ -2460,7 +2826,7 @@ class QuizManagement(ft.UserControl):
         user_dropdown = self.create_styled_dropdown(
             label=t('search_users'),
             hint_text="Choose users to assign",
-            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
+            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({get_dept_unit_abbreviation(user.get('department'), user.get('section'), user.get('unit'), current_lang)})") for user in users],
             expand=True,
             height=56,
             content_padding=5
@@ -2493,7 +2859,11 @@ class QuizManagement(ft.UserControl):
         selected_chips_row = ft.Row(spacing=8, wrap=True)
         selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
-            selected_chips_row,
+            ft.Container(
+                content=selected_chips_row,
+                padding=ft.padding.only(top=5, bottom=5),
+                
+            ),
         ], spacing=5)
 
         def remove_user(user_id):
@@ -2528,8 +2898,13 @@ class QuizManagement(ft.UserControl):
 
         def on_user_selection(selected_key):
             """Handle user selection from SearchBar"""
-            user_id = int(selected_key)
-            if user_id not in self.selected_assignment_users:
+            user_id = None
+            if isinstance(selected_key, dict):
+                user_id = selected_key.get('id')
+            else:
+                user_id = int(selected_key)
+
+            if user_id and user_id not in self.selected_assignment_users:
                 self.selected_assignment_users.append(user_id)
 
                 user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
@@ -2580,24 +2955,100 @@ class QuizManagement(ft.UserControl):
             if self.page:
                 self.page.update()
 
-        # Create SearchableDropdowns
-        user_search_dropdown = SearchableDropdown(
-            items=user_items,
-            hint_text=t('search_users'),
-            on_select=on_user_selection
+        # --- Start: Modern User Selection UI ---
+        from quiz_app.utils.localization import get_department_abbreviation, get_unit_abbreviation
+        from quiz_app.utils.permissions import get_dept_unit_full_name
+
+        filter_department = ft.Ref[ft.Dropdown]()
+        filter_unit = ft.Ref[ft.Dropdown]()
+        user_search_field = ft.Ref[ft.TextField]()
+        search_results_column = ft.Ref[ft.Column]()
+
+        department_filter = self.create_styled_dropdown(
+            ref=filter_department,
+            label=t('filter_by_department'),
+            options=[ft.dropdown.Option("", t('all'))] + [
+                ft.dropdown.Option(dept, get_department_abbreviation(dept, current_lang))
+                for dept in department_values
+            ],
+            width=220, content_padding=10, text_size=14, value=""
         )
 
-        department_assign_dropdown = SearchableDropdown(
-            items=department_items,
-            hint_text=t('assign_department'),
-            on_select=on_department_assign
+        unit_filter = self.create_styled_dropdown(
+            ref=filter_unit,
+            label=t('filter_by_unit'),
+            options=[ft.dropdown.Option("", t('all'))] + [
+                ft.dropdown.Option(f"{dept}|||{unit}", get_unit_abbreviation(dept, get_unit_display_name(dept, unit), current_lang))
+                for dept, unit in unit_combo_list
+            ],
+            width=220, content_padding=10, text_size=14, value=""
         )
 
-        unit_assign_dropdown = SearchableDropdown(
-            items=unit_items,
-            hint_text=t('assign_unit'),
-            on_select=on_unit_assign
+        user_search = ft.TextField(
+            ref=user_search_field,
+            label=t('search_users'),
+            hint_text="Type name to search...",
+            prefix_icon=ft.icons.SEARCH,
+            border_color=COLORS['secondary'],
+            focused_border_color=COLORS['primary'],
+            expand=True, content_padding=10, text_size=14
         )
+
+        search_results = ft.Container(
+            content=ft.Column(ref=search_results_column, spacing=2, scroll=ft.ScrollMode.AUTO),
+            border=ft.border.all(1, COLORS['secondary']),
+            border_radius=8, padding=5, height=250, expand=True
+        )
+
+        def get_filtered_users(search_text=""):
+            filtered = users
+            if filter_department.current and filter_department.current.value:
+                filtered = [u for u in filtered if u.get('department') == filter_department.current.value]
+            if filter_unit.current and filter_unit.current.value:
+                dept, unit = filter_unit.current.value.split("|||")
+                filtered = [u for u in filtered if u.get('department') == dept and u.get('unit') == unit]
+            if search_text:
+                search_lower = search_text.lower()
+                filtered = [u for u in filtered if search_lower in u['full_name'].lower() or search_lower in u.get('username', '').lower()]
+            return filtered[:20]
+
+        def update_search_results(e=None):
+            search_text = user_search_field.current.value if user_search_field.current else ""
+            filtered_users = get_filtered_users(search_text)
+            search_results_column.current.controls.clear()
+            if not filtered_users:
+                search_results_column.current.controls.append(ft.Text("No users found", color=COLORS['text_secondary'], size=12, padding=10))
+            else:
+                for user in filtered_users:
+                    if user['id'] in self.selected_assignment_users: continue
+                    full_dept_unit = get_dept_unit_full_name(user.get('department'), user.get('section'), user.get('unit'), current_lang)
+                    search_results_column.current.controls.append(ft.Container(
+                        content=ft.Row([ft.Icon(ft.icons.PERSON, size=16), ft.Text(f"{user['full_name']} ({full_dept_unit})", size=13)], spacing=8),
+                        padding=8, border_radius=4, ink=True, on_click=lambda _, u=user: on_user_selection(u),
+                        on_hover=lambda e: setattr(e.control, 'bgcolor', COLORS['background'] if e.data == "true" else ft.colors.TRANSPARENT) or e.control.update()
+                    ))
+            if self.page: self.page.update()
+
+        user_search.on_change = update_search_results
+        department_filter.on_change = update_search_results
+        unit_filter.on_change = update_search_results
+
+        department_assign_dropdown = self.create_styled_dropdown(
+            label=t('assign_department'), hint_text="Choose departments",
+            options=[ft.dropdown.Option(dept, dept) for dept in department_values],
+            expand=True, height=56, content_padding=5,
+            on_change=lambda e: on_department_assign(e.control.value) if e.control.value else None
+        )
+
+        unit_assign_dropdown = self.create_styled_dropdown(
+            label=t('assign_unit'), hint_text="Select unit",
+            options=[ft.dropdown.Option(f"{dept}|||{unit}", f"{get_unit_display_name(dept, dept)} / {get_unit_display_name(dept, unit)}") for dept, unit in unit_combo_list],
+            expand=True, height=56, content_padding=5,
+            on_change=lambda e: on_unit_assign(e.control.value) if e.control.value else None
+        )
+
+        update_search_results()
+        # --- End: Modern User Selection UI ---
 
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
@@ -2758,12 +3209,21 @@ class QuizManagement(ft.UserControl):
             assignment_dialog.open = False
             self.page.update()
 
+        def go_back(e):
+            """Go back to exam template selection dialog"""
+            assignment_dialog.open = False
+            self.page.update()
+            # Reopen the exam selection dialog (only for create mode, not edit mode)
+            if not is_edit:
+                self.show_add_assignment_dialog(None)
+
         # Add date picker to page overlay
         if self.page:
             self.page.overlay.append(self.assignment_deadline_picker)
 
         # Build dialog content
         dialog_content_controls = [
+            ft.Container(height=10),  # Padding above assignment name
             assignment_name_field,
             ft.Container(height=10),
 
@@ -2807,23 +3267,49 @@ class QuizManagement(ft.UserControl):
                 size=12,
                 color=COLORS['text_secondary']
             ),
-            ft.Container(height=8),
-            # All 3 search bars stacked vertically
-            ft.Column([
-                user_search_dropdown.search_bar,
-                ft.Container(height=8),
-                department_assign_dropdown.search_bar,
-                ft.Container(height=8),
-                unit_assign_dropdown.search_bar
-            ], spacing=0),
-            ft.Container(height=12),
-            # Selected items only
+            ft.Container(height=5),
+
+            # Selected users/departments/units (always visible at top)
             selected_items_container,
+            ft.Container(height=8),
+
+            # All 3 search bars stacked vertically
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("🔍 Search Individual Users", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Row([user_search, ft.Container(width=10), department_filter, ft.Container(width=10), unit_filter]),
+                    search_results,
+                ]),
+                border=ft.border.all(1, COLORS['secondary']), border_radius=8, padding=10,
+            ),
+            ft.Container(height=10),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("👥 Bulk Assignment (Departments/Units)", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Row([department_assign_dropdown, ft.Container(width=10), unit_assign_dropdown]),
+                ]),
+                border=ft.border.all(1, COLORS['secondary']), border_radius=8, padding=10,
+            ),
             ft.Container(height=10),
         ], visible=True)
 
         dialog_content_controls.append(user_selection_section)
         dialog_content_controls.append(error_text)
+
+        # Build actions list with Back button
+        dialog_actions = [
+            ft.TextButton(
+                t('back'),
+                icon=ft.icons.ARROW_BACK,
+                on_click=go_back
+            ),
+            ft.TextButton(t('cancel'), on_click=close_dialog),
+            ft.ElevatedButton(
+                t('create_assignment'),
+                on_click=save_assignment,
+                style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+            )
+        ]
 
         assignment_dialog = ft.AlertDialog(
             modal=True,
@@ -2833,956 +3319,14 @@ class QuizManagement(ft.UserControl):
                 width=self.page.width - 200 if self.page.width > 200 else 900,
                 height=self.page.height - 150 if self.page.height > 150 else 650
             ),
-            actions=[
-                ft.TextButton(t('cancel'), on_click=close_dialog),
-                ft.ElevatedButton(
-                    t('create_assignment'),
-                    on_click=save_assignment,
-                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
-                )
-            ],
-            actions_alignment=ft.MainAxisAlignment.END
+            actions=dialog_actions,
+            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
         )
 
         self.page.dialog = assignment_dialog
         assignment_dialog.open = True
         self.page.update()
 
-    def show_assignment_creation_dialog(self, exam, assignment=None):
-        """Show dialog for creating/editing an assignment from an exam template"""
-        from datetime import datetime, date
-
-        is_edit = assignment is not None
-
-        # Assignment name
-        assignment_name_field = ft.TextField(
-            label=t('assignment_name') + " *",
-            value=assignment['assignment_name'] if is_edit else f"{exam['title']} - Assignment",
-            content_padding=5,
-            hint_text="e.g., Midterm Exam - Section A",
-            expand=True
-        )
-
-        # Duration, Passing Score, Max Attempts
-        duration_field = ft.TextField(
-            label=t('duration'),
-            value=str(assignment['duration_minutes']) if is_edit else self.default_exam_duration,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=5,
-            hint_text="e.g., 90",
-            width=150
-        )
-
-        passing_score_field = ft.TextField(
-            label=t('passing_score'),
-            value=str(assignment['passing_score']) if is_edit else self.default_passing_score,
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=5,
-            hint_text="e.g., 80",
-            width=150
-        )
-
-        max_attempts_field = ft.TextField(
-            label=t('max_attempts'),
-            value=str(assignment['max_attempts']) if is_edit else "1",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            content_padding=5,
-            hint_text="e.g., 3",
-            width=150
-        )
-
-        # Security Settings
-        randomize_questions = ft.Checkbox(
-            label=t('randomize_questions'),
-            value=bool(assignment['randomize_questions']) if is_edit else False
-        )
-
-        show_results = ft.Checkbox(
-            label=t('show_results'),
-            value=bool(assignment['show_results']) if is_edit else True
-        )
-
-        enable_fullscreen = ft.Checkbox(
-            label=t('enable_fullscreen'),
-            value=bool(assignment['enable_fullscreen']) if is_edit else False
-        )
-
-        # Delivery Method
-        delivery_method = ft.RadioGroup(
-            content=ft.Column([
-                ft.Radio(value="online", label=t('online_exam')),
-                ft.Radio(value="pdf_export", label=t('pdf_export'))
-            ]),
-            value=assignment.get('delivery_method', 'online') if is_edit else "online"
-        )
-
-        # Variant count dropdown
-        existing_variant_count = str(assignment.get('pdf_variant_count', 1)) if is_edit else "1"
-        variant_count = self.create_styled_dropdown(
-            label=t('pdf_variants'),
-            options=[
-                ft.dropdown.Option("1", "1 Variant"),
-                ft.dropdown.Option("2", "2 Variants"),
-                ft.dropdown.Option("3", "3 Variants"),
-                ft.dropdown.Option("4", "4 Variants")
-            ],
-            value=existing_variant_count,
-            width=200,
-            visible=is_edit and assignment.get('delivery_method') == "pdf_export"
-        )
-
-        # Variant note
-        variant_note = ft.Container(
-            content=ft.Column([
-                ft.Text("💡 Variants Info:", size=11, weight=ft.FontWeight.BOLD),
-                ft.Text("• Each variant has different question order", size=10),
-                ft.Text("• Helps prevent cheating in classroom", size=10),
-                ft.Text("• Only works if 'Randomize Questions' is enabled", size=10)
-            ], spacing=2),
-            padding=8,
-            bgcolor=ft.colors.with_opacity(0.05, COLORS['warning']),
-            border_radius=6,
-            visible=is_edit and assignment.get('delivery_method') == "pdf_export" and bool(assignment.get('randomize_questions'))
-        )
-
-        # PDF assignment note
-        pdf_note = ft.Container(
-            content=ft.Column([
-                ft.Text("📌 Note for PDF Export:", size=12, weight=ft.FontWeight.BOLD),
-                ft.Text("• Questions will be saved when assignment is created", size=11),
-                ft.Text("• You can export PDF multiple times (same questions)", size=11),
-                ft.Text("• No need to assign to students", size=11)
-            ], spacing=3),
-            padding=10,
-            bgcolor=ft.colors.with_opacity(0.05, COLORS['info']),
-            border_radius=8,
-            visible=False
-        )
-
-
-        # Delivery method change handlers
-        def on_delivery_method_change(e):
-            is_pdf = (e.control.value == "pdf_export")
-            variant_count.visible = is_pdf
-            variant_note.visible = is_pdf and randomize_questions.value
-            pdf_note.visible = is_pdf
-            show_results.visible = not is_pdf
-            enable_fullscreen.visible = not is_pdf
-            user_selection_section.visible = not is_pdf  # Hide user selection for PDF
-            assignment_dialog.update()
-
-        def on_randomize_change(e):
-            if delivery_method.value == "pdf_export":
-                variant_note.visible = e.control.value
-                assignment_dialog.update()
-
-        delivery_method.on_change = on_delivery_method_change
-        randomize_questions.on_change = on_randomize_change
-
-        # Get question counts for this exam
-        question_count = self.db.execute_single(
-            "SELECT COUNT(*) as count FROM questions WHERE exam_id = ? AND is_active = 1",
-            (exam['id'],)
-        )
-        has_questions = question_count and question_count['count'] > 0
-        total_q = question_count['count'] if has_questions else 0
-
-        easy_q = 0
-        medium_q = 0
-        hard_q = 0
-
-        if has_questions:
-            difficulty_counts = self.db.execute_query("""
-                SELECT difficulty_level, COUNT(*) as count
-                FROM questions
-                WHERE exam_id = ? AND is_active = 1
-                GROUP BY difficulty_level
-            """, (exam['id'],))
-
-            for row in difficulty_counts:
-                if row['difficulty_level'] == 'easy':
-                    easy_q = row['count']
-                elif row['difficulty_level'] == 'medium':
-                    medium_q = row['count']
-                elif row['difficulty_level'] == 'hard':
-                    hard_q = row['count']
-
-        # Check if template-level counts exist (for multi-template assignments or pool-based single-template)
-        template_counts_exist = False
-        template_easy = 0
-        template_medium = 0
-        template_hard = 0
-
-        if is_edit and assignment:
-            template_data = self.db.execute_single("""
-                SELECT easy_count, medium_count, hard_count
-                FROM assignment_exam_templates
-                WHERE assignment_id = ? AND exam_id = ?
-            """, (assignment['id'], exam['id']))
-
-            if template_data:
-                template_counts_exist = True
-                template_easy = template_data['easy_count'] or 0
-                template_medium = template_data['medium_count'] or 0
-                template_hard = template_data['hard_count'] or 0
-
-        # Use template-level counts if they exist, otherwise use assignment-level counts
-        initial_easy = template_easy if template_counts_exist else (assignment['easy_questions_count'] if is_edit else 0)
-        initial_medium = template_medium if template_counts_exist else (assignment['medium_questions_count'] if is_edit else 0)
-        initial_hard = template_hard if template_counts_exist else (assignment['hard_questions_count'] if is_edit else 0)
-
-        # Random Question Selection Settings
-        use_pool_value = bool(assignment['use_question_pool']) if is_edit else False
-        use_question_pool = ft.Checkbox(
-            label="Enable Random Question Selection - Each student gets different questions",
-            value=use_pool_value,
-            disabled=not has_questions
-        )
-
-        # Info text to explain the feature
-        pool_info_text = ft.Container(
-            content=ft.Text(
-                "💡 When enabled, each student will receive a randomly selected subset of questions from the exam. "
-                "This prevents cheating by ensuring no two students get exactly the same questions.",
-                size=12,
-                color=COLORS['text_secondary'],
-                italic=True
-            ),
-            padding=ft.padding.only(left=10, top=5, bottom=10),
-            visible=has_questions
-        )
-
-        easy_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, easy_q + 1)]
-        medium_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, medium_q + 1)]
-        hard_options = [ft.dropdown.Option(str(i), str(i)) for i in range(0, hard_q + 1)]
-
-        easy_questions_count_field = self.create_styled_dropdown(
-            label=f"Easy (Available: {easy_q})",
-            options=easy_options,
-            value=str(initial_easy),
-            width=150,
-            content_padding=5,
-            disabled=not use_pool_value
-        )
-
-        medium_questions_count_field = self.create_styled_dropdown(
-            label=f"Medium (Available: {medium_q})",
-            options=medium_options,
-            value=str(initial_medium),
-            width=150,
-            content_padding=5,
-            disabled=not use_pool_value
-        )
-
-        hard_questions_count_field = self.create_styled_dropdown(
-            label=f"Hard (Available: {hard_q})",
-            options=hard_options,
-            value=str(initial_hard),
-            width=150,
-            content_padding=5,
-            disabled=not use_pool_value
-        )
-
-        # Total questions counter (auto-calculated)
-        total_questions_text = ft.Text(
-            f"Total questions: 0",
-            size=14,
-            weight=ft.FontWeight.BOLD,
-            color=COLORS['primary']
-        )
-
-        def update_total_questions(e=None):
-            """Auto-calculate total from difficulty counts"""
-            try:
-                easy = int(easy_questions_count_field.value) if easy_questions_count_field.value else 0
-                medium = int(medium_questions_count_field.value) if medium_questions_count_field.value else 0
-                hard = int(hard_questions_count_field.value) if hard_questions_count_field.value else 0
-                total = easy + medium + hard
-                total_questions_text.value = f"Total questions: {total}"
-                if self.page:
-                    total_questions_text.update()
-            except:
-                pass
-
-        easy_questions_count_field.on_change = update_total_questions
-        medium_questions_count_field.on_change = update_total_questions
-        hard_questions_count_field.on_change = update_total_questions
-
-        # Initialize total
-        update_total_questions()
-
-        def toggle_question_pool_fields(e):
-            enabled = e.control.value
-            easy_questions_count_field.disabled = not enabled
-            medium_questions_count_field.disabled = not enabled
-            hard_questions_count_field.disabled = not enabled
-            total_questions_text.visible = enabled
-            if self.page:
-                self.page.update()
-
-        use_question_pool.on_change = toggle_question_pool_fields
-
-        # Date picker - Initialize with assignment deadline if editing
-        self.assignment_deadline = None
-
-        if is_edit:
-            if assignment.get('deadline'):
-                try:
-                    self.assignment_deadline = datetime.fromisoformat(assignment['deadline']).date()
-                except:
-                    pass
-
-        self.assignment_deadline_picker = ft.DatePicker(
-            first_date=date.today(),
-            last_date=date(2030, 12, 31)
-        )
-
-        deadline_field = ft.TextField(
-            label=t('deadline'),
-            value=self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else "",
-            read_only=True,
-            content_padding=5,
-            hint_text="Click to select deadline",
-            width=250,
-            on_click=lambda e: self.page.open(self.assignment_deadline_picker),
-            suffix=ft.IconButton(
-                icon=ft.icons.CALENDAR_TODAY,
-                on_click=lambda e: self.page.open(self.assignment_deadline_picker)
-            )
-        )
-
-        # Date picker event handler
-        def deadline_changed(e):
-            self.assignment_deadline = e.control.value
-            deadline_field.value = self.assignment_deadline.strftime("%Y-%m-%d") if self.assignment_deadline else ""
-            deadline_field.update()
-
-        self.assignment_deadline_picker.on_change = deadline_changed
-
-        # User selection containers
-        self.selected_assignment_users = []
-        self.selected_assignment_departments = []
-        self.selected_assignment_units = []
-
-        # If editing, load currently assigned users/departments/units from database
-        if is_edit:
-            # Load assigned users
-            assigned_users_data = self.db.execute_query("""
-                SELECT DISTINCT user_id
-                FROM assignment_users
-                WHERE assignment_id = ? AND is_active = 1
-            """, (assignment['id'],))
-            self.selected_assignment_users = [u['user_id'] for u in assigned_users_data]
-
-            # Load assigned departments (users grouped by department)
-            assigned_depts_data = self.db.execute_query("""
-                SELECT DISTINCT u.department
-                FROM assignment_users au
-                JOIN users u ON au.user_id = u.id
-                WHERE au.assignment_id = ? AND au.is_active = 1
-                  AND u.department IS NOT NULL AND u.department != ''
-                GROUP BY u.department
-                HAVING COUNT(DISTINCT u.id) = (
-                    SELECT COUNT(*) FROM users
-                    WHERE department = u.department AND role IN ('examinee', 'expert') AND is_active = 1
-                )
-            """, (assignment['id'],))
-            self.selected_assignment_departments = [d['department'] for d in assigned_depts_data]
-
-            # Load assigned units (users grouped by department+unit)
-            assigned_units_data = self.db.execute_query("""
-                SELECT DISTINCT u.department, u.unit
-                FROM assignment_users au
-                JOIN users u ON au.user_id = u.id
-                WHERE au.assignment_id = ? AND au.is_active = 1
-                  AND u.department IS NOT NULL AND u.department != ''
-                  AND u.unit IS NOT NULL AND u.unit != ''
-                GROUP BY u.department, u.unit
-                HAVING COUNT(DISTINCT u.id) = (
-                    SELECT COUNT(*) FROM users
-                    WHERE department = u.department AND unit = u.unit
-                      AND role IN ('examinee', 'expert') AND is_active = 1
-                )
-            """, (assignment['id'],))
-            self.selected_assignment_units = [(u['department'], u['unit']) for u in assigned_units_data]
-
-        # Load users and departments for selection (include both examinees and experts)
-        users = self.db.execute_query("""
-            SELECT id, full_name, username, role
-            FROM users
-            WHERE role IN ('examinee', 'expert') AND is_active = 1
-            ORDER BY full_name
-        """)
-
-        departments = self.db.execute_query("""
-            SELECT DISTINCT department
-            FROM users
-            WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
-            ORDER BY department
-        """)
-
-        user_dropdown = self.create_styled_dropdown(
-            label=t('select_users'),
-            hint_text="Choose users to assign",
-            options=[ft.dropdown.Option(key=str(user['id']), text=f"{user['full_name']} ({user['username']})") for user in users],
-            width=250,
-            height=56,
-            content_padding=5
-        )
-
-        department_dropdown = self.create_styled_dropdown(
-            label=t('select_departments'),
-            hint_text="Choose departments to assign",
-            options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
-            width=250,
-            height=56,
-            content_padding=5
-        )
-
-        # Get unit combinations for dropdown
-        department_values = sorted({u.get('department') for u in users if u.get('department')})
-        unit_combo_set = {
-            (u['department'], u['unit'])
-            for u in users
-            if u.get('department') and u.get('unit')
-        }
-        unit_combo_list = sorted(list(unit_combo_set), key=lambda combo: (combo[0], combo[1]))
-
-        # Helper function to extract unit name in current language
-        current_lang = get_language()
-        def get_unit_display_name(dept, unit):
-            """Extract unit name in current language"""
-            if " / " in unit:
-                parts = unit.split(" / ")
-                if len(parts) == 2:
-                    return parts[1].strip() if current_lang == 'en' else parts[0].strip()
-            return unit
-
-        unit_dropdown = self.create_styled_dropdown(
-            label=t('assign_unit') if hasattr(t, '__call__') else "Assign Unit",
-            hint_text="Select unit",
-            options=[
-                ft.dropdown.Option(
-                    f"{dept}|||{unit}",
-                    f"{get_unit_display_name(dept, dept)} / {get_unit_display_name(dept, unit)}"
-                )
-                for dept, unit in unit_combo_list
-            ],
-            width=250,
-            height=56,
-            content_padding=5
-        )
-
-        selected_chips_row = ft.Row(spacing=8, wrap=True)
-        selected_items_container = ft.Column([
-            ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
-            selected_chips_row,
-        ], spacing=5)
-
-        # Define remove functions first (needed for chip creation)
-        def remove_user(user_id):
-            if user_id in self.selected_assignment_users:
-                self.selected_assignment_users.remove(user_id)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and "Department:" not in control.label.value and "Unit:" not in control.label.value:
-                        user_name = control.label.value
-                        # Check if this is the user to remove
-                        if user_id in [u['id'] for u in users if f"{u['full_name']} ({u['username']})" == user_name]:
-                            selected_chips_row.controls.pop(i)
-                            break
-                if self.page:
-                    self.page.update()
-
-        def remove_department(dept):
-            if dept in self.selected_assignment_departments:
-                self.selected_assignment_departments.remove(dept)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
-                        selected_chips_row.controls.pop(i)
-                        break
-                if self.page:
-                    self.page.update()
-
-        def remove_unit(combo):
-            if combo in self.selected_assignment_units:
-                self.selected_assignment_units.remove(combo)
-                # Remove chip from UI
-                for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and f"Unit: {combo[0]} / {combo[1]}" == control.label.value:
-                        selected_chips_row.controls.pop(i)
-                        break
-                if self.page:
-                    self.page.update()
-
-        # If editing, populate chips from loaded data
-        if is_edit:
-            # Add user chips
-            for user_id in self.selected_assignment_users:
-                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), f"User {user_id}")
-                chip = ft.Chip(
-                    label=ft.Text(user_name),
-                    on_delete=lambda e, uid=user_id: remove_user(uid),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-            # Add department chips
-            for dept in self.selected_assignment_departments:
-                chip = ft.Chip(
-                    label=ft.Text(f"Department: {dept}"),
-                    on_delete=lambda e, d=dept: remove_department(d),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-            # Add unit chips
-            for dept, unit in self.selected_assignment_units:
-                chip = ft.Chip(
-                    label=ft.Text(f"Unit: {dept} / {unit}"),
-                    on_delete=lambda e, combo=(dept, unit): remove_unit(combo),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-        def on_user_selection(e):
-            if not e.control.value:
-                return
-
-            user_id = int(e.control.value)
-            if user_id not in self.selected_assignment_users:
-                self.selected_assignment_users.append(user_id)
-
-                # Find user name
-                user_name = next((f"{u['full_name']} ({u['username']})" for u in users if u['id'] == user_id), "User")
-
-                chip = ft.Chip(
-                    label=ft.Text(user_name),
-                    on_delete=lambda e, uid=user_id: remove_user(uid),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
-
-        def on_department_selection(e):
-            if not e.control.value:
-                return
-
-            dept = e.control.value
-            if dept not in self.selected_assignment_departments:
-                self.selected_assignment_departments.append(dept)
-
-                chip = ft.Chip(
-                    label=ft.Text(f"Department: {dept}"),
-                    on_delete=lambda e, d=dept: remove_department(d),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
-
-        def on_unit_selection(e):
-            if not e.control.value:
-                return
-
-            dept, unit = e.control.value.split("|||")
-            key = (dept, unit)
-            if key not in self.selected_assignment_units:
-                self.selected_assignment_units.append(key)
-
-                chip = ft.Chip(
-                    label=ft.Text(f"Unit: {dept} / {unit}"),
-                    on_delete=lambda e, combo=key: remove_unit(combo),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_chips_row.controls.append(chip)
-
-            e.control.value = None
-            if self.page:
-                self.page.update()
-
-        user_dropdown.on_change = on_user_selection
-        department_dropdown.on_change = on_department_selection
-        unit_dropdown.on_change = on_unit_selection
-
-        error_text = ft.Text("", color=COLORS['error'], visible=False)
-
-        def save_assignment(e):
-            # Validate
-            if not assignment_name_field.value.strip():
-                error_text.value = "Assignment name is required"
-                error_text.visible = True
-                assignment_dialog.update()
-                return
-
-            # For create mode, validate user/department/unit selection (skip for PDF export)
-            is_pdf_export = delivery_method.value == "pdf_export"
-            if not is_edit and not is_pdf_export and not self.selected_assignment_users and not self.selected_assignment_departments and not self.selected_assignment_units:
-                error_text.value = "Please select at least one user, department, or unit (not required for PDF Export)"
-                error_text.visible = True
-                assignment_dialog.update()
-                return
-
-            try:
-                duration = int(duration_field.value)
-                passing_score = float(passing_score_field.value)
-                max_attempts = int(max_attempts_field.value)
-
-                if duration <= 0 or passing_score <= 0 or passing_score > 100 or max_attempts <= 0:
-                    error_text.value = "Invalid values for duration, passing score, or max attempts"
-                    error_text.visible = True
-                    assignment_dialog.update()
-                    return
-
-                use_pool = use_question_pool.value
-                easy_count = int(easy_questions_count_field.value) if easy_questions_count_field.value else 0
-                medium_count = int(medium_questions_count_field.value) if medium_questions_count_field.value else 0
-                hard_count = int(hard_questions_count_field.value) if hard_questions_count_field.value else 0
-
-                # Auto-calculate total questions from difficulty counts
-                to_select = easy_count + medium_count + hard_count
-
-                if is_edit:
-                    # Update existing assignment
-                    query = """
-                        UPDATE exam_assignments SET
-                            assignment_name = ?,
-                            duration_minutes = ?,
-                            passing_score = ?,
-                            max_attempts = ?,
-                            randomize_questions = ?,
-                            show_results = ?,
-                            enable_fullscreen = ?,
-                            delivery_method = ?,
-                            pdf_variant_count = ?,
-                            use_question_pool = ?,
-                            questions_to_select = ?,
-                            easy_questions_count = ?,
-                            medium_questions_count = ?,
-                            hard_questions_count = ?,
-                            deadline = ?
-                        WHERE id = ?
-                    """
-                    params = (
-                        assignment_name_field.value.strip(),
-                        duration,
-                        passing_score,
-                        max_attempts,
-                        1 if randomize_questions.value else 0,
-                        1 if show_results.value else 0,
-                        1 if enable_fullscreen.value else 0,
-                        delivery_method.value,
-                        int(variant_count.value) if variant_count.value else 1,
-                        1 if use_pool else 0,
-                        to_select,
-                        easy_count,
-                        medium_count,
-                        hard_count,
-                        self.assignment_deadline.isoformat() if self.assignment_deadline else None,
-                        assignment['id']
-                    )
-                    self.db.execute_update(query, params)
-                    assignment_id = assignment['id']
-
-                    # Update or create template-level counts if using question pool
-                    if use_pool and (easy_count > 0 or medium_count > 0 or hard_count > 0):
-                        # Check if template record exists
-                        existing_template = self.db.execute_single("""
-                            SELECT id FROM assignment_exam_templates
-                            WHERE assignment_id = ? AND exam_id = ?
-                        """, (assignment_id, exam['id']))
-
-                        if existing_template:
-                            # Update existing template record
-                            self.db.execute_update("""
-                                UPDATE assignment_exam_templates
-                                SET easy_count = ?, medium_count = ?, hard_count = ?
-                                WHERE assignment_id = ? AND exam_id = ?
-                            """, (easy_count, medium_count, hard_count, assignment_id, exam['id']))
-                        else:
-                            # Create new template record
-                            self.db.execute_insert("""
-                                INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index, easy_count, medium_count, hard_count)
-                                VALUES (?, ?, 0, ?, ?, ?)
-                            """, (assignment_id, exam['id'], easy_count, medium_count, hard_count))
-
-                    # Update assignment_users in edit mode
-                    # First, remove all current assignments
-                    self.db.execute_update("""
-                        DELETE FROM assignment_users WHERE assignment_id = ?
-                    """, (assignment_id,))
-
-                    # Then add the new selections
-                    for user_id in self.selected_assignment_users:
-                        self.db.execute_insert("""
-                            INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                            VALUES (?, ?, ?)
-                        """, (assignment_id, user_id, self.user_data['id']))
-
-                    # Also add users from selected departments
-                    for dept in self.selected_assignment_departments:
-                        dept_users = self.db.execute_query("""
-                            SELECT id FROM users
-                            WHERE department = ? AND role = 'examinee' AND is_active = 1
-                        """, (dept,))
-
-                        for user in dept_users:
-                            # Check if already assigned (to avoid duplicates)
-                            existing = self.db.execute_single("""
-                                SELECT id FROM assignment_users
-                                WHERE assignment_id = ? AND user_id = ?
-                            """, (assignment_id, user['id']))
-
-                            if not existing:
-                                self.db.execute_insert("""
-                                    INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                                    VALUES (?, ?, ?)
-                                """, (assignment_id, user['id'], self.user_data['id']))
-                else:
-                    # Create new assignment
-                    query = """
-                        INSERT INTO exam_assignments (
-                            exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
-                            randomize_questions, show_results, enable_fullscreen,
-                            delivery_method, pdf_variant_count,
-                            use_question_pool, questions_to_select,
-                            easy_questions_count, medium_questions_count, hard_questions_count,
-                            deadline, created_at, created_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """
-                    params = (
-                        exam['id'],
-                        assignment_name_field.value.strip(),
-                        duration,
-                        passing_score,
-                        max_attempts,
-                        1 if randomize_questions.value else 0,
-                        1 if show_results.value else 0,
-                        1 if enable_fullscreen.value else 0,
-                        delivery_method.value,
-                        int(variant_count.value) if variant_count.value else 1,
-                        1 if use_pool else 0,
-                        to_select,
-                        easy_count,
-                        medium_count,
-                        hard_count,
-                        self.assignment_deadline.isoformat() if self.assignment_deadline else None,
-                        datetime.now().isoformat(),
-                        self.user_data['id']
-                    )
-                    assignment_id = self.db.execute_insert(query, params)
-
-                    # Create template-level counts if using question pool
-                    if use_pool and (easy_count > 0 or medium_count > 0 or hard_count > 0):
-                        self.db.execute_insert("""
-                            INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index, easy_count, medium_count, hard_count)
-                            VALUES (?, ?, 0, ?, ?, ?)
-                        """, (assignment_id, exam['id'], easy_count, medium_count, hard_count))
-
-                    # Assign users (only for create mode)
-                    for user_id in self.selected_assignment_users:
-                        # Check if already assigned
-                        existing = self.db.execute_single("""
-                            SELECT id FROM assignment_users
-                            WHERE assignment_id = ? AND user_id = ?
-                        """, (assignment_id, user_id))
-
-                        if not existing:
-                            self.db.execute_insert("""
-                                INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                                VALUES (?, ?, ?)
-                            """, (assignment_id, user_id, self.user_data['id']))
-
-                    # Assign departments (only for create mode)
-                    for dept in self.selected_assignment_departments:
-                        dept_users = self.db.execute_query("""
-                            SELECT id FROM users
-                            WHERE department = ? AND role = 'examinee' AND is_active = 1
-                        """, (dept,))
-
-                        for user in dept_users:
-                            # Check if already assigned
-                            existing = self.db.execute_single("""
-                                SELECT id FROM assignment_users
-                                WHERE assignment_id = ? AND user_id = ?
-                            """, (assignment_id, user['id']))
-
-                            if not existing:
-                                self.db.execute_insert("""
-                                    INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                                    VALUES (?, ?, ?)
-                                """, (assignment_id, user['id'], self.user_data['id']))
-
-                    # Assign units (only for create mode)
-                    for dept, unit in self.selected_assignment_units:
-                        unit_users = self.db.execute_query("""
-                            SELECT id FROM users
-                            WHERE department = ? AND unit = ? AND role IN ('examinee', 'expert') AND is_active = 1
-                        """, (dept, unit))
-
-                        for user in unit_users:
-                            # Check if already assigned
-                            existing = self.db.execute_single("""
-                                SELECT id FROM assignment_users
-                                WHERE assignment_id = ? AND user_id = ?
-                            """, (assignment_id, user['id']))
-
-                            if not existing:
-                                self.db.execute_insert("""
-                                    INSERT INTO assignment_users (assignment_id, user_id, granted_by)
-                                    VALUES (?, ?, ?)
-                                """, (assignment_id, user['id'], self.user_data['id']))
-
-                # Close dialog
-                assignment_dialog.open = False
-                if self.page:
-                    self.page.update()
-
-                # Reload exams and update UI
-                self.load_exams()
-                if self.page:
-                    self.update()
-
-                # Show success message
-                success_message = f"Assignment '{assignment_name_field.value.strip()}' {'updated' if is_edit else 'created'} successfully!"
-                self.page.snack_bar = ft.SnackBar(
-                    content=ft.Text(success_message),
-                    bgcolor=COLORS['success']
-                )
-                self.page.snack_bar.open = True
-                self.page.update()
-
-            except Exception as ex:
-                error_text.value = f"Error {'updating' if is_edit else 'creating'} assignment: {str(ex)}"
-                error_text.visible = True
-                assignment_dialog.update()
-
-        def close_dialog(e):
-            assignment_dialog.open = False
-            self.page.update()
-
-        # Add date picker to page overlay
-        if self.page:
-            self.page.overlay.append(self.assignment_deadline_picker)
-
-        # Build dialog content based on mode (hide user selection in edit mode)
-        dialog_content_controls = [
-            assignment_name_field,
-            ft.Row([duration_field, passing_score_field, max_attempts_field, deadline_field], spacing=8),
-            ft.Container(height=8),
-
-            # Delivery Method and Security Settings in same row
-            ft.Row([
-                # Delivery Method (left side - first)
-                ft.Column([
-                    ft.Text("📋 Delivery Method", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-                    ft.Divider(height=1, color=COLORS['primary']),
-                    delivery_method,
-                    variant_count,
-                    variant_note,
-                    pdf_note,
-                ], expand=True),
-
-                ft.Container(width=20),  # Spacing between sections
-
-                # Security Settings (right side - second)
-                ft.Column([
-                    ft.Text("Security Settings", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-                    ft.Divider(height=1, color=COLORS['primary']),
-                    ft.Row([randomize_questions, show_results, enable_fullscreen], spacing=15, wrap=True),
-                ], expand=True),
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START),
-            ft.Container(height=8),
-
-            # Random Question Selection
-            ft.Text("Random Question Selection", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            use_question_pool,
-            pool_info_text,
-            ft.Text("Select questions by difficulty:", size=13, weight=ft.FontWeight.W_500),
-            ft.Row([easy_questions_count_field, medium_questions_count_field, hard_questions_count_field, total_questions_text], spacing=10, alignment=ft.MainAxisAlignment.START),
-            ft.Container(height=8),
-        ]
-
-        # Always show user selection section (in both create and edit modes)
-        # In edit mode, load currently assigned users
-        if is_edit:
-            # Load currently assigned users for this assignment
-            assigned_users_data = self.db.execute_query("""
-                SELECT u.id, u.full_name, u.username
-                FROM assignment_users au
-                JOIN users u ON au.user_id = u.id
-                WHERE au.assignment_id = ? AND au.is_active = 1
-                ORDER BY u.full_name
-            """, (assignment['id'],))
-
-            # Populate selected_items_container with current users
-            selected_items_container.controls.clear()
-            selected_items_container.controls.append(
-                ft.Text("Assigned Users:", size=14, weight=ft.FontWeight.BOLD)
-            )
-            for user in assigned_users_data:
-                self.selected_assignment_users.append(user['id'])
-                chip = ft.Chip(
-                    label=ft.Text(f"{user['full_name']} ({user['username']})"),
-                    on_delete=lambda e, uid=user['id']: remove_user(uid),
-                    delete_icon_color=COLORS['error']
-                )
-                selected_items_container.controls.append(chip)
-
-        # User Selection section (can be hidden for PDF export)
-        user_selection_section = ft.Column([
-            ft.Text("Manage Assigned Users", size=16, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
-            ft.Divider(height=1, color=COLORS['primary']),
-            ft.Row([user_dropdown, department_dropdown], spacing=20),
-            selected_items_container,
-            ft.Container(height=10),
-        ], visible=delivery_method.value != "pdf_export")
-
-        dialog_content_controls.append(user_selection_section)
-
-        dialog_content_controls.append(error_text)
-
-        dialog_title = f"{'Edit' if is_edit else 'Create'} Assignment - {exam['title']}"
-        button_text = t('save') + " " + t('changes') if is_edit else t('create_assignment')
-
-        assignment_dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(dialog_title),
-            content=ft.Container(
-                content=ft.Column(dialog_content_controls, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
-                width=self.page.width - 200 if self.page.width > 200 else 1000,
-                height=self.page.height - 150 if self.page.height > 150 else 650
-            ),
-            actions=[
-                ft.TextButton(t('cancel'), on_click=close_dialog),
-                ft.ElevatedButton(
-                    button_text,
-                    on_click=save_assignment,
-                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
-                )
-            ],
-            actions_alignment=ft.MainAxisAlignment.END
-        )
-
-        self.page.dialog = assignment_dialog
-        assignment_dialog.open = True
-        self.page.update()
-
-    def get_all_users(self):
-        """Get all users for select all functionality"""
-        try:
-            return self.db.execute_query("SELECT id, username, full_name, role FROM users WHERE is_active = 1")
-        except Exception as e:
-            print(f"Error loading all users: {e}")
-            return []
-    
     def show_user_assignment_dialog(self, exam):
         """Show dialog for managing user assignments for an exam"""
         # Store exam ID for remove operations
@@ -3855,7 +3399,11 @@ class QuizManagement(ft.UserControl):
         self.selected_items_row = ft.Row(spacing=8, wrap=True)
         self.selected_items_container = ft.Column([
             ft.Text("Selected for Assignment:", size=14, weight=ft.FontWeight.BOLD),
-            self.selected_items_row,
+            ft.Container(
+                content=self.selected_items_row,
+                padding=ft.padding.only(top=5, bottom=5),
+                
+            ),
         ], spacing=5)
 
         # Container for currently assigned items
@@ -4385,12 +3933,13 @@ class QuizManagement(ft.UserControl):
             # Note: pool_configs will be loaded inside the multi dialog from database
             self.show_assignment_creation_dialog_multi(templates, pool_configs=None, assignment=assignment)
         else:
-            # Single-template assignment - use single-template dialog
+            # Legacy single-template assignment - wrap as single-item list for multi-template dialog
             exam = self.db.execute_single("""
-                SELECT id, title, description
+                SELECT id, title, description,
+                       (SELECT COUNT(*) FROM questions WHERE exam_id = ? AND is_active = 1) as question_count
                 FROM exams
                 WHERE id = ?
-            """, (assignment['exam_id'],))
+            """, (assignment['exam_id'], assignment['exam_id']))
 
             if not exam:
                 self.page.snack_bar = ft.SnackBar(
@@ -4401,8 +3950,8 @@ class QuizManagement(ft.UserControl):
                 self.page.update()
                 return
 
-            # Call the creation dialog but in edit mode
-            self.show_assignment_creation_dialog(exam, assignment)
+            # Wrap single exam as list and use multi-template dialog (works for both single and multi)
+            self.show_assignment_creation_dialog_multi([exam], pool_configs=None, assignment=assignment)
 
     def show_assignment_detail_dialog(self, assignment):
         """Show comprehensive assignment details with editing capabilities"""
@@ -4413,7 +3962,7 @@ class QuizManagement(ft.UserControl):
         """Manage users for an assignment"""
         # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
-            SELECT id, full_name, username, role
+            SELECT id, full_name, username, role, department, section, unit
             FROM users
             WHERE role IN ('examinee', 'expert') AND is_active = 1
             ORDER BY full_name
@@ -4453,7 +4002,7 @@ class QuizManagement(ft.UserControl):
         )
 
         department_dropdown = self.create_styled_dropdown(
-            label="Add Department",
+            label="Add Entry",
             hint_text="Select department to add",
             options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
             width=400
@@ -4686,17 +4235,47 @@ class QuizManagement(ft.UserControl):
         """Show dialog to create or edit a preset template"""
         is_edit = preset is not None
 
-        # Load all available exam templates (topics)
-        exam_templates = self.db.execute_query("""
+        # Load available exam templates (topics) with permission filtering
+        perm_manager = UnitPermissionManager(self.db)
+        filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data, table_alias='e')
+
+        # Base query for exams created by user's unit
+        base_query = """
             SELECT e.id, e.title,
                    COUNT(CASE WHEN q.difficulty_level = 'easy' THEN 1 END) as easy_count,
                    COUNT(CASE WHEN q.difficulty_level = 'medium' THEN 1 END) as medium_count,
                    COUNT(CASE WHEN q.difficulty_level = 'hard' THEN 1 END) as hard_count
             FROM exams e
             LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
+            WHERE e.is_active = 1 {filter_clause}
             GROUP BY e.id
             ORDER BY e.title
-        """)
+        """.format(filter_clause=filter_clause)
+
+        exam_templates = self.db.execute_query(base_query, tuple(filter_params))
+
+        # Include exams where expert is an observer
+        if self.user_data.get('role') == 'expert' and self.user_data.get('id'):
+            observer_query = """
+                SELECT e.id, e.title,
+                       COUNT(CASE WHEN q.difficulty_level = 'easy' THEN 1 END) as easy_count,
+                       COUNT(CASE WHEN q.difficulty_level = 'medium' THEN 1 END) as medium_count,
+                       COUNT(CASE WHEN q.difficulty_level = 'hard' THEN 1 END) as hard_count
+                FROM exam_observers eo
+                JOIN exams e ON eo.exam_id = e.id
+                LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
+                WHERE eo.observer_id = ? AND e.is_active = 1
+                GROUP BY e.id
+                ORDER BY e.title
+            """
+            observer_exams = self.db.execute_query(observer_query, (self.user_data['id'],))
+
+            # Merge observer exams, avoiding duplicates
+            if observer_exams:
+                existing_ids = {exam['id'] for exam in exam_templates}
+                for observer_exam in observer_exams:
+                    if observer_exam['id'] not in existing_ids:
+                        exam_templates.append(observer_exam)
 
         if not exam_templates:
             self.page.snack_bar = ft.SnackBar(
@@ -4707,12 +4286,19 @@ class QuizManagement(ft.UserControl):
             self.page.update()
             return
 
-        # Preset name field
+        # Preset name field with enhanced styling
         preset_name_field = ft.TextField(
             label="Preset Template Name *",
             value=preset['name'] if is_edit else "",
             hint_text="e.g., SOC Interview Template",
-            width=600
+            prefix_icon=ft.icons.BOOKMARK_BORDER,
+            border_color=COLORS['secondary'],
+            focused_border_color=COLORS['primary'],
+            filled=True,
+            bgcolor=ft.colors.with_opacity(0.03, COLORS['primary']),
+            content_padding=12,
+            text_size=14,
+            expand=True
         )
 
         preset_description_field = ft.TextField(
@@ -4722,7 +4308,14 @@ class QuizManagement(ft.UserControl):
             min_lines=2,
             max_lines=3,
             hint_text="Brief description of this preset",
-            width=600
+            prefix_icon=ft.icons.NOTES,
+            border_color=COLORS['secondary'],
+            focused_border_color=COLORS['primary'],
+            filled=True,
+            bgcolor=ft.colors.with_opacity(0.03, COLORS['primary']),
+            content_padding=12,
+            text_size=14,
+            expand=True
         )
 
         # Container for selected topics
@@ -4871,10 +4464,10 @@ class QuizManagement(ft.UserControl):
             topic_dropdown.update()
             update_total_questions()
 
-        # Topic selection dropdown
+        # Topic selection dropdown with enhanced styling
         topic_dropdown = self.create_styled_dropdown(
-            label="Add Topic",
-            hint_text="Select a topic to add",
+            label="📚 Add Topic to Preset",
+            hint_text="Select a topic to add...",
             options=[
                 ft.dropdown.Option(
                     key=str(exam['id']),
@@ -4882,9 +4475,12 @@ class QuizManagement(ft.UserControl):
                 )
                 for exam in exam_templates if exam['id'] not in self.preset_selected_topics
             ],
-            width=600,
             on_change=lambda e: add_topic_to_preset(int(e.control.value)) if e.control.value else None
         )
+        topic_dropdown.expand = True
+        topic_dropdown.height = 56
+        topic_dropdown.content_padding = 12
+        topic_dropdown.text_size = 14
 
         # Container for topic cards (two-column layout)
         topic_container = ft.ResponsiveRow([], spacing=10, run_spacing=10)
@@ -5070,14 +4666,57 @@ class QuizManagement(ft.UserControl):
 
         preset_dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text(f"{'Edit' if is_edit else 'Create'} Preset Template"),
+            title=ft.Row([
+                ft.Icon(ft.icons.DASHBOARD_CUSTOMIZE, color=COLORS['primary'], size=28),
+                ft.Text(
+                    f"{'Edit' if is_edit else 'Create'} Preset Template",
+                    size=20,
+                    weight=ft.FontWeight.BOLD
+                )
+            ], spacing=12),
             content=ft.Container(
                 content=ft.Column([
-                    preset_name_field,
-                    preset_description_field,
+                    # Basic Information Section
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.INFO_OUTLINE, size=18, color=COLORS['primary']),
+                                ft.Text("Basic Information", size=15, weight=ft.FontWeight.BOLD, color=COLORS['primary'])
+                            ], spacing=8),
+                            ft.Divider(height=1, color=COLORS['primary']),
+                            ft.Container(height=5),
+                            preset_name_field,
+                            ft.Container(height=8),
+                            preset_description_field,
+                        ], spacing=8),
+                        padding=12,
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.02, COLORS['primary']),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.1, COLORS['primary']))
+                    ),
+
+                    ft.Container(height=15),
+
+                    # Topic Selection Section
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.icons.TOPIC, size=18, color=COLORS['success']),
+                                ft.Text("Configure Topics", size=15, weight=ft.FontWeight.BOLD, color=COLORS['success'])
+                            ], spacing=8),
+                            ft.Divider(height=1, color=COLORS['success']),
+                            ft.Container(height=8),
+                            topic_dropdown,
+                        ], spacing=8),
+                        padding=12,
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.02, COLORS['success']),
+                        border=ft.border.all(1, ft.colors.with_opacity(0.1, COLORS['success']))
+                    ),
+
                     ft.Container(height=10),
-                    topic_dropdown,
-                    ft.Container(height=5),
+
+                    # Selected Topics Display
                     ft.Container(
                         content=ft.Column([
                             topic_container,
@@ -5085,8 +4724,19 @@ class QuizManagement(ft.UserControl):
                         height=scroll_container_height,
                         expand=True
                     ),
-                    ft.Divider(),
-                    total_questions_text,
+
+                    # Summary Section
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.CALCULATE, size=20, color=COLORS['primary']),
+                            total_questions_text,
+                        ], spacing=10),
+                        padding=12,
+                        border_radius=8,
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                        border=ft.border.all(1.5, COLORS['primary'])
+                    ),
+
                     error_text
                 ], spacing=10),
                 width=self.page.width - 300 if self.page.width > 300 else 700,

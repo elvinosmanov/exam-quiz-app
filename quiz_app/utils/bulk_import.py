@@ -110,11 +110,11 @@ class BulkImporter:
                         'correct_answer': self.safe_str_strip(row['correct_answer'])
                     }
                     
-                    # Insert question
+                    # Insert question (default status is Active)
                     question_id = self.db.execute_insert('''
-                        INSERT INTO questions (exam_id, question_text, question_type, difficulty_level, 
-                                             points, explanation, correct_answer)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO questions (exam_id, question_text, question_type, difficulty_level,
+                                             points, explanation, correct_answer, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
                     ''', (
                         question_data['exam_id'],
                         question_data['question_text'],

@@ -35,9 +35,10 @@ class AuthManager:
 
         _write_auth_log(f"Authentication attempt for username: {username}")
 
-        # Try username first, then email
+        # Try username first, then email (CASE-INSENSITIVE FIX)
+        # Use LOWER() to make username comparison case-insensitive
         user = self.db.execute_single(
-            "SELECT * FROM users WHERE (username = ? OR email = ?) AND is_active = 1",
+            "SELECT * FROM users WHERE (LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)) AND is_active = 1",
             (username, username)
         )
 
@@ -68,7 +69,8 @@ class AuthManager:
     
     def create_user(self, username: str, email: str, password: str,
                    full_name: str, role: str = 'examinee',
-                   department: str = None, section: str = None, unit: str = None) -> Optional[int]:
+                   department: str = None, section: str = None, unit: str = None,
+                   language_preference: str = 'en') -> Optional[int]:
         """Create a new user"""
         try:
             # Check if username or email already exists
@@ -83,9 +85,9 @@ class AuthManager:
             password_hash = self.hash_password(password)
 
             user_id = self.db.execute_insert('''
-                INSERT INTO users (username, email, password_hash, full_name, role, department, section, unit)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (username, email, password_hash, full_name, role, department, section, unit))
+                INSERT INTO users (username, email, password_hash, full_name, role, department, section, unit, language_preference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (username, email, password_hash, full_name, role, department, section, unit, language_preference))
 
             return user_id
         except Exception as e:

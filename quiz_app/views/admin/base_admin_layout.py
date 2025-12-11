@@ -26,7 +26,8 @@ class BaseAdminLayout(ft.UserControl):
             {"title": t("question_bank"), "icon": ft.icons.HELP, "route": "questions"},
             {"title": t("grading"), "icon": ft.icons.GRADING, "route": "grading"},
             {"title": t("reports"), "icon": ft.icons.ANALYTICS, "route": "reports"},
-            {"title": t("settings"), "icon": ft.icons.SETTINGS, "route": "settings"}
+            {"title": t("settings"), "icon": ft.icons.SETTINGS, "route": "settings"},
+            {"title": t("help"), "icon": ft.icons.HELP_OUTLINE, "route": "help"}
         ]
 
         # Grading badge indicator (blue circle)
@@ -194,22 +195,34 @@ class BaseAdminLayout(ft.UserControl):
         self.logout_callback(self.page)
 
     def check_ungraded_items(self):
-        """Check if there are any ungraded essay/short answer questions"""
+        """Check if there are any ungraded essay/short answer questions (with unit filtering)"""
         if not self.db:
             return 0
 
         try:
-            ungraded = self.db.execute_query("""
+            # Apply unit-level filtering for experts
+            from quiz_app.utils.permissions import UnitPermissionManager
+            perm_manager = UnitPermissionManager(self.db)
+            filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
+
+            # Count ungraded sessions with unit filtering applied
+            query = """
                 SELECT COUNT(DISTINCT es.id) as count
                 FROM exam_sessions es
                 JOIN user_answers ua ON ua.session_id = es.id
                 JOIN questions q ON ua.question_id = q.id
+                JOIN users u ON es.user_id = u.id
+                JOIN exam_assignments ea ON es.assignment_id = ea.id
                 WHERE q.question_type IN ('essay', 'short_answer')
                 AND ua.points_earned IS NULL
                 AND ua.answer_text IS NOT NULL
                 AND ua.answer_text != ''
                 AND es.is_completed = 1
-            """)
+                AND es.assignment_id IS NOT NULL
+                {filter_clause}
+            """.format(filter_clause=filter_clause)
+
+            ungraded = self.db.execute_query(query, tuple(filter_params))
 
             count = ungraded[0]['count'] if ungraded else 0
             return count

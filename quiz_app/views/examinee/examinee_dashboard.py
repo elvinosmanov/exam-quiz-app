@@ -2,6 +2,7 @@ import flet as ft
 from datetime import datetime
 from quiz_app.config import COLORS
 from quiz_app.utils.localization import t
+from quiz_app.views.common.help_view import HelpView
 
 class ExamineeDashboard(ft.UserControl):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -22,7 +23,8 @@ class ExamineeDashboard(ft.UserControl):
             {"title": t('dashboard'), "icon": ft.icons.DASHBOARD},
             {"title": t('available_exams'), "icon": ft.icons.QUIZ},
             {"title": t('my_results'), "icon": ft.icons.ASSESSMENT},
-            {"title": t('profile'), "icon": ft.icons.PERSON}
+            {"title": t('profile'), "icon": ft.icons.PERSON},
+            {"title": t('help'), "icon": ft.icons.HELP_OUTLINE}
         ]
         
         # Dynamic height properties
@@ -139,7 +141,60 @@ class ExamineeDashboard(ft.UserControl):
     def page_resized(self, e):
         """Handle window resize events"""
         self.update_height()
-    
+
+    def reload_dashboard(self):
+        """Reload the entire dashboard with new language translations"""
+        if not self.page:
+            return
+
+        # Store current navigation index
+        current_index = self.selected_nav_index
+
+        # Re-initialize navigation items with new translations
+        self.nav_items = [
+            {"title": t('dashboard'), "icon": ft.icons.DASHBOARD},
+            {"title": t('available_exams'), "icon": ft.icons.QUIZ},
+            {"title": t('my_results'), "icon": ft.icons.ASSESSMENT},
+            {"title": t('profile'), "icon": ft.icons.PERSON},
+            {"title": t('help'), "icon": ft.icons.HELP_OUTLINE}
+        ]
+
+        # Recreate navigation rail with updated labels
+        self.nav_rail = ft.NavigationRail(
+            selected_index=current_index,
+            label_type=ft.NavigationRailLabelType.ALL,
+            min_width=100,
+            min_extended_width=200,
+            destinations=[
+                ft.NavigationRailDestination(
+                    icon=item["icon"],
+                    label=item["title"]
+                ) for item in self.nav_items
+            ],
+            on_change=self.nav_changed,
+            bgcolor=COLORS['surface']
+        )
+
+        # Rebuild the entire dashboard
+        self.controls.clear()
+        self.controls.append(self.build())
+
+        # Navigate to the same page we were on to reload content
+        self.selected_nav_index = current_index
+        if current_index == 0:
+            self.show_dashboard()
+        elif current_index == 1:
+            self.show_available_exams()
+        elif current_index == 2:
+            self.show_my_results()
+        elif current_index == 3:
+            self.show_profile()
+        elif current_index == 4:
+            self.show_help()
+
+        # Update the page
+        self.update()
+
     def build(self):
         # Create main container with dynamic height
         self.main_container = ft.Container(
@@ -167,6 +222,8 @@ class ExamineeDashboard(ft.UserControl):
             self.show_my_results()
         elif self.selected_nav_index == 3:
             self.show_profile()
+        elif self.selected_nav_index == 4:
+            self.show_help()
     
     def set_content(self, content):
         self.content_area.content = content
@@ -565,6 +622,63 @@ class ExamineeDashboard(ft.UserControl):
         self.set_content(content)
     
     def show_profile(self):
+        # Get user's current language preference
+        user_language_pref = self.user_data.get('language_preference', 'en')
+        language_value = 'English' if user_language_pref == 'en' else 'Azerbaijani'
+
+        # Language dropdown
+        language_dropdown = ft.Dropdown(
+            label=t('language_preference'),
+            value=language_value,
+            width=300,
+            options=[
+                ft.dropdown.Option("English", "English"),
+                ft.dropdown.Option("Azerbaijani", "Azərbaycan dili"),
+            ],
+            prefix_icon=ft.icons.LANGUAGE,
+            hint_text=t('select_language')
+        )
+
+        def save_language_preference(e):
+            """Save user's language preference"""
+            value = language_dropdown.value
+            language_code = 'en' if value == 'English' else 'az'
+
+            try:
+                # Update database
+                self.db.execute_update(
+                    "UPDATE users SET language_preference = ? WHERE id = ?",
+                    (language_code, self.user_data['id'])
+                )
+
+                # Update user data
+                self.user_data['language_preference'] = language_code
+
+                # Update session manager
+                if self.session_manager:
+                    self.session_manager.set_user_language(language_code)
+
+                # Update current language
+                from quiz_app.utils.localization import set_language
+                set_language(language_code)
+
+                # Show success message
+                self.show_snackbar(t('language_changed'), COLORS['success'])
+
+                # Reload entire dashboard after a short delay
+                import time
+                import threading
+                def reload_ui():
+                    time.sleep(1)
+                    if self.page:
+                        self.reload_dashboard()
+
+                threading.Thread(target=reload_ui, daemon=True).start()
+
+            except Exception as ex:
+                print(f"[ERROR] Failed to save language preference: {ex}")
+                self.show_snackbar(t('settings_failed'), COLORS['error'])
+
         # Create profile form
         profile_form = ft.Column([
             ft.Text(t('profile'), size=18, weight=ft.FontWeight.BOLD),
@@ -605,6 +719,17 @@ class ExamineeDashboard(ft.UserControl):
                     read_only=True
                 )
             ], spacing=20),
+            ft.Container(height=20),
+            ft.Text(t('language_preference'), size=16, weight=ft.FontWeight.BOLD),
+            ft.Row([
+                language_dropdown,
+                ft.ElevatedButton(
+                    text=t('save_language'),
+                    icon=ft.icons.SAVE,
+                    on_click=save_language_preference,
+                    style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
+                )
+            ], spacing=15),
             ft.Container(height=20),
             ft.ElevatedButton(
                 text=t('change_password'),
@@ -2011,6 +2136,11 @@ class ExamineeDashboard(ft.UserControl):
         if self.page and self.page.dialog:
             self.page.dialog.open = False
             self.page.update()
-    
+
+    def show_help(self):
+        """Show help section"""
+        help_view = HelpView(user_role='examinee')
+        self.set_content(help_view)
+
     def logout_clicked(self, e):
         self.logout_callback(self.page)

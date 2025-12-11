@@ -358,11 +358,525 @@ class Settings(ft.UserControl):
             border=ft.border.all(1, COLORS['border'])
         )
 
+    def build_org_structure_card(self):
+        """Build organizational structure management card (admin only)"""
+
+        # State for table data
+        org_data_table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text(t('entry_type'), size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text(t('name_english'), size=12, weight=ft.FontWeight.BOLD, no_wrap=False)),
+                ft.DataColumn(ft.Text(t('name_azerbaijani'), size=12, weight=ft.FontWeight.BOLD, no_wrap=False)),
+                ft.DataColumn(ft.Text(t('abbr_english'), size=12, weight=ft.FontWeight.BOLD, no_wrap=False)),
+                ft.DataColumn(ft.Text(t('abbr_azerbaijani'), size=12, weight=ft.FontWeight.BOLD, no_wrap=False)),
+                ft.DataColumn(ft.Text(t('parent'), size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text(t('actions'), size=12, weight=ft.FontWeight.BOLD))
+            ],
+            rows=[],
+            width=float("inf"),
+            column_spacing=30,
+            horizontal_margin=20
+        )
+
+        def load_org_data():
+            """Load organizational structure from database"""
+            org_data_table.rows.clear()
+
+            # Get all entries ordered by type and name
+            entries = self.db.execute_query("""
+                SELECT id, key, type, name_en, name_az, abbr_en, abbr_az, parent_key
+                FROM organizational_structure
+                ORDER BY
+                    CASE type
+                        WHEN 'department' THEN 1
+                        WHEN 'section' THEN 2
+                        WHEN 'unit' THEN 3
+                    END,
+                    name_en
+            """)
+
+            for entry in entries:
+                # Get parent name if exists
+                parent_name = "-"
+                if entry['parent_key']:
+                    parent = self.db.execute_single(
+                        "SELECT name_en FROM organizational_structure WHERE key = ?",
+                        (entry['parent_key'],)
+                    )
+                    parent_name = parent['name_en'] if parent else entry['parent_key']
+
+                # Type badge color
+                type_color = {
+                    'department': COLORS['primary'],
+                    'section': COLORS['warning'],
+                    'unit': COLORS['success']
+                }.get(entry['type'], COLORS['secondary'])
+
+                org_data_table.rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Container(
+                                content=ft.Text(t(entry['type']), color=ft.colors.WHITE, size=12),
+                                bgcolor=type_color,
+                                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                                border_radius=4
+                            )),
+                            ft.DataCell(ft.Text(entry['name_en'])),
+                            ft.DataCell(ft.Text(entry['name_az'])),
+                            ft.DataCell(ft.Text(entry['abbr_en'])),
+                            ft.DataCell(ft.Text(entry['abbr_az'])),
+                            ft.DataCell(ft.Text(parent_name, color=COLORS['text_secondary'], size=12)),
+                            ft.DataCell(ft.Row([
+                                ft.IconButton(
+                                    icon=ft.icons.EDIT,
+                                    tooltip=t('edit_entry'),
+                                    on_click=lambda e, entry_data=entry: show_edit_dialog(entry_data)
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.DELETE,
+                                    tooltip=t('delete_entry'),
+                                    icon_color=COLORS['error'],
+                                    on_click=lambda e, entry_data=entry: confirm_delete(entry_data)
+                                )
+                            ], spacing=0))
+                        ]
+                    )
+                )
+
+            # Only update if table is already on the page
+            if self.page:
+                try:
+                    org_data_table.update()
+                except:
+                    pass  # Table not added to page yet
+
+        def show_add_dialog(e, default_type="department"):
+            """Show dialog to add new entry
+
+            Args:
+                e: Event
+                default_type: Default entry type to select (department, section, or unit)
+            """
+            entry_type_dropdown = ft.Dropdown(
+                label=t('entry_type'),
+                options=[
+                    ft.dropdown.Option("department", t('department')),
+                    ft.dropdown.Option("section", t('section')),
+                    ft.dropdown.Option("unit", t('unit'))
+                ],
+                value=default_type,
+                width=600,
+                content_padding=8
+            )
+
+            parent_dropdown = ft.Dropdown(
+                label=t('select_parent'),
+                options=[ft.dropdown.Option("none", t('no_parent'))],
+                value="none",
+                width=600,
+                content_padding=8
+            )
+
+            name_en_field = ft.TextField(
+                label=t('name_english'),
+                width=600,
+                content_padding=8
+            )
+            name_az_field = ft.TextField(
+                label=t('name_azerbaijani'),
+                width=600,
+                content_padding=8
+            )
+            abbr_en_field = ft.TextField(
+                label=t('abbr_english'),
+                width=285,
+                content_padding=8
+            )
+            abbr_az_field = ft.TextField(
+                label=t('abbr_azerbaijani'),
+                width=285,
+                content_padding=8
+            )
+
+            error_text = ft.Text("", color=COLORS['error'], size=14)
+
+            def update_parent_options(e=None):
+                """Update parent options based on selected type"""
+                selected_type = entry_type_dropdown.value
+                parent_dropdown.options.clear()
+
+                if selected_type == "department":
+                    parent_dropdown.options.append(ft.dropdown.Option("none", t('no_parent')))
+                    parent_dropdown.value = "none"
+                elif selected_type == "section":
+                    # Sections can only be under departments
+                    departments = self.db.execute_query(
+                        "SELECT key, name_en FROM organizational_structure WHERE type = 'department' ORDER BY name_en"
+                    )
+                    for dept in departments:
+                        parent_dropdown.options.append(ft.dropdown.Option(dept['key'], dept['name_en']))
+                    parent_dropdown.value = departments[0]['key'] if departments else "none"
+                elif selected_type == "unit":
+                    # Units can be under departments or sections
+                    parents = self.db.execute_query(
+                        "SELECT key, name_en, type FROM organizational_structure WHERE type IN ('department', 'section') ORDER BY type, name_en"
+                    )
+                    for parent in parents:
+                        label = f"[{t(parent['type'])}] {parent['name_en']}"
+                        parent_dropdown.options.append(ft.dropdown.Option(parent['key'], label))
+                    parent_dropdown.value = parents[0]['key'] if parents else "none"
+
+                if dialog.open and self.page:
+                    parent_dropdown.update()
+
+            entry_type_dropdown.on_change = update_parent_options
+
+            def save_new_entry(e):
+                """Save new organizational entry"""
+                error_text.value = ""
+
+                # Validation
+                if not all([name_en_field.value, name_az_field.value, abbr_en_field.value, abbr_az_field.value]):
+                    error_text.value = t('all_fields_required')
+                    dialog.update()
+                    return
+
+                # Generate unique key
+                import uuid
+                entry_key = f"{entry_type_dropdown.value}_{uuid.uuid4().hex[:8]}"
+
+                # Get parent key
+                parent_key = None if parent_dropdown.value == "none" else parent_dropdown.value
+
+                try:
+                    self.db.execute_insert("""
+                        INSERT INTO organizational_structure (key, type, name_en, name_az, abbr_en, abbr_az, parent_key)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        entry_key,
+                        entry_type_dropdown.value,
+                        name_en_field.value.strip(),
+                        name_az_field.value.strip(),
+                        abbr_en_field.value.strip(),
+                        abbr_az_field.value.strip(),
+                        parent_key
+                    ))
+
+                    self.show_success_message(t('entry_added'))
+                    dialog.open = False
+                    self.page.update()
+                    load_org_data()
+                except Exception as ex:
+                    error_text.value = f"Error: {str(ex)}"
+                    dialog.update()
+
+            def close_dialog(e):
+                dialog.open = False
+                self.page.update()
+
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(t('add_department')),
+                content=ft.Container(
+                    content=ft.Column([
+                        entry_type_dropdown,
+                        parent_dropdown,
+                        name_en_field,
+                        name_az_field,
+                        ft.Row([abbr_en_field, abbr_az_field], spacing=30),
+                        error_text
+                    ], spacing=10, tight=True),
+                    width=650
+                ),
+                actions=[
+                    ft.TextButton(t('cancel'), on_click=close_dialog),
+                    ft.ElevatedButton(
+                        t('save'),
+                        on_click=save_new_entry,
+                        style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END
+            )
+
+            if self.page:
+                self.page.dialog = dialog
+                dialog.open = True
+                self.page.update()
+                # Initialize parent options after dialog is added to page
+                update_parent_options()
+
+        def show_edit_dialog(entry_data):
+            """Show dialog to edit existing entry"""
+            name_en_field = ft.TextField(
+                label=t('name_english'),
+                value=entry_data['name_en'],
+                width=600,
+                content_padding=8
+            )
+            name_az_field = ft.TextField(
+                label=t('name_azerbaijani'),
+                value=entry_data['name_az'],
+                width=600,
+                content_padding=8
+            )
+            abbr_en_field = ft.TextField(
+                label=t('abbr_english'),
+                value=entry_data['abbr_en'],
+                width=285,
+                content_padding=8
+            )
+            abbr_az_field = ft.TextField(
+                label=t('abbr_azerbaijani'),
+                value=entry_data['abbr_az'],
+                width=285,
+                content_padding=8
+            )
+
+            # Parent dropdown for editing
+            parent_dropdown = ft.Dropdown(
+                label=t('select_parent'),
+                options=[],
+                value=entry_data.get('parent_key', 'none'),
+                width=600,
+                content_padding=8
+            )
+
+            # Populate parent options based on entry type
+            def populate_parent_options():
+                parent_dropdown.options.clear()
+
+                if entry_data['type'] == 'department':
+                    parent_dropdown.options.append(ft.dropdown.Option("none", t('no_parent')))
+                    parent_dropdown.value = "none"
+                    parent_dropdown.disabled = True
+                elif entry_data['type'] == 'section':
+                    # Sections can only be under departments
+                    departments = self.db.execute_query(
+                        "SELECT key, name_en FROM organizational_structure WHERE type = 'department' AND key != ? ORDER BY name_en",
+                        (entry_data['key'],)
+                    )
+                    for dept in departments:
+                        parent_dropdown.options.append(ft.dropdown.Option(dept['key'], dept['name_en']))
+
+                    if entry_data.get('parent_key'):
+                        parent_dropdown.value = entry_data['parent_key']
+                    elif departments:
+                        parent_dropdown.value = departments[0]['key']
+                elif entry_data['type'] == 'unit':
+                    # Units can be under departments or sections
+                    parents = self.db.execute_query(
+                        "SELECT key, name_en, type FROM organizational_structure WHERE type IN ('department', 'section') AND key != ? ORDER BY type, name_en",
+                        (entry_data['key'],)
+                    )
+                    for parent in parents:
+                        label = f"[{t(parent['type'])}] {parent['name_en']}"
+                        parent_dropdown.options.append(ft.dropdown.Option(parent['key'], label))
+
+                    if entry_data.get('parent_key'):
+                        parent_dropdown.value = entry_data['parent_key']
+                    elif parents:
+                        parent_dropdown.value = parents[0]['key']
+
+            populate_parent_options()
+
+            error_text = ft.Text("", color=COLORS['error'], size=14)
+
+            def save_changes(e):
+                """Save changes to entry"""
+                error_text.value = ""
+
+                # Validation
+                if not all([name_en_field.value, name_az_field.value, abbr_en_field.value, abbr_az_field.value]):
+                    error_text.value = t('all_fields_required')
+                    dialog.update()
+                    return
+
+                try:
+                    # Get parent key (None for departments, actual key for sections/units)
+                    parent_key = None if parent_dropdown.value == "none" else parent_dropdown.value
+
+                    self.db.execute_update("""
+                        UPDATE organizational_structure
+                        SET name_en = ?, name_az = ?, abbr_en = ?, abbr_az = ?, parent_key = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, (
+                        name_en_field.value.strip(),
+                        name_az_field.value.strip(),
+                        abbr_en_field.value.strip(),
+                        abbr_az_field.value.strip(),
+                        parent_key,
+                        entry_data['id']
+                    ))
+
+                    self.show_success_message(t('entry_updated'))
+                    dialog.open = False
+                    self.page.update()
+                    load_org_data()
+                except Exception as ex:
+                    error_text.value = f"Error: {str(ex)}"
+                    dialog.update()
+
+            def close_dialog(e):
+                dialog.open = False
+                self.page.update()
+
+            dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(t('edit_entry')),
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text(f"{t('entry_type')}: {t(entry_data['type'])}", weight=ft.FontWeight.BOLD, size=14),
+                        parent_dropdown,
+                        name_en_field,
+                        name_az_field,
+                        ft.Row([abbr_en_field, abbr_az_field], spacing=30),
+                        error_text
+                    ], spacing=10, tight=True),
+                    width=650
+                ),
+                actions=[
+                    ft.TextButton(t('cancel'), on_click=close_dialog),
+                    ft.ElevatedButton(
+                        t('save'),
+                        on_click=save_changes,
+                        style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END
+            )
+
+            if self.page:
+                self.page.dialog = dialog
+                dialog.open = True
+                self.page.update()
+
+        def confirm_delete(entry_data):
+            """Confirm deletion with validation"""
+
+            # Check if entry has children
+            children = self.db.execute_query(
+                "SELECT COUNT(*) as count FROM organizational_structure WHERE parent_key = ?",
+                (entry_data['key'],)
+            )
+            if children and children[0]['count'] > 0:
+                self.show_error_message(t('cannot_delete_has_children'))
+                return
+
+            # Check if any users are assigned to this entry
+            # Check department, section, and unit columns
+            user_count = 0
+            for column in ['department', 'section', 'unit']:
+                users = self.db.execute_query(
+                    f"SELECT COUNT(*) as count FROM users WHERE {column} = ?",
+                    (entry_data['name_en'],)  # Using name_en for comparison
+                )
+                if users:
+                    user_count += users[0]['count']
+
+            if user_count > 0:
+                self.show_error_message(t('cannot_delete_has_users', count=user_count))
+                return
+
+            def do_delete(e):
+                """Actually delete the entry"""
+                try:
+                    self.db.execute_update(
+                        "DELETE FROM organizational_structure WHERE id = ?",
+                        (entry_data['id'],)
+                    )
+
+                    self.show_success_message(t('entry_deleted'))
+                    confirm_dialog.open = False
+                    self.page.update()
+                    load_org_data()
+                except Exception as ex:
+                    self.show_error_message(f"Error: {str(ex)}")
+
+            def cancel_delete(e):
+                confirm_dialog.open = False
+                self.page.update()
+
+            confirm_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(t('confirm')),
+                content=ft.Text(t('confirm_delete_org')),
+                actions=[
+                    ft.TextButton(t('cancel'), on_click=cancel_delete),
+                    ft.ElevatedButton(
+                        t('delete'),
+                        on_click=do_delete,
+                        style=ft.ButtonStyle(bgcolor=COLORS['error'], color=ft.colors.WHITE)
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END
+            )
+
+            if self.page:
+                self.page.dialog = confirm_dialog
+                confirm_dialog.open = True
+                self.page.update()
+
+        # Create the container first
+        container = ft.Container(
+            content=ft.Column([
+                # Header
+                ft.Row([
+                    ft.Icon(ft.icons.ACCOUNT_TREE, size=32, color='#673AB7'),
+                    ft.Column([
+                        ft.Text(t('organizational_structure'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('manage_org_structure'), size=13, color=COLORS['text_secondary'])
+                    ], spacing=2, expand=True)
+                ], spacing=15),
+
+                ft.Container(height=15),
+
+                # Add entry button
+                ft.Row([
+                    ft.ElevatedButton(
+                        text=t('add_entry'),
+                        icon=ft.icons.ADD,
+                        on_click=lambda e: show_add_dialog(e, "department"),
+                        style=ft.ButtonStyle(
+                            bgcolor='#673AB7',
+                            color=ft.colors.WHITE
+                        )
+                    )
+                ]),
+
+                ft.Container(height=15),
+
+                # Data table
+                ft.Container(
+                    content=ft.ListView(
+                        controls=[org_data_table],
+                        expand=True,
+                        auto_scroll=False
+                    ),
+                    height=400,
+                    border=ft.border.all(1, COLORS['border']),
+                    border_radius=8
+                )
+            ], spacing=5),
+            padding=ft.padding.all(20),
+            bgcolor=ft.colors.WHITE,
+            border_radius=12,
+            border=ft.border.all(1, COLORS['border'])
+        )
+
+        # Load initial data after container is created (will populate when page is ready)
+        load_org_data()
+
+        return container
+
     def build(self):
         # Get current values
         passing_score = self.current_settings.get('passing_score', '70')
         exam_duration = self.current_settings.get('default_exam_duration', '60')
-        language = self.current_settings.get('language', 'English')
+
+        # Get user's language preference from their profile
+        user_language_pref = self.user_data.get('language_preference', 'en')
+        language = 'English' if user_language_pref == 'en' else 'Azerbaijani'
 
         # Passing Score TextField
         passing_score_field = ft.TextField(
@@ -388,7 +902,7 @@ class Settings(ft.UserControl):
 
         # Language Dropdown
         language_dropdown = ft.Dropdown(
-            label=t('system_language'),
+            label=t('language_preference'),
             value=language,
             width=300,
             options=[
@@ -430,15 +944,23 @@ class Settings(ft.UserControl):
                 self.show_error_message(t('enter_valid_number'))
 
         def save_language(e):
-            """Save language setting and apply changes"""
+            """Save language preference for current user and apply changes"""
             value = language_dropdown.value
 
             # Map dropdown value to language code
             language_code = 'en' if value == 'English' else 'az'
 
-            # Update system setting
-            if self.save_setting('language', value):
-                # Update user's language preference if session manager available
+            try:
+                # Update user's language preference in database
+                self.db.execute_update(
+                    "UPDATE users SET language_preference = ? WHERE id = ?",
+                    (language_code, self.user_data['id'])
+                )
+
+                # Update user data in session
+                self.user_data['language_preference'] = language_code
+
+                # Update session manager's language preference
                 if self.session_manager:
                     self.session_manager.set_user_language(language_code)
 
@@ -446,14 +968,15 @@ class Settings(ft.UserControl):
                 set_language(language_code)
 
                 # Show success message
-                self.show_success_message(t('language_changed') + " - " + t('please_sign_in'))
+                self.show_success_message(t('language_changed'))
 
                 # Trigger page reload to apply translations
                 if self.on_language_change:
                     import time
                     time.sleep(1)  # Give time for message to show
                     self.on_language_change()
-            else:
+            except Exception as ex:
+                print(f"[ERROR] Failed to save language preference: {ex}")
                 self.show_error_message(t('settings_failed'))
 
         # Setting Cards (bigger with icons)
@@ -518,8 +1041,8 @@ class Settings(ft.UserControl):
                 ft.Row([
                     ft.Icon(ft.icons.TRANSLATE, size=32, color=COLORS['success']),
                     ft.Column([
-                        ft.Text(t('system_language'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-                        ft.Text(t('change_language'), size=13, color=COLORS['text_secondary'])
+                        ft.Text(t('language_preference'), size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                        ft.Text(t('select_your_language'), size=13, color=COLORS['text_secondary'])
                     ], spacing=2, expand=True)
                 ], spacing=15),
                 ft.Container(height=15),
@@ -543,6 +1066,11 @@ class Settings(ft.UserControl):
 
         # Email Templates Card
         email_templates_card = self.build_email_templates_card()
+
+        # Organizational Structure Card (only for admins)
+        org_structure_card = None
+        if self.user_data.get('role') == 'admin':
+            org_structure_card = self.build_org_structure_card()
 
         # Change Password Card
         def show_change_password_dialog(e):
@@ -731,6 +1259,8 @@ class Settings(ft.UserControl):
                 ft.Container(height=20),
                 change_password_card,
                 ft.Container(height=20),
-                email_templates_card
+                email_templates_card,
+                ft.Container(height=20) if org_structure_card else ft.Container(height=0),
+                org_structure_card if org_structure_card else ft.Container(height=0)
             ], scroll=ft.ScrollMode.AUTO, expand=True)
         ], expand=True)

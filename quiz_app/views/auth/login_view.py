@@ -157,12 +157,18 @@ class LoginView(ft.UserControl):
             if user_data:
                 # Create session
                 if self.session_manager.create_session(user_data):
-                    # Update loading message - keep loading indicator visible
-                    self.login_button.text = t('loading_dashboard')
-                    self.update()
+                    # Check if password change is required
+                    if user_data.get('password_change_required') == 1:
+                        # Show password change dialog BEFORE proceeding to dashboard
+                        self.show_loading(False)
+                        self.show_force_password_change_dialog(user_data)
+                    else:
+                        # Update loading message - keep loading indicator visible
+                        self.login_button.text = t('loading_dashboard')
+                        self.update()
 
-                    # Proceed to dashboard - loading will be turned off by dashboard
-                    self.on_login_success(self.page, user_data)
+                        # Proceed to dashboard - loading will be turned off by dashboard
+                        self.on_login_success(self.page, user_data)
                 else:
                     # Show detailed error from session manager
                     error_detail = getattr(self.session_manager, 'last_error', None)
@@ -225,3 +231,130 @@ class LoginView(ft.UserControl):
         else:
             self.login_button.text = t('login')
         self.update()
+
+    def show_force_password_change_dialog(self, user_data):
+        """
+        Show mandatory password change dialog for first-time login
+        User cannot skip or close this dialog - must change password
+        """
+        from quiz_app.database.database import Database
+        from quiz_app.config import COLORS
+
+        db = Database()
+        new_password_field = ft.TextField(
+            label="New Password",
+            password=True,
+            can_reveal_password=True,
+            autofocus=True,
+            hint_text="Enter a strong password"
+        )
+
+        confirm_password_field = ft.TextField(
+            label="Confirm New Password",
+            password=True,
+            can_reveal_password=True,
+            hint_text="Re-enter your password"
+        )
+
+        error_text = ft.Text(
+            "",
+            color=COLORS['error'],
+            size=14,
+            visible=False
+        )
+
+        def change_password(e):
+            # Validate inputs
+            if not new_password_field.value or len(new_password_field.value) < 6:
+                error_text.value = "Password must be at least 6 characters"
+                error_text.visible = True
+                change_dialog.update()
+                return
+
+            if new_password_field.value != confirm_password_field.value:
+                error_text.value = "Passwords do not match"
+                error_text.visible = True
+                change_dialog.update()
+                return
+
+            # Update password
+            try:
+                self.auth_manager.update_password(user_data['id'], new_password_field.value)
+
+                # Clear password_change_required flag
+                db.execute_update(
+                    "UPDATE users SET password_change_required = 0 WHERE id = ?",
+                    (user_data['id'],)
+                )
+
+                # Update user_data to reflect the change
+                user_data['password_change_required'] = 0
+
+                # Close dialog
+                change_dialog.open = False
+                self.page.update()
+
+                # Show success message
+                self.page.show_snack_bar(ft.SnackBar(
+                    content=ft.Text("✓ Password changed successfully!"),
+                    bgcolor=COLORS['success']
+                ))
+
+                # Now proceed to dashboard
+                self.login_button.text = t('loading_dashboard')
+                self.update()
+                self.on_login_success(self.page, user_data)
+
+            except Exception as ex:
+                error_text.value = f"Failed to update password: {str(ex)}"
+                error_text.visible = True
+                change_dialog.update()
+
+        change_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.LOCK_RESET, color=COLORS['warning'], size=28),
+                ft.Text("Password Change Required", weight=ft.FontWeight.BOLD)
+            ], spacing=10),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text(
+                        "You must change your temporary password before continuing.",
+                        size=14,
+                        color=COLORS['text_primary']
+                    ),
+                    ft.Container(height=10),
+                    ft.Container(
+                        content=ft.Text(
+                            "⚠️ This is your first login. For security reasons, please create a new strong password.",
+                            size=12,
+                            color=COLORS['warning'],
+                            weight=ft.FontWeight.W_500
+                        ),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['warning']),
+                        padding=10,
+                        border_radius=8,
+                        border=ft.border.all(1, COLORS['warning'])
+                    ),
+                    ft.Container(height=15),
+                    new_password_field,
+                    confirm_password_field,
+                    ft.Container(height=5),
+                    error_text
+                ], spacing=10, tight=True),
+                width=450
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "Change Password",
+                    icon=ft.icons.CHECK,
+                    on_click=change_password,
+                    style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = change_dialog
+        change_dialog.open = True
+        self.page.update()
