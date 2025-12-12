@@ -36,6 +36,11 @@ a = Analysis(
         'pandas',
         'PIL',
         'reportlab',
+        # Email modules (required by password_generator.py)
+        'email.mime',
+        'email.mime.text',
+        'email.mime.multipart',
+        'smtplib',
     ],
     hookspath=[],
     hooksconfig={},
@@ -47,7 +52,7 @@ a = Analysis(
         'test',
         'tests',
         'curses',
-        'email.mime',
+        # 'email.mime',  # REMOVED: needed by password_generator.py for email functionality
         'pydoc',
         'doctest',
         'argparse',

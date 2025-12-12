@@ -245,7 +245,7 @@ class UserManagement(ft.UserControl):
                                     on_click=lambda e, u=user: self.show_edit_user_dialog(u)
                                 ),
                                 ft.IconButton(
-                                    icon=ft.icons.DELETE if user['is_active'] else ft.icons.RESTORE,
+                                    icon=ft.icons.BLOCK if user['is_active'] else ft.icons.CHECK_CIRCLE,
                                     tooltip=t('user_deactivated') if user['is_active'] else t('user_activated'),
                                     on_click=lambda e, u=user: self.toggle_user_status(u),
                                     icon_color=COLORS['error'] if user['is_active'] else COLORS['success']
