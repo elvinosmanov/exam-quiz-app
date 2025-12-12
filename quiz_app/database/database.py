@@ -268,6 +268,7 @@ def create_tables():
                 is_completed BOOLEAN DEFAULT 0,
                 is_active BOOLEAN DEFAULT 1,
                 email_sent BOOLEAN DEFAULT 0,
+                focus_loss_count INTEGER DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (exam_id) REFERENCES exams (id),
                 FOREIGN KEY (assignment_id) REFERENCES exam_assignments (id) ON DELETE CASCADE
@@ -472,6 +473,7 @@ def create_tables():
                 prevent_focus_loss BOOLEAN DEFAULT 0,
                 enable_logging BOOLEAN DEFAULT 0,
                 enable_pattern_analysis BOOLEAN DEFAULT 0,
+                delivery_method TEXT DEFAULT 'online',
                 use_question_pool BOOLEAN DEFAULT 0,
                 questions_to_select INTEGER DEFAULT 0,
                 easy_questions_count INTEGER DEFAULT 0,
