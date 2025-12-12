@@ -5,7 +5,10 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('quiz_app/assets/images', 'assets/images')],  # Removed quiz_app.db - created at runtime
+    datas=[
+        ('quiz_app/assets/images', 'assets/images'),  # Asset images
+        ('icon.png', '.'),  # Icon for window (bundled with exe)
+    ],
     hiddenimports=[
         'quiz_app.database.database',
         'quiz_app.utils.auth',
@@ -81,10 +84,11 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='icon.ico',  # Set executable icon
 )
 app = BUNDLE(
     exe,
     name='QuizExamSystem.app',
-    icon=None,
+    icon='icon.ico',  # Set app bundle icon (PyInstaller will convert to .icns for macOS)
     bundle_identifier=None,
 )
