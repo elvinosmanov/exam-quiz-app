@@ -99,6 +99,7 @@ def create_tables():
                 unit TEXT,
                 employee_id TEXT,
                 is_active BOOLEAN DEFAULT 1,
+                password_change_required BOOLEAN DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP
             )
@@ -266,6 +267,7 @@ def create_tables():
                 user_agent TEXT,
                 is_completed BOOLEAN DEFAULT 0,
                 is_active BOOLEAN DEFAULT 1,
+                email_sent BOOLEAN DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users (id),
                 FOREIGN KEY (exam_id) REFERENCES exams (id),
                 FOREIGN KEY (assignment_id) REFERENCES exam_assignments (id) ON DELETE CASCADE

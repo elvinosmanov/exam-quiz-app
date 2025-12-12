@@ -1,12 +1,15 @@
 # Database Development Guide
 
-## ⚠️ CRITICAL: How to Add Database Tables Correctly
+## 🚨 CRITICAL: How to Add Database Tables & Columns Correctly
 
 ### The Problem
-Migration files (`migration_*.py`) are NOT included in PyInstaller builds, causing the .exe to fail with "no such table" errors.
+Migration files (`migration_*.py`) are NOT included in PyInstaller builds, causing the .exe to fail with "no such table" or "no such column" errors.
 
 ### The Solution
-**ALWAYS add new tables directly to `create_tables()` in `quiz_app/database/database.py`**
+**ALWAYS add new tables AND new columns directly to `create_tables()` in `quiz_app/database/database.py`**
+
+### Why Dev Works But .exe Fails
+Your development database (`quiz_app.db`) accumulates columns from migrations over time and NEVER gets recreated. The .exe creates a fresh database using ONLY `create_tables()` - missing any columns from migrations!
 
 ---
 
@@ -43,18 +46,23 @@ In the same function, add indexes before `conn.commit()`:
     conn.commit()
 ```
 
-### Step 3: Test Locally
+### Step 3: Test Locally **WITH FRESH DATABASE** (CRITICAL!)
 
 ```bash
-# Delete old database
+# ⚠️ ALWAYS delete old database before testing!
 rm quiz_app.db
 
-# Reinitialize
+# Reinitialize from scratch
 python test_db.py
 
 # Run app
 python main.py
+
+# Test the exact feature you added
+# If it crashes → column is missing from create_tables()
 ```
+
+**WHY THIS IS CRITICAL**: Your old database has columns from past migrations. If you don't delete it, you'll never catch missing columns until the .exe fails!
 
 ### Step 4: Build and Test .exe
 
