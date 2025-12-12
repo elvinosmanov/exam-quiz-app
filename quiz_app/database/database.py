@@ -253,6 +253,7 @@ def create_tables():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 exam_id INTEGER NOT NULL,
+                assignment_id INTEGER,
                 start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 end_time TIMESTAMP,
                 duration_seconds INTEGER,
@@ -264,8 +265,10 @@ def create_tables():
                 ip_address TEXT,
                 user_agent TEXT,
                 is_completed BOOLEAN DEFAULT 0,
+                is_active BOOLEAN DEFAULT 1,
                 FOREIGN KEY (user_id) REFERENCES users (id),
-                FOREIGN KEY (exam_id) REFERENCES exams (id)
+                FOREIGN KEY (exam_id) REFERENCES exams (id),
+                FOREIGN KEY (assignment_id) REFERENCES exam_assignments (id) ON DELETE CASCADE
             )
         ''')
         
@@ -478,6 +481,7 @@ def create_tables():
                 created_by INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active BOOLEAN DEFAULT 1,
+                is_archived BOOLEAN DEFAULT 0,
                 pdf_variant_count INTEGER DEFAULT 1,
                 FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
                 FOREIGN KEY (created_by) REFERENCES users (id)
@@ -507,6 +511,9 @@ def create_tables():
                 assignment_id INTEGER NOT NULL,
                 exam_id INTEGER NOT NULL,
                 order_index INTEGER DEFAULT 0,
+                easy_count INTEGER DEFAULT 0,
+                medium_count INTEGER DEFAULT 0,
+                hard_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (assignment_id) REFERENCES exam_assignments (id) ON DELETE CASCADE,
                 FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
@@ -572,6 +579,7 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_sessions_user_exam ON exam_sessions(user_id, exam_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_sessions_assignment ON exam_sessions(assignment_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_answers_session ON user_answers(session_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_questions_exam ON questions(exam_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_question_options_question ON question_options(question_id)')

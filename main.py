@@ -68,25 +68,21 @@ class QuizApp:
             set_language('en')
 
     def main(self, page: ft.Page):
-        # Set custom window icon FIRST (before other window settings)
+        # Set custom window icon - use relative path from assets_dir
         if getattr(sys, 'frozen', False):
             # Running as packaged executable
             base_path = os.path.dirname(sys.executable)
+            icon_path = os.path.join(base_path, "icon.png")
         else:
-            # Running in development - use absolute path
-            base_path = os.path.dirname(os.path.abspath(__file__))
+            # Running in development - use relative path to assets folder
+            icon_path = "icon.png"
 
-        # Try to set icon with different formats
-        for icon_file in ['icon.png', 'icon.ico']:
-            icon_path = os.path.join(base_path, icon_file)
-            if os.path.exists(icon_path):
-                try:
-                    page.window.icon = icon_path
-                    print(f"[MAIN] Setting window icon: {icon_path}")
-                    page.update()  # Force update after setting icon
-                except Exception as e:
-                    print(f"[MAIN] Failed to set icon: {e}")
-                break
+        try:
+            page.window.icon = icon_path
+            print(f"[MAIN] Setting window icon: {icon_path}")
+            page.update()
+        except Exception as e:
+            print(f"[MAIN] Failed to set icon: {e}")
 
         page.title = "Quiz Examination System"
         page.theme_mode = ft.ThemeMode.LIGHT
