@@ -213,24 +213,9 @@ class Settings(ft.UserControl):
 
         def reset_to_default(e):
             """Reset template to default"""
-            template_type = template_type_dropdown.value
-            language = 'en' if language_tabs.selected_index == 0 else 'az'
-
-            # Get default templates from migration
-            from quiz_app.database.migration_email_system import get_default_templates
-            defaults = get_default_templates()
-
-            # Find matching default template
-            default = next((t for t in defaults if t['template_type'] == template_type and t['language'] == language), None)
-
-            if default:
-                subject_field.value = default['subject']
-                body_field.value = default['body_template']
-                subject_field.update()
-                body_field.update()
-                self.show_success_message(t('template_reset'))
-            else:
-                self.show_error_message(t('template_not_found'))
+            # Note: Template reset functionality disabled - migration files removed
+            # Templates are initialized with defaults in database.py create_tables()
+            self.show_error_message("Template reset feature temporarily disabled. Please check database defaults.")
 
         def test_email(e):
             """Generate test email with sample data"""

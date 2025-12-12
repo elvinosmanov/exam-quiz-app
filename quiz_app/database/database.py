@@ -634,15 +634,6 @@ def init_database():
     """Initialize the database with tables and default data"""
     create_tables()
     create_default_admin()
-
-    # Run organizational structure migration
-    try:
-        from quiz_app.database.migration_organizational_structure import run_migration
-        db = Database()
-        run_migration(db)
-    except Exception as e:
-        print(f"Warning: Organizational structure migration failed: {e}")
-
     print(f"Database initialized at: {DATABASE_PATH}")
 
 if __name__ == "__main__":
