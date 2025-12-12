@@ -2,6 +2,16 @@
 
 A comprehensive, enterprise-grade quiz examination system built with Python and Flet framework. This application provides secure, user-friendly interfaces for both administrators and examinees with role-based access control.
 
+## 🚨 CRITICAL: Database Development Rules
+
+**⚠️ ALWAYS READ [DATABASE_DEVELOPMENT_GUIDE.md](DATABASE_DEVELOPMENT_GUIDE.md) BEFORE ADDING TABLES!**
+
+**Quick Rule**:
+- ✅ **New tables → Add to `create_tables()` in `database.py`**
+- ❌ **NEVER create migration files for new tables** (they break .exe builds)
+
+Migration files are NOT included in PyInstaller builds and will cause "no such table" errors in production!
+
 ## Features
 
 ### 🔐 Authentication & Security

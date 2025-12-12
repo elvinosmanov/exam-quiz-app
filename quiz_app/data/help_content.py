@@ -13,7 +13,7 @@ HELP_CONTENT = {
                 'id': 'user_management',
                 'title_key': 'help_user_mgmt',
                 'icon': ft.icons.PEOPLE,
-                'topics': ['create_user', 'edit_user', 'manage_roles', 'bulk_import_users', 'organizational_structure', 'activate_deactivate_users']
+                'topics': ['create_user', 'edit_user', 'manage_roles', 'organizational_structure', 'activate_deactivate_users']
             },
             {
                 'id': 'exam_management',
@@ -37,13 +37,13 @@ HELP_CONTENT = {
                 'id': 'reports',
                 'title_key': 'help_reports',
                 'icon': ft.icons.ANALYTICS,
-                'topics': ['view_statistics', 'export_results', 'user_performance', 'department_reports']
+                'topics': ['view_statistics', 'export_results']
             },
             {
                 'id': 'settings',
                 'title_key': 'help_settings',
                 'icon': ft.icons.SETTINGS,
-                'topics': ['change_language', 'database_backup', 'email_config', 'system_settings']
+                'topics': ['change_language', 'database_backup', 'system_settings']
             }
         ],
         'topics': {
@@ -94,21 +94,6 @@ HELP_CONTENT = {
                     'help_manage_roles_tip3'
                 ],
                 'related': ['create_user', 'organizational_structure']
-            },
-            'bulk_import_users': {
-                'title_key': 'help_bulk_import_users_title',
-                'content_key': 'help_bulk_import_users_desc',
-                'steps': [
-                    'help_bulk_import_users_step1',
-                    'help_bulk_import_users_step2',
-                    'help_bulk_import_users_step3',
-                    'help_bulk_import_users_step4'
-                ],
-                'tips': [
-                    'help_bulk_import_users_tip1',
-                    'help_bulk_import_users_tip2'
-                ],
-                'related': ['create_user']
             },
             'organizational_structure': {
                 'title_key': 'help_org_structure_title',
@@ -412,32 +397,6 @@ HELP_CONTENT = {
                 ],
                 'related': ['view_statistics']
             },
-            'user_performance': {
-                'title_key': 'help_user_performance_title',
-                'content_key': 'help_user_performance_desc',
-                'steps': [
-                    'help_user_performance_step1',
-                    'help_user_performance_step2',
-                    'help_user_performance_step3'
-                ],
-                'tips': [
-                    'help_user_performance_tip1'
-                ],
-                'related': ['view_statistics', 'department_reports']
-            },
-            'department_reports': {
-                'title_key': 'help_department_reports_title',
-                'content_key': 'help_department_reports_desc',
-                'steps': [
-                    'help_department_reports_step1',
-                    'help_department_reports_step2',
-                    'help_department_reports_step3'
-                ],
-                'tips': [
-                    'help_department_reports_tip1'
-                ],
-                'related': ['view_statistics', 'user_performance']
-            },
 
             # Settings Topics
             'change_language': {
@@ -465,21 +424,6 @@ HELP_CONTENT = {
                 'tips': [
                     'help_database_backup_tip1',
                     'help_database_backup_tip2'
-                ],
-                'related': ['system_settings']
-            },
-            'email_config': {
-                'title_key': 'help_email_config_title',
-                'content_key': 'help_email_config_desc',
-                'steps': [
-                    'help_email_config_step1',
-                    'help_email_config_step2',
-                    'help_email_config_step3',
-                    'help_email_config_step4'
-                ],
-                'tips': [
-                    'help_email_config_tip1',
-                    'help_email_config_tip2'
                 ],
                 'related': ['system_settings']
             },

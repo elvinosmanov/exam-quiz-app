@@ -2300,6 +2300,25 @@ class QuestionManagement(ft.UserControl):
 
         def confirm_delete(ev):
             try:
+                # Delete all associated image files from questions in this exam (before deleting DB records)
+                questions_with_images = self.db.execute_query(
+                    "SELECT image_path FROM questions WHERE exam_id = ? AND image_path IS NOT NULL",
+                    (self.selected_exam_id,)
+                )
+
+                for question in questions_with_images:
+                    if question.get('image_path'):
+                        try:
+                            full_path = os.path.join(
+                                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                                question['image_path']
+                            )
+                            if os.path.exists(full_path):
+                                os.remove(full_path)
+                                print(f"Deleted image file: {full_path}")
+                        except Exception as ex:
+                            print(f"Warning: Could not delete image file {full_path}: {ex}")
+
                 # Delete all related data in the correct order (due to foreign keys)
                 # 1. Delete user answers
                 self.db.execute_update("""

@@ -452,6 +452,116 @@ def create_tables():
             )
         ''')
 
+        # Exam Assignments table (allows same exam to be assigned multiple times with different settings)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS exam_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_id INTEGER NOT NULL,
+                assignment_name TEXT NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                passing_score REAL NOT NULL,
+                max_attempts INTEGER DEFAULT 1,
+                randomize_questions BOOLEAN DEFAULT 0,
+                show_results BOOLEAN DEFAULT 1,
+                enable_fullscreen BOOLEAN DEFAULT 0,
+                prevent_focus_loss BOOLEAN DEFAULT 0,
+                enable_logging BOOLEAN DEFAULT 0,
+                enable_pattern_analysis BOOLEAN DEFAULT 0,
+                use_question_pool BOOLEAN DEFAULT 0,
+                questions_to_select INTEGER DEFAULT 0,
+                easy_questions_count INTEGER DEFAULT 0,
+                medium_questions_count INTEGER DEFAULT 0,
+                hard_questions_count INTEGER DEFAULT 0,
+                start_date TIMESTAMP,
+                end_date TIMESTAMP,
+                deadline TIMESTAMP,
+                created_by INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1,
+                pdf_variant_count INTEGER DEFAULT 1,
+                FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+                FOREIGN KEY (created_by) REFERENCES users (id)
+            )
+        ''')
+
+        # Assignment Users junction table (tracks which users have access to which assignments)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS assignment_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                granted_by INTEGER NOT NULL,
+                granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1,
+                FOREIGN KEY (assignment_id) REFERENCES exam_assignments (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (granted_by) REFERENCES users (id),
+                UNIQUE(assignment_id, user_id)
+            )
+        ''')
+
+        # Assignment Exam Templates junction table (supports multiple exam templates per assignment)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS assignment_exam_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_id INTEGER NOT NULL,
+                exam_id INTEGER NOT NULL,
+                order_index INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (assignment_id) REFERENCES exam_assignments (id) ON DELETE CASCADE,
+                FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
+                UNIQUE(assignment_id, exam_id)
+            )
+        ''')
+
+        # System Settings table (for application-wide settings)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS system_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_key TEXT UNIQUE NOT NULL,
+                setting_value TEXT NOT NULL,
+                description TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Insert default language setting if not exists
+        cursor.execute('''
+            INSERT OR IGNORE INTO system_settings (setting_key, setting_value, description)
+            VALUES ('language', 'English', 'System-wide language setting')
+        ''')
+
+        # Organizational Structure table (departments, sections, units)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS organizational_structure (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT UNIQUE NOT NULL,
+                type TEXT NOT NULL CHECK(type IN ('department', 'section', 'unit')),
+                name_az TEXT NOT NULL,
+                name_en TEXT NOT NULL,
+                abbr_az TEXT NOT NULL,
+                abbr_en TEXT NOT NULL,
+                parent_key TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (parent_key) REFERENCES organizational_structure(key) ON DELETE CASCADE
+            )
+        ''')
+
+        # Pattern Analysis table (stub for backward compatibility - feature deprecated)
+        # This table is no longer actively used but kept for backward compatibility with legacy code
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pattern_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                suspicion_score INTEGER DEFAULT 0,
+                details TEXT,
+                issues_detected TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES exam_sessions (id)
+            )
+        ''')
+
         # Add language_preference column to users table if it doesn't exist
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN language_preference TEXT DEFAULT 'en'")
@@ -474,6 +584,15 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_email_log_sent_by ON email_log(sent_by)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_observers_exam ON exam_observers(exam_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_observers_observer ON exam_observers(observer_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_assignments_exam ON exam_assignments(exam_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_assignment_users_assignment ON assignment_users(assignment_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_assignment_users_user ON assignment_users(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_assignment_exam_templates_assignment ON assignment_exam_templates(assignment_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_system_settings_key ON system_settings(setting_key)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_organizational_structure_key ON organizational_structure(key)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_organizational_structure_type ON organizational_structure(type)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_organizational_structure_parent ON organizational_structure(parent_key)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pattern_analysis_session ON pattern_analysis(session_id)')
 
         conn.commit()
 
