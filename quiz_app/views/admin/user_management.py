@@ -9,6 +9,7 @@ from quiz_app.config import (
     SENDER_EMAIL, SENDER_PASSWORD, APP_URL, GENERATED_PASSWORD_LENGTH
 )
 import pyperclip
+import re
 
 class UserManagement(ft.UserControl):
     def __init__(self, db, user_data=None):
@@ -300,6 +301,9 @@ class UserManagement(ft.UserControl):
             disabled=is_edit  # Don't allow username changes
         )
 
+        # Email validation error text
+        email_error_text = ft.Text("", color=COLORS['error'], size=12, visible=False)
+
         email_field = ft.TextField(
             label=t('email'),
             value=user['email'] if is_edit else ""
@@ -414,11 +418,15 @@ class UserManagement(ft.UserControl):
 
                 # Get units under expert's section
                 units = get_units_for_department(expert_dept, expert_section, current_lang)
+                unit_options = [ft.dropdown.Option("", "-- Select Unit --")]
+                if units:
+                    unit_options.extend([ft.dropdown.Option(u) for u in units])
+
                 unit_dropdown = ft.Dropdown(
                     label=t('unit'),
                     hint_text=t('select_unit'),
-                    options=[ft.dropdown.Option(u) for u in units] if units else [],
-                    value=user.get('unit') if is_edit else None,
+                    options=unit_options,
+                    value=user.get('unit') if is_edit else "",
                     expand=True,
                     disabled=len(units) == 0
                 )
@@ -427,21 +435,31 @@ class UserManagement(ft.UserControl):
                 sections = get_sections_for_department(expert_dept, current_lang)
                 direct_units = get_units_for_department(expert_dept, None, current_lang)
 
+                # Build section options with "-- Select Section --" as first option (no selection)
+                section_options = [ft.dropdown.Option("", "-- Select Section --")]
+                if sections:
+                    section_options.extend([ft.dropdown.Option(sec) for sec in sections])
+
                 section_dropdown = ft.Dropdown(
                     label=t('section'),
                     hint_text=t('select_section'),
-                    options=[ft.dropdown.Option(sec) for sec in sections] if sections else [],
-                    value=user.get('section') if is_edit else None,
+                    options=section_options,
+                    value=user.get('section') if is_edit else "",
                     expand=True,
                     disabled=len(sections) == 0
                 )
+
+                # Build unit options with "-- Select Unit --" as first option (no selection)
+                unit_options = [ft.dropdown.Option("", "-- Select Unit --")]
+                if direct_units:
+                    unit_options.extend([ft.dropdown.Option(u) for u in direct_units])
 
                 # Initially populate with direct units under department (no section selected yet)
                 unit_dropdown = ft.Dropdown(
                     label=t('unit'),
                     hint_text=t('select_unit'),
-                    options=[ft.dropdown.Option(u) for u in direct_units] if direct_units else [],
-                    value=user.get('unit') if is_edit else None,
+                    options=unit_options,
+                    value=user.get('unit') if is_edit else "",
                     expand=True,
                     disabled=len(direct_units) == 0
                 )
@@ -450,7 +468,7 @@ class UserManagement(ft.UserControl):
                 if is_edit and user.get('section'):
                     units = get_units_for_department(expert_dept, user['section'], current_lang)
                     if units:
-                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
 
                 # Add cascading logic for department-level experts
@@ -459,28 +477,32 @@ class UserManagement(ft.UserControl):
                     selected_section = e.control.value
                     current_lang = get_language()
 
-                    if selected_section:
+                    if selected_section and selected_section != "":
                         # Section selected: show units under that section
                         units = get_units_for_department(expert_dept, selected_section, current_lang)
+                        unit_options = [ft.dropdown.Option("", "-- Select Unit --")]
                         if units:
-                            unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                            unit_options.extend([ft.dropdown.Option(u) for u in units])
+                            unit_dropdown.options = unit_options
                             unit_dropdown.disabled = False
-                            unit_dropdown.value = None
+                            unit_dropdown.value = ""
                         else:
-                            unit_dropdown.options = []
+                            unit_dropdown.options = unit_options
                             unit_dropdown.disabled = True
-                            unit_dropdown.value = None
+                            unit_dropdown.value = ""
                     else:
-                        # No section selected: show direct units under department
+                        # No section selected (or "-- Select Section --" chosen): show direct units under department
                         direct_units = get_units_for_department(expert_dept, None, current_lang)
+                        unit_options = [ft.dropdown.Option("", "-- Select Unit --")]
                         if direct_units:
-                            unit_dropdown.options = [ft.dropdown.Option(u) for u in direct_units]
+                            unit_options.extend([ft.dropdown.Option(u) for u in direct_units])
+                            unit_dropdown.options = unit_options
                             unit_dropdown.disabled = False
-                            unit_dropdown.value = None
+                            unit_dropdown.value = ""
                         else:
-                            unit_dropdown.options = []
+                            unit_dropdown.options = unit_options
                             unit_dropdown.disabled = True
-                            unit_dropdown.value = None
+                            unit_dropdown.value = ""
 
                     unit_dropdown.update()
 
@@ -491,11 +513,14 @@ class UserManagement(ft.UserControl):
             current_lang = get_language()
             departments = get_departments(current_lang)
 
+            # Create department dropdown with "-- Select Department --" as first option (no selection)
+            dept_options = [ft.dropdown.Option("", "-- Select Department --")] + [ft.dropdown.Option(dept) for dept in departments]
+
             department_dropdown = ft.Dropdown(
                 label=t('department') + (" *" if not is_edit else ""),
                 hint_text=t('select_department'),
-                options=[ft.dropdown.Option(dept) for dept in departments],
-                value=user['department'] if is_edit else None,
+                options=dept_options,
+                value=user['department'] if is_edit else "",  # Empty string for "Select..." option
                 expand=True,
                 on_change=None  # Will set below
             )
@@ -504,8 +529,8 @@ class UserManagement(ft.UserControl):
             section_dropdown = ft.Dropdown(
                 label=t('section'),
                 hint_text=t('select_section'),
-                options=[],
-                value=user['section'] if is_edit else None,
+                options=[ft.dropdown.Option("", "-- Select Section --")],
+                value=user['section'] if is_edit else "",
                 expand=True,
                 disabled=True
             )
@@ -514,8 +539,8 @@ class UserManagement(ft.UserControl):
             unit_dropdown = ft.Dropdown(
                 label=t('unit'),
                 hint_text=t('select_unit'),
-                options=[],
-                value=user['unit'] if is_edit else None,
+                options=[ft.dropdown.Option("", "-- Select Unit --")],
+                value=user['unit'] if is_edit else "",
                 expand=True,
                 disabled=True
             )
@@ -529,20 +554,20 @@ class UserManagement(ft.UserControl):
             if is_edit and user.get('department'):
                 sections = get_sections_for_department(user['department'], current_lang)
                 if sections:
-                    section_dropdown.options = [ft.dropdown.Option(sec) for sec in sections]
+                    section_dropdown.options = [ft.dropdown.Option("", "-- Select Section --")] + [ft.dropdown.Option(sec) for sec in sections]
                     section_dropdown.disabled = False
 
                 # If has section, get units from section
                 if user.get('section'):
                     units = get_units_for_department(user['department'], user['section'], current_lang)
                     if units:
-                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
                 else:
                     # Get direct units under department
                     units = get_units_for_department(user['department'], None, current_lang)
                     if units:
-                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
 
             def on_department_change(e):
@@ -550,43 +575,43 @@ class UserManagement(ft.UserControl):
                 selected_dept = e.control.value
                 current_lang = get_language()
 
-                if selected_dept:
+                if selected_dept and selected_dept != "":  # Check if not "Select..." option
                     # Get sections for selected department
                     sections = get_sections_for_department(selected_dept, current_lang)
 
                     if sections:
                         # Department has sections
-                        section_dropdown.options = [ft.dropdown.Option(sec) for sec in sections]
+                        section_dropdown.options = [ft.dropdown.Option("", "-- Select Section --")] + [ft.dropdown.Option(sec) for sec in sections]
                         section_dropdown.disabled = False
-                        section_dropdown.value = None
+                        section_dropdown.value = ""
 
                         # Disable units until section is selected
-                        unit_dropdown.options = []
+                        unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")]
                         unit_dropdown.disabled = True
-                        unit_dropdown.value = None
+                        unit_dropdown.value = ""
                     else:
                         # No sections - get direct units
-                        section_dropdown.options = []
+                        section_dropdown.options = [ft.dropdown.Option("", "-- Select Section --")]
                         section_dropdown.disabled = True
-                        section_dropdown.value = None
+                        section_dropdown.value = ""
 
                         units = get_units_for_department(selected_dept, None, current_lang)
                         if units:
-                            unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                            unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                             unit_dropdown.disabled = False
-                            unit_dropdown.value = None
+                            unit_dropdown.value = ""
                         else:
-                            unit_dropdown.options = []
+                            unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")]
                             unit_dropdown.disabled = True
-                            unit_dropdown.value = None
+                            unit_dropdown.value = ""
                 else:
-                    # Clear all
-                    section_dropdown.options = []
+                    # Clear all (user selected "Select..." option)
+                    section_dropdown.options = [ft.dropdown.Option("", "-- Select Section --")]
                     section_dropdown.disabled = True
-                    section_dropdown.value = None
-                    unit_dropdown.options = []
+                    section_dropdown.value = ""
+                    unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")]
                     unit_dropdown.disabled = True
-                    unit_dropdown.value = None
+                    unit_dropdown.value = ""
 
                 section_dropdown.update()
                 unit_dropdown.update()
@@ -597,21 +622,21 @@ class UserManagement(ft.UserControl):
                 selected_dept = department_dropdown.value
                 current_lang = get_language()
 
-                if selected_section and selected_dept:
+                if selected_section and selected_section != "" and selected_dept and selected_dept != "":
                     # Get units for selected section
                     units = get_units_for_department(selected_dept, selected_section, current_lang)
                     if units:
-                        unit_dropdown.options = [ft.dropdown.Option(u) for u in units]
+                        unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
-                        unit_dropdown.value = None
+                        unit_dropdown.value = ""
                     else:
-                        unit_dropdown.options = []
+                        unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")]
                         unit_dropdown.disabled = True
-                        unit_dropdown.value = None
+                        unit_dropdown.value = ""
                 else:
-                    unit_dropdown.options = []
+                    unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")]
                     unit_dropdown.disabled = True
-                    unit_dropdown.value = None
+                    unit_dropdown.value = ""
 
                 unit_dropdown.update()
 
@@ -619,13 +644,29 @@ class UserManagement(ft.UserControl):
                 """When role changes, show/hide department/section/unit requirement"""
                 selected_role = e.control.value
 
-                # Expert requires only department (section and unit optional)
-                if selected_role == 'expert':
+                if selected_role == 'admin':
+                    # Admin: hide/disable department/section/unit
+                    department_dropdown.visible = False
+                    section_dropdown.visible = False
+                    unit_dropdown.visible = False
+                elif selected_role == 'expert':
+                    # Expert: department required, section/unit optional
+                    department_dropdown.visible = True
+                    department_dropdown.disabled = False
                     department_dropdown.label = t('department') + " *"
+                    section_dropdown.visible = True
+                    unit_dropdown.visible = True
                 else:
+                    # Examinee: show all fields (validation will check section OR unit)
+                    department_dropdown.visible = True
+                    department_dropdown.disabled = False
                     department_dropdown.label = t('department')
+                    section_dropdown.visible = True
+                    unit_dropdown.visible = True
 
                 department_dropdown.update()
+                section_dropdown.update()
+                unit_dropdown.update()
 
             department_dropdown.on_change = on_department_change
             section_dropdown.on_change = on_section_change
@@ -634,12 +675,39 @@ class UserManagement(ft.UserControl):
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
         def save_user(e):
-            # Validate fields
-            if not username_field.value.strip() or not email_field.value.strip() or not full_name_field.value.strip():
-                error_text.value = t('field_required')
+            # Validate fields individually with specific error messages
+            if not username_field.value.strip():
+                error_text.value = "Username is required"
                 error_text.visible = True
+                email_error_text.visible = False
                 self.user_dialog.update()
                 return
+
+            if not email_field.value.strip():
+                error_text.value = "Email is required"
+                error_text.visible = True
+                email_error_text.visible = False
+                self.user_dialog.update()
+                return
+
+            if not full_name_field.value.strip():
+                error_text.value = "Full name is required"
+                error_text.visible = True
+                email_error_text.visible = False
+                self.user_dialog.update()
+                return
+
+            # Email validation with regex
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_pattern, email_field.value.strip()):
+                email_error_text.value = "Please enter a valid email address (e.g., user@example.com)"
+                email_error_text.visible = True
+                error_text.visible = False
+                self.user_dialog.update()
+                return
+            else:
+                # Clear email error if valid
+                email_error_text.visible = False
 
             # Password validation for new users (should always have value since auto-generated)
             if not is_edit and not password_field.value.strip():
@@ -656,28 +724,40 @@ class UserManagement(ft.UserControl):
                 self.user_dialog.update()
                 return
 
-            # Validate expert role requirements
-            if role_dropdown.value == 'expert':
-                # Get department value (either from dropdown or text field for experts)
-                dept_value = None
-                if isinstance(department_dropdown, ft.Dropdown):
-                    dept_value = department_dropdown.value
-                elif isinstance(department_dropdown, ft.TextField):
-                    dept_value = department_dropdown.value
+            # Get department/section/unit values (handle both Dropdown and TextField)
+            dept_value = department_dropdown.value if hasattr(department_dropdown, 'value') else None
+            section_value = section_dropdown.value if hasattr(section_dropdown, 'value') else None
+            unit_value = unit_dropdown.value if hasattr(unit_dropdown, 'value') else None
 
+            # Convert empty strings to None
+            if dept_value == "":
+                dept_value = None
+            if section_value == "":
+                section_value = None
+            if unit_value == "":
+                unit_value = None
+
+            # Role-based validation
+            if role_dropdown.value == 'expert':
+                # Expert: department required, section/unit optional
                 if not dept_value:
                     error_text.value = t('department_required_for_expert')
                     error_text.visible = True
                     self.user_dialog.update()
                     return
                 # Section and unit are optional for experts (allows department-level experts)
-            
-            try:
-                # Get department/section/unit values (handle both Dropdown and TextField)
-                dept_value = department_dropdown.value if hasattr(department_dropdown, 'value') else None
-                section_value = section_dropdown.value if hasattr(section_dropdown, 'value') else None
-                unit_value = unit_dropdown.value if hasattr(unit_dropdown, 'value') else None
 
+            elif role_dropdown.value == 'examinee':
+                # Examinee: either section OR unit must be selected (at least one)
+                if not section_value and not unit_value:
+                    error_text.value = "Examinee must have at least a section or unit assigned"
+                    error_text.visible = True
+                    self.user_dialog.update()
+                    return
+
+            # Admin role: no department/section/unit required (already hidden in UI)
+
+            try:
                 if is_edit:
                     # Update user
                     query = """
@@ -764,6 +844,7 @@ class UserManagement(ft.UserControl):
         dialog_content_items = [
             username_field,
             email_field,
+            email_error_text,  # Show email validation error below email field
             full_name_field,
             password_field,
             role_dropdown,
