@@ -5,6 +5,7 @@ flet-desktop==0.25.1
 
 # Security & Authentication
 bcrypt==4.1.2
+sqlcipher3-wheels==0.5.6  # Database encryption with SQLCipher (pre-built wheels for Windows/macOS/Linux)
 
 # PDF Generation & Reports
 reportlab==4.4.2

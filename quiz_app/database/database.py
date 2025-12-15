@@ -1,4 +1,13 @@
-import sqlite3
+# Use SQLCipher for encrypted database
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+    ENCRYPTION_ENABLED = True
+except ImportError:
+    # Fallback to regular sqlite3 if sqlcipher3-wheels is not installed
+    import sqlite3
+    ENCRYPTION_ENABLED = False
+    print("WARNING: sqlcipher3-wheels not installed. Database will NOT be encrypted!")
+
 import os
 import logging
 from typing import Dict, List, Optional, Any
@@ -7,6 +16,11 @@ from quiz_app.config import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
 
+# CRITICAL SECURITY: Database encryption key
+# TODO: In production, load this from a secure location (environment variable or config file)
+# For now, using a strong default key
+DATABASE_ENCRYPTION_KEY = "QuizApp2025!AzErCoSmOs#SecureKey$Protected"
+
 class Database:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or DATABASE_PATH
@@ -14,6 +28,17 @@ class Database:
     def get_connection(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+
+        # Apply encryption key if SQLCipher is enabled
+        if ENCRYPTION_ENABLED:
+            conn.execute(f"PRAGMA key='{DATABASE_ENCRYPTION_KEY}'")
+            # Verify database is accessible (will fail if key is wrong)
+            try:
+                conn.execute("SELECT count(*) FROM sqlite_master")
+            except sqlite3.DatabaseError as e:
+                logger.error(f"Database encryption key validation failed: {e}")
+                raise Exception("Unable to decrypt database. Encryption key may be incorrect.")
+
         return conn
     
     def execute_query(self, query: str, params: tuple = ()) -> List[Dict]:

@@ -19,7 +19,7 @@ HELP_CONTENT = {
                 'id': 'exam_management',
                 'title_key': 'help_exam_mgmt',
                 'icon': ft.icons.QUIZ,
-                'topics': ['create_exam', 'assign_exam', 'question_pool', 'exam_scheduling', 'exam_settings', 'multi_template_assignment']
+                'topics': ['create_exam', 'assign_exam', 'exam_scheduling', 'exam_settings', 'multi_template_assignment', 'preset_templates', 'archived_assignments', 'pdf_delivery']
             },
             {
                 'id': 'question_management',
@@ -37,13 +37,13 @@ HELP_CONTENT = {
                 'id': 'reports',
                 'title_key': 'help_reports',
                 'icon': ft.icons.ANALYTICS,
-                'topics': ['view_statistics', 'export_results']
+                'topics': ['view_statistics', 'export_results', 'pdf_reports', 'user_performance']
             },
             {
                 'id': 'settings',
                 'title_key': 'help_settings',
                 'icon': ft.icons.SETTINGS,
-                'topics': ['change_language', 'database_backup', 'system_settings']
+                'topics': ['change_language', 'database_backup', 'system_settings', 'email_templates', 'organizational_structure']
             }
         ],
         'topics': {
@@ -141,7 +141,7 @@ HELP_CONTENT = {
                     'help_create_exam_tip2',
                     'help_create_exam_tip3'
                 ],
-                'related': ['assign_exam', 'question_pool', 'exam_settings']
+                'related': ['assign_exam', 'exam_settings', 'question_difficulty']
             },
             'assign_exam': {
                 'title_key': 'help_assign_exam_title',
@@ -159,21 +159,6 @@ HELP_CONTENT = {
                     'help_assign_exam_tip3'
                 ],
                 'related': ['create_exam', 'exam_scheduling', 'multi_template_assignment']
-            },
-            'question_pool': {
-                'title_key': 'help_question_pool_title',
-                'content_key': 'help_question_pool_desc',
-                'steps': [
-                    'help_question_pool_step1',
-                    'help_question_pool_step2',
-                    'help_question_pool_step3',
-                    'help_question_pool_step4'
-                ],
-                'tips': [
-                    'help_question_pool_tip1',
-                    'help_question_pool_tip2'
-                ],
-                'related': ['create_exam', 'question_difficulty']
             },
             'exam_scheduling': {
                 'title_key': 'help_exam_scheduling_title',
@@ -217,7 +202,50 @@ HELP_CONTENT = {
                     'help_multi_template_tip1',
                     'help_multi_template_tip2'
                 ],
-                'related': ['assign_exam', 'question_pool']
+                'related': ['assign_exam', 'exam_scheduling']
+            },
+            'preset_templates': {
+                'title_key': 'help_preset_templates_title',
+                'content_key': 'help_preset_templates_desc',
+                'steps': [
+                    'help_preset_templates_step1',
+                    'help_preset_templates_step2',
+                    'help_preset_templates_step3',
+                    'help_preset_templates_step4'
+                ],
+                'tips': [
+                    'help_preset_templates_tip1',
+                    'help_preset_templates_tip2'
+                ],
+                'related': ['multi_template_assignment', 'assign_exam']
+            },
+            'archived_assignments': {
+                'title_key': 'help_archived_assignments_title',
+                'content_key': 'help_archived_assignments_desc',
+                'steps': [
+                    'help_archived_assignments_step1',
+                    'help_archived_assignments_step2',
+                    'help_archived_assignments_step3'
+                ],
+                'tips': [
+                    'help_archived_assignments_tip1'
+                ],
+                'related': ['assign_exam']
+            },
+            'pdf_delivery': {
+                'title_key': 'help_pdf_delivery_title',
+                'content_key': 'help_pdf_delivery_desc',
+                'steps': [
+                    'help_pdf_delivery_step1',
+                    'help_pdf_delivery_step2',
+                    'help_pdf_delivery_step3',
+                    'help_pdf_delivery_step4'
+                ],
+                'tips': [
+                    'help_pdf_delivery_tip1',
+                    'help_pdf_delivery_tip2'
+                ],
+                'related': ['assign_exam', 'exam_settings']
             },
 
             # Question Management Topics
@@ -295,7 +323,7 @@ HELP_CONTENT = {
                     'help_question_difficulty_tip1',
                     'help_question_difficulty_tip2'
                 ],
-                'related': ['create_question', 'question_pool']
+                'related': ['create_question', 'create_exam']
             },
             'question_explanations': {
                 'title_key': 'help_question_explanations_title',
@@ -397,6 +425,34 @@ HELP_CONTENT = {
                 ],
                 'related': ['view_statistics']
             },
+            'pdf_reports': {
+                'title_key': 'help_pdf_reports_title',
+                'content_key': 'help_pdf_reports_desc',
+                'steps': [
+                    'help_pdf_reports_step1',
+                    'help_pdf_reports_step2',
+                    'help_pdf_reports_step3'
+                ],
+                'tips': [
+                    'help_pdf_reports_tip1',
+                    'help_pdf_reports_tip2'
+                ],
+                'related': ['view_statistics', 'export_results']
+            },
+            'user_performance': {
+                'title_key': 'help_user_performance_title',
+                'content_key': 'help_user_performance_desc',
+                'steps': [
+                    'help_user_performance_step1',
+                    'help_user_performance_step2',
+                    'help_user_performance_step3',
+                    'help_user_performance_step4'
+                ],
+                'tips': [
+                    'help_user_performance_tip1'
+                ],
+                'related': ['view_statistics', 'export_results']
+            },
 
             # Settings Topics
             'change_language': {
@@ -439,6 +495,36 @@ HELP_CONTENT = {
                     'help_system_settings_tip1'
                 ],
                 'related': ['change_language', 'database_backup']
+            },
+            'email_templates': {
+                'title_key': 'help_email_templates_title',
+                'content_key': 'help_email_templates_desc',
+                'steps': [
+                    'help_email_templates_step1',
+                    'help_email_templates_step2',
+                    'help_email_templates_step3',
+                    'help_email_templates_step4'
+                ],
+                'tips': [
+                    'help_email_templates_tip1',
+                    'help_email_templates_tip2'
+                ],
+                'related': ['system_settings']
+            },
+            'organizational_structure': {
+                'title_key': 'help_org_structure_manage_title',
+                'content_key': 'help_org_structure_manage_desc',
+                'steps': [
+                    'help_org_structure_manage_step1',
+                    'help_org_structure_manage_step2',
+                    'help_org_structure_manage_step3',
+                    'help_org_structure_manage_step4'
+                ],
+                'tips': [
+                    'help_org_structure_manage_tip1',
+                    'help_org_structure_manage_tip2'
+                ],
+                'related': ['create_user', 'system_settings']
             }
         }
     },

@@ -862,15 +862,6 @@ TRANSLATIONS = {
         'help_assign_exam_tip2': 'You can assign different settings to different groups using the same template',
         'help_assign_exam_tip3': 'Use department/unit assignment for bulk user targeting',
 
-        'help_question_pool_title': 'Using Question Pools',
-        'help_question_pool_desc': 'Create randomized exams by selecting questions from a pool by difficulty.',
-        'help_question_pool_step1': 'When creating an exam, enable "Use Question Pool"',
-        'help_question_pool_step2': 'Specify how many questions to select from each difficulty level (Easy, Medium, Hard)',
-        'help_question_pool_step3': 'System will randomly select questions for each exam attempt',
-        'help_question_pool_step4': 'Each student may receive different questions from the same exam template',
-        'help_question_pool_tip1': 'Ensure you have enough questions in each difficulty level',
-        'help_question_pool_tip2': 'Question pools enhance exam security by reducing answer sharing',
-
         'help_exam_scheduling_title': 'Exam Scheduling',
         'help_exam_scheduling_desc': 'Set start dates, end dates, and deadlines for exam assignments.',
         'help_exam_scheduling_step1': 'Start Date: First day users can begin the exam',
@@ -2110,15 +2101,6 @@ TRANSLATIONS = {
         'help_assign_exam_tip1': 'İstifadəçilər yalnız təyin edilmiş tarix aralığında imtahan verə bilərlər',
         'help_assign_exam_tip2': 'Eyni şablondan istifadə edərək müxtəlif qruplara fərqli parametrlər təyin edə bilərsiniz',
         'help_assign_exam_tip3': 'Kütləvi istifadəçi hədəfləməsi üçün departament/bölmə təyinatından istifadə edin',
-
-        'help_question_pool_title': 'Sual Hovuzlarından İstifadə',
-        'help_question_pool_desc': 'Çətinlik dərəcəsinə görə hovuzdan suallar seçərək təsadüfi imtahanlar yaradın.',
-        'help_question_pool_step1': 'İmtahan yaradarkən "Sual Hovuzundan İstifadə Et" seçimini aktivləşdirin',
-        'help_question_pool_step2': 'Hər çətinlik səviyyəsindən (Asan, Orta, Çətin) neçə sual seçiləcəyini müəyyənləşdirin',
-        'help_question_pool_step3': 'Sistem hər imtahan cəhdi üçün təsadüfi suallar seçəcək',
-        'help_question_pool_step4': 'Hər tələbə eyni imtahan şablonundan fərqli suallar ala bilər',
-        'help_question_pool_tip1': 'Hər çətinlik səviyyəsində kifayət qədər sualınızın olduğundan əmin olun',
-        'help_question_pool_tip2': 'Sual hovuzları cavab paylaşmasını azaltaraq imtahan təhlükəsizliyini artırır',
 
         'help_exam_scheduling_title': 'İmtahan Cədvəlləşdirilməsi',
         'help_exam_scheduling_desc': 'İmtahan təyinatları üçün başlama, bitmə və son tarixlər təyin edin.',

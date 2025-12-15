@@ -35,6 +35,8 @@ a = Analysis(
         'quiz_app.views.examinee.exam_interface',
         'bcrypt',
         'sqlite3',
+        'sqlcipher3',  # SQLCipher database encryption
+        'sqlcipher3.dbapi2',  # SQLCipher dbapi2 module
         'openpyxl',
         'pandas',
         'PIL',
