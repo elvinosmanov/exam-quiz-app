@@ -24,22 +24,27 @@ DATABASE_ENCRYPTION_KEY = "QuizApp2025!AzErCoSmOs#SecureKey$Protected"
 class Database:
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or DATABASE_PATH
+        self._connection = None
         
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+        if self._connection is None:
+            # check_same_thread=False allows using the connection across Flet threads
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
 
-        # Apply encryption key if SQLCipher is enabled
-        if ENCRYPTION_ENABLED:
-            conn.execute(f"PRAGMA key='{DATABASE_ENCRYPTION_KEY}'")
-            # Verify database is accessible (will fail if key is wrong)
-            try:
-                conn.execute("SELECT count(*) FROM sqlite_master")
-            except sqlite3.DatabaseError as e:
-                logger.error(f"Database encryption key validation failed: {e}")
-                raise Exception("Unable to decrypt database. Encryption key may be incorrect.")
+            # Apply encryption key if SQLCipher is enabled
+            if ENCRYPTION_ENABLED:
+                conn.execute(f"PRAGMA key='{DATABASE_ENCRYPTION_KEY}'")
+                # Verify database is accessible (will fail if key is wrong)
+                try:
+                    conn.execute("SELECT count(*) FROM sqlite_master")
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Database encryption key validation failed: {e}")
+                    raise Exception("Unable to decrypt database. Encryption key may be incorrect.")
+            
+            self._connection = conn
 
-        return conn
+        return self._connection
     
     def execute_query(self, query: str, params: tuple = ()) -> List[Dict]:
         with self.get_connection() as conn:
@@ -64,6 +69,11 @@ class Database:
             cursor.execute(query, params)
             conn.commit()
             return cursor.rowcount
+            
+    def close(self):
+        if self._connection:
+            self._connection.close()
+            self._connection = None
 
     @staticmethod
     def _validate_identifier(name: str):
