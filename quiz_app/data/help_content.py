@@ -731,7 +731,7 @@ HELP_CONTENT = {
                 'id': 'troubleshooting',
                 'title_key': 'help_troubleshooting',
                 'icon': ft.icons.BUILD,
-                'topics': ['exam_wont_start', 'timer_issues', 'results_unavailable', 'login_issues', 'browser_compatibility']
+                'topics': ['exam_wont_start', 'timer_issues', 'results_unavailable', 'login_issues']
             }
         ],
         'topics': {
@@ -879,7 +879,7 @@ HELP_CONTENT = {
                 'tips': [
                     'help_exam_wont_start_tip1'
                 ],
-                'related': ['browser_compatibility', 'session_timeout']
+                'related': ['timer_issues', 'login_issues']
             },
             'timer_issues': {
                 'title_key': 'help_timer_issues_title',
@@ -892,7 +892,7 @@ HELP_CONTENT = {
                 'tips': [
                     'help_timer_issues_tip1'
                 ],
-                'related': ['exam_wont_start', 'browser_compatibility']
+                'related': ['exam_wont_start', 'results_unavailable']
             },
             'results_unavailable': {
                 'title_key': 'help_results_unavailable_title',
@@ -920,21 +920,7 @@ HELP_CONTENT = {
                     'help_login_issues_tip1',
                     'help_login_issues_tip2'
                 ],
-                'related': ['password_reset', 'session_timeout', 'browser_compatibility']
-            },
-            'browser_compatibility': {
-                'title_key': 'help_browser_compatibility_title',
-                'content_key': 'help_browser_compatibility_desc',
-                'steps': [
-                    'help_browser_compatibility_step1',
-                    'help_browser_compatibility_step2',
-                    'help_browser_compatibility_step3'
-                ],
-                'tips': [
-                    'help_browser_compatibility_tip1',
-                    'help_browser_compatibility_tip2'
-                ],
-                'related': ['exam_wont_start', 'timer_issues']
+                'related': ['change_password', 'exam_wont_start']
             }
         }
     }
