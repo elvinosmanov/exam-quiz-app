@@ -54,8 +54,67 @@ class Reports(ft.UserControl):
     
     def will_unmount(self):
         """Clean up when component is unmounted"""
-        super().will_unmount()
-        self.cleanup_dialogs()
+        try:
+            print("[DEBUG] Reports will_unmount called - starting cleanup")
+
+            # 1. Close all matplotlib figures to prevent memory leaks and crashes
+            try:
+                print("[DEBUG] Closing all matplotlib figures")
+                plt.close('all')  # Close all open figures
+                print("[DEBUG] Matplotlib figures closed successfully")
+            except Exception as e:
+                print(f"[ERROR] Failed to close matplotlib figures: {e}")
+
+            # 2. Clear chart images from memory
+            try:
+                if hasattr(self, 'chart_images'):
+                    print(f"[DEBUG] Clearing {len(self.chart_images)} chart images")
+                    self.chart_images.clear()
+            except Exception as e:
+                print(f"[ERROR] Failed to clear chart images: {e}")
+
+            # 3. Clean up temporary directory
+            try:
+                if hasattr(self, 'temp_dir') and self.temp_dir:
+                    import shutil
+                    import os
+                    if os.path.exists(self.temp_dir):
+                        print(f"[DEBUG] Removing temp directory: {self.temp_dir}")
+                        shutil.rmtree(self.temp_dir, ignore_errors=True)
+            except Exception as e:
+                print(f"[ERROR] Failed to cleanup temp directory: {e}")
+
+            # 4. Clear pending PDF data
+            try:
+                if hasattr(self, 'pending_pdf_data'):
+                    self.pending_pdf_data = None
+            except Exception as e:
+                print(f"[ERROR] Failed to clear pending PDF data: {e}")
+
+            # 5. Clean up dialogs
+            try:
+                self.cleanup_dialogs()
+            except Exception as e:
+                print(f"[ERROR] Failed to cleanup dialogs: {e}")
+
+            # 6. Remove file picker from overlay
+            try:
+                if hasattr(self, 'file_picker') and self.page and hasattr(self.page, 'overlay'):
+                    if self.file_picker in self.page.overlay:
+                        print("[DEBUG] Removing file picker from overlay")
+                        self.page.overlay.remove(self.file_picker)
+            except Exception as e:
+                print(f"[ERROR] Failed to remove file picker: {e}")
+
+            print("[DEBUG] Reports cleanup completed successfully")
+
+        except Exception as ex:
+            print(f"[CRITICAL ERROR] Cleanup failed: {ex}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # Always call parent will_unmount
+            super().will_unmount()
     
     def on_file_picker_result(self, e: ft.FilePickerResultEvent):
         """Handle file picker result"""
@@ -96,15 +155,21 @@ class Reports(ft.UserControl):
         """Force cleanup of any open dialogs"""
         try:
             print(f"[DEBUG] cleanup_dialogs called")
+
+            # Close current dialog if exists
             if hasattr(self, 'current_dialog') and self.current_dialog:
                 self.current_dialog.open = False
                 self.current_dialog = None
-            
-            if self.page and hasattr(self.page, 'overlay'):
-                # Clear any dialogs from this component
-                self.page.overlay.clear()
-                self.page.update()
-                
+
+            # Close page dialog if it's ours
+            if self.page and hasattr(self.page, 'dialog') and self.page.dialog:
+                try:
+                    self.page.dialog.open = False
+                    self.page.dialog = None
+                    self.page.update()
+                except:
+                    pass
+
             print(f"[DEBUG] Dialog cleanup completed")
         except Exception as ex:
             print(f"[ERROR] Dialog cleanup failed: {ex}")

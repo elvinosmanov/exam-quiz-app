@@ -1726,6 +1726,7 @@ class QuizManagement(ft.UserControl):
 
         # If editing, load currently assigned users/departments/units from database
         if is_edit:
+            print(f"[EDIT] Loading assignment {assignment['id']}: {assignment['assignment_name']}")
             # Load assigned users
             assigned_users_data = self.db.execute_query("""
                 SELECT DISTINCT user_id
@@ -1733,23 +1734,9 @@ class QuizManagement(ft.UserControl):
                 WHERE assignment_id = ? AND is_active = 1
             """, (assignment['id'],))
             self.selected_assignment_users = [u['user_id'] for u in assigned_users_data]
+            print(f"[EDIT] Loaded {len(self.selected_assignment_users)} users: {self.selected_assignment_users}")
 
-            # Load assigned departments (users grouped by department)
-            assigned_depts_data = self.db.execute_query("""
-                SELECT DISTINCT u.department
-                FROM assignment_users au
-                JOIN users u ON au.user_id = u.id
-                WHERE au.assignment_id = ? AND au.is_active = 1
-                  AND u.department IS NOT NULL AND u.department != ''
-                GROUP BY u.department
-                HAVING COUNT(DISTINCT u.id) = (
-                    SELECT COUNT(*) FROM users
-                    WHERE department = u.department AND role IN ('examinee', 'expert') AND is_active = 1
-                )
-            """, (assignment['id'],))
-            self.selected_assignment_departments = [d['department'] for d in assigned_depts_data]
-
-            # Load assigned units (users grouped by department+unit)
+            # Load assigned units first (users grouped by department+unit)
             assigned_units_data = self.db.execute_query("""
                 SELECT DISTINCT u.department, u.unit
                 FROM assignment_users au
@@ -1765,6 +1752,27 @@ class QuizManagement(ft.UserControl):
                 )
             """, (assignment['id'],))
             self.selected_assignment_units = [(u['department'], u['unit']) for u in assigned_units_data]
+
+            # Load assigned departments (users grouped by department)
+            # IMPORTANT: Exclude departments that are fully covered by unit assignments
+            assigned_depts_data = self.db.execute_query("""
+                SELECT DISTINCT u.department
+                FROM assignment_users au
+                JOIN users u ON au.user_id = u.id
+                WHERE au.assignment_id = ? AND au.is_active = 1
+                  AND u.department IS NOT NULL AND u.department != ''
+                GROUP BY u.department
+                HAVING COUNT(DISTINCT u.id) = (
+                    SELECT COUNT(*) FROM users
+                    WHERE department = u.department AND role IN ('examinee', 'expert') AND is_active = 1
+                )
+            """, (assignment['id'],))
+            # Filter out departments that are covered by unit assignments
+            assigned_dept_names = [d['department'] for d in assigned_depts_data]
+            unit_dept_names = {unit[0] for unit in self.selected_assignment_units}
+            self.selected_assignment_departments = [d for d in assigned_dept_names if d not in unit_dept_names]
+            print(f"[EDIT] Loaded {len(self.selected_assignment_units)} units: {self.selected_assignment_units}")
+            print(f"[EDIT] Loaded {len(self.selected_assignment_departments)} departments (after filtering): {self.selected_assignment_departments}")
 
         # Load users and departments for selection (include both examinees and experts)
         users = self.db.execute_query("""
@@ -2077,7 +2085,8 @@ class QuizManagement(ft.UserControl):
                 chip = ft.Chip(
                     label=ft.Text(user_name),
                     on_delete=lambda e, uid=user_id: remove_user(uid),
-                    delete_icon_color=COLORS['error']
+                    delete_icon_color=COLORS['error'],
+                    data=('user', user_id)  # Add data attribute for consistency
                 )
                 selected_chips_row.controls.append(chip)
 
@@ -2086,7 +2095,8 @@ class QuizManagement(ft.UserControl):
                 chip = ft.Chip(
                     label=ft.Text(f"Department: {dept}"),
                     on_delete=lambda e, d=dept: remove_department(d),
-                    delete_icon_color=COLORS['error']
+                    delete_icon_color=COLORS['error'],
+                    data=('dept', dept)  # Add data attribute for consistency
                 )
                 selected_chips_row.controls.append(chip)
 
@@ -2095,7 +2105,8 @@ class QuizManagement(ft.UserControl):
                 chip = ft.Chip(
                     label=ft.Text(f"Unit: {dept} / {unit}"),
                     on_delete=lambda e, combo=(dept, unit): remove_unit(combo),
-                    delete_icon_color=COLORS['error']
+                    delete_icon_color=COLORS['error'],
+                    data=('unit', dept, unit)  # Add data attribute for consistency
                 )
                 selected_chips_row.controls.append(chip)
 
@@ -2301,8 +2312,8 @@ class QuizManagement(ft.UserControl):
                             delivery_method,
                             use_question_pool, questions_to_select,
                             easy_questions_count, medium_questions_count, hard_questions_count,
-                            deadline, created_at, created_by
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            deadline, created_at, created_by, is_archived
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     # Note: For multi-template with pool, we store config per template in junction table
                     params = (
@@ -2319,7 +2330,8 @@ class QuizManagement(ft.UserControl):
                         0, 0, 0, 0,  # Legacy question counts (not used for multi-template)
                         self.assignment_deadline.isoformat() if self.assignment_deadline else None,
                         datetime.now().isoformat(),
-                        self.user_data['id']
+                        self.user_data['id'],
+                        0  # is_archived = 0 (not archived)
                     )
                     assignment_id = self.db.execute_insert(query, params)
 
@@ -2353,7 +2365,7 @@ class QuizManagement(ft.UserControl):
                                 INSERT INTO assignment_exam_templates (assignment_id, exam_id, order_index)
                                 VALUES (?, ?, ?)
                             """, (assignment_id, exam['id'], order_idx))
-                
+
                 # Assign users (for both create and edit mode)
                 for user_id in self.selected_assignment_users:
                     # Check if already assigned
@@ -2368,7 +2380,7 @@ class QuizManagement(ft.UserControl):
                             VALUES (?, ?, ?)
                         """, (assignment_id, user_id, self.user_data['id']))
 
-                # Assign departments (only for create mode)
+                # Assign departments
                 for dept in self.selected_assignment_departments:
                     dept_users = self.db.execute_query("""
                         SELECT id FROM users
@@ -3095,8 +3107,8 @@ class QuizManagement(ft.UserControl):
                         delivery_method,
                         use_question_pool, questions_to_select,
                         easy_questions_count, medium_questions_count, hard_questions_count,
-                        deadline, created_at, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        deadline, created_at, created_by, is_archived
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     primary_exam_id,
@@ -3115,7 +3127,8 @@ class QuizManagement(ft.UserControl):
                     sum(c['hard_count'] for c in preset_config),
                     self.assignment_deadline.isoformat() if self.assignment_deadline else None,
                     datetime.now().isoformat(),
-                    self.user_data['id']
+                    self.user_data['id'],
+                    0  # is_archived = 0 (not archived)
                 )
                 assignment_id = self.db.execute_insert(query, params)
 

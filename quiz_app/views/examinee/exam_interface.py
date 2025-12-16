@@ -42,6 +42,76 @@ class ExamInterfaceWrapper(ft.UserControl):
                     print(f"[FULLSCREEN] Warning: Could not enable fullscreen lock: {e}")
                     # Fullscreen lock is optional, continue without it
 
+    def will_unmount(self):
+        """Clean up when exam interface is unmounted - CRITICAL for allowing window close"""
+        try:
+            print("[DEBUG] ExamInterfaceWrapper will_unmount called - starting cleanup")
+
+            # Mark exam as finished to prevent further timer updates
+            self.exam_state['exam_finished'] = True
+            self.exam_state['timer_running'] = False
+
+            # Force restore window_prevent_close as primary failsafe
+            if self.page and hasattr(self.page, 'window_prevent_close'):
+                try:
+                    self.page.window_prevent_close = False
+                    print("[DEBUG] Forced window_prevent_close to False")
+                except Exception as e:
+                    print(f"[ERROR] Failed to restore window_prevent_close: {e}")
+
+            # Restore all original page event handlers
+            try:
+                # Restore keyboard handler
+                if self.exam_state.get('keyboard_hooked'):
+                    original_handler = self.exam_state.get('original_keyboard_handler')
+                    if self.page:
+                        self.page.on_keyboard_event = original_handler
+                        print("[DEBUG] Restored original keyboard handler")
+
+                # Restore window event handler
+                if self.exam_state.get('window_event_hooked'):
+                    original_handler = self.exam_state.get('original_window_event')
+                    if self.page:
+                        self.page.on_window_event = original_handler
+                        print("[DEBUG] Restored original window event handler")
+
+                # Mark handlers as restored
+                self.exam_state['handlers_restored'] = True
+
+            except Exception as e:
+                print(f"[ERROR] Failed to restore page handlers: {e}")
+
+            # Release fullscreen lock
+            if self.exam_state.get('enable_fullscreen_lock'):
+                self.exam_state['fullscreen_lock_active'] = False
+                print("[DEBUG] Released fullscreen lock")
+
+            # Clean up any open dialogs
+            try:
+                if self.page and hasattr(self.page, 'dialog') and self.page.dialog:
+                    self.page.dialog.open = False
+                    self.page.dialog = None
+                    print("[DEBUG] Closed any open dialogs")
+            except Exception as e:
+                print(f"[ERROR] Failed to close dialogs: {e}")
+
+            print("[DEBUG] ExamInterfaceWrapper cleanup completed successfully")
+
+        except Exception as ex:
+            print(f"[CRITICAL ERROR] ExamInterfaceWrapper cleanup failed: {ex}")
+            import traceback
+            traceback.print_exc()
+
+            # Last resort failsafe - force window_prevent_close to False no matter what
+            try:
+                if self.page and hasattr(self.page, 'window_prevent_close'):
+                    self.page.window_prevent_close = False
+                    print("[FAILSAFE] Force-disabled window_prevent_close in exception handler")
+            except:
+                pass
+        finally:
+            super().will_unmount()
+
 
 def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, assignment_id=None, page=None):
     """Create complete exam interface as pure function - no UserControl issues"""
