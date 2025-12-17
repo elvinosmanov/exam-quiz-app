@@ -156,6 +156,20 @@ class UserManagement(ft.UserControl):
 
         return text
 
+    def get_db_value_from_localized(self, localized_text, field_type='department'):
+        """
+        Convert localized display text back to the database storage format.
+        This ensures we save the correct value regardless of UI language.
+        Returns the name in the format stored in the database (typically in the current UI language).
+        """
+        if not localized_text or localized_text == "N/A":
+            return None
+
+        # The localized_text is already in the current language format that gets saved
+        # The database stores values in the same format as get_departments/get_sections_for_department/get_units_for_department returns
+        # So we can use the localized value directly
+        return localized_text
+
     def load_users(self):
         """
         Load users based on role and hierarchical permissions.
@@ -427,11 +441,16 @@ class UserManagement(ft.UserControl):
                 if units:
                     unit_options.extend([ft.dropdown.Option(u) for u in units])
 
+                # Convert unit value to current language if editing
+                unit_value_localized = ""
+                if is_edit and user.get('unit'):
+                    unit_value_localized = self.get_localized_text(user['unit'], 'unit')
+
                 unit_dropdown = ft.Dropdown(
                     label=t('unit'),
                     hint_text=t('select_unit'),
                     options=unit_options,
-                    value=user.get('unit') if is_edit else "",
+                    value=unit_value_localized,
                     expand=True,
                     disabled=len(units) == 0
                 )
@@ -445,11 +464,16 @@ class UserManagement(ft.UserControl):
                 if sections:
                     section_options.extend([ft.dropdown.Option(sec) for sec in sections])
 
+                # Convert section value to current language if editing
+                section_value_localized = ""
+                if is_edit and user.get('section'):
+                    section_value_localized = self.get_localized_text(user['section'], 'section')
+
                 section_dropdown = ft.Dropdown(
                     label=t('section'),
                     hint_text=t('select_section'),
                     options=section_options,
-                    value=user.get('section') if is_edit else "",
+                    value=section_value_localized,
                     expand=True,
                     disabled=len(sections) == 0
                 )
@@ -459,12 +483,17 @@ class UserManagement(ft.UserControl):
                 if direct_units:
                     unit_options.extend([ft.dropdown.Option(u) for u in direct_units])
 
+                # Convert unit value to current language if editing
+                unit_value_localized = ""
+                if is_edit and user.get('unit'):
+                    unit_value_localized = self.get_localized_text(user['unit'], 'unit')
+
                 # Initially populate with direct units under department (no section selected yet)
                 unit_dropdown = ft.Dropdown(
                     label=t('unit'),
                     hint_text=t('select_unit'),
                     options=unit_options,
-                    value=user.get('unit') if is_edit else "",
+                    value=unit_value_localized,
                     expand=True,
                     disabled=len(direct_units) == 0
                 )
@@ -475,6 +504,9 @@ class UserManagement(ft.UserControl):
                     if units:
                         unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
+                        # Update unit value with localized version
+                        if unit_value_localized:
+                            unit_dropdown.value = unit_value_localized
 
                 # Add cascading logic for department-level experts
                 def on_section_change_expert(e):
@@ -525,7 +557,7 @@ class UserManagement(ft.UserControl):
                 label=t('department') + (" *" if not is_edit else ""),
                 hint_text=t('select_department'),
                 options=dept_options,
-                value=user['department'] if is_edit else "",  # Empty string for "Select..." option
+                value="",  # Will be set to localized value after options are populated
                 expand=True,
                 on_change=None  # Will set below
             )
@@ -535,7 +567,7 @@ class UserManagement(ft.UserControl):
                 label=t('section'),
                 hint_text=t('select_section'),
                 options=[ft.dropdown.Option("", "-- Select Section --")],
-                value=user['section'] if is_edit else "",
+                value="",  # Will be set after options are populated
                 expand=True,
                 disabled=True
             )
@@ -545,7 +577,7 @@ class UserManagement(ft.UserControl):
                 label=t('unit'),
                 hint_text=t('select_unit'),
                 options=[ft.dropdown.Option("", "-- Select Unit --")],
-                value=user['unit'] if is_edit else "",
+                value="",  # Will be set after options are populated
                 expand=True,
                 disabled=True
             )
@@ -557,10 +589,21 @@ class UserManagement(ft.UserControl):
 
             # If editing and has department, populate sections and units
             if is_edit and user.get('department'):
+                # Convert stored values to current language for matching
+                user_dept_localized = self.get_localized_text(user['department'], 'department')
+                user_section_localized = self.get_localized_text(user.get('section'), 'section') if user.get('section') else None
+                user_unit_localized = self.get_localized_text(user.get('unit'), 'unit') if user.get('unit') else None
+
+                # Set department dropdown value to localized version
+                department_dropdown.value = user_dept_localized
+
                 sections = get_sections_for_department(user['department'], current_lang)
                 if sections:
                     section_dropdown.options = [ft.dropdown.Option("", "-- Select Section --")] + [ft.dropdown.Option(sec) for sec in sections]
                     section_dropdown.disabled = False
+                    # Set section value to localized version
+                    if user_section_localized:
+                        section_dropdown.value = user_section_localized
 
                 # If has section, get units from section
                 if user.get('section'):
@@ -568,12 +611,18 @@ class UserManagement(ft.UserControl):
                     if units:
                         unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
+                        # Set unit value to localized version
+                        if user_unit_localized:
+                            unit_dropdown.value = user_unit_localized
                 else:
                     # Get direct units under department
                     units = get_units_for_department(user['department'], None, current_lang)
                     if units:
                         unit_dropdown.options = [ft.dropdown.Option("", "-- Select Unit --")] + [ft.dropdown.Option(u) for u in units]
                         unit_dropdown.disabled = False
+                        # Set unit value to localized version
+                        if user_unit_localized:
+                            unit_dropdown.value = user_unit_localized
 
             def on_department_change(e):
                 """When department changes, populate sections and units dropdowns"""

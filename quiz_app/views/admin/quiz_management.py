@@ -1848,11 +1848,8 @@ class QuizManagement(ft.UserControl):
         # One option per unique department key; label shows abbr + name to avoid duplicates (e.g., multiple "SGD")
         department_filter_options = []
         for dept_entry in sorted_department_entries:
-            label_text = (
-                f"{dept_entry['abbr']} - {dept_entry['name']}"
-                if dept_entry['abbr'] and dept_entry['abbr'] != dept_entry['name']
-                else dept_entry['name']
-            )
+            # Use abbreviation as the primary label, fallback to name if abbr is missing.
+            label_text = dept_entry.get('abbr') or dept_entry.get('name', dept_entry.get('key'))
             department_filter_options.append(ft.dropdown.Option(dept_entry["key"], label_text))
 
         department_filter = self.create_styled_dropdown(

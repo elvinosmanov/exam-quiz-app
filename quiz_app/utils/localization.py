@@ -140,7 +140,7 @@ TRANSLATIONS = {
         'passing_score_percent': 'Passing Score (%)',
         'max_attempts': 'Max Attempts',
         'randomize_questions': 'Randomize Questions',
-        'show_results': 'Show Results',
+        'show_results': 'Show Results to User',
         'start_date': 'Start Date',
         'end_date': 'End Date',
         'total_exams': 'Total Exams',
