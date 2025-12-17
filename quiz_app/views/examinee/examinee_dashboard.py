@@ -827,6 +827,7 @@ class ExamineeDashboard(ft.UserControl):
             JOIN assignment_users au ON ea.id = au.assignment_id
             LEFT JOIN template_counts tc ON tc.assignment_id = ea.id
             WHERE ea.is_active = 1
+            AND ea.is_archived = 0
             AND au.user_id = ?
             AND au.is_active = 1
             ORDER BY ea.created_at DESC
@@ -1000,11 +1001,11 @@ class ExamineeDashboard(ft.UserControl):
                     e.passing_score
                 FROM exam_assignments ea
                 JOIN exams e ON ea.exam_id = e.id
-                WHERE ea.id = ? AND ea.is_active = 1
+                WHERE ea.id = ? AND ea.is_active = 1 AND ea.is_archived = 0
             """, (assignment_id,))
 
             if not assignment_data:
-                self.show_error_dialog("Assignment not found or inactive")
+                self.show_error_dialog("Assignment not found, inactive, or has been removed")
                 return
 
             # Check if user has permission to take this assignment

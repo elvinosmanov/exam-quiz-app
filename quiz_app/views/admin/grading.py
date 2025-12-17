@@ -24,12 +24,12 @@ class Grading(ft.UserControl):
         # Main content - Ungraded table
         self.answers_list = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text(t('assignment'))),
-                ft.DataColumn(ft.Text(t('student_answer'))),
-                ft.DataColumn(ft.Text(t('questions'))),
-                ft.DataColumn(ft.Text(t('exam_date'))),
-                ft.DataColumn(ft.Text(t('status'))),
-                ft.DataColumn(ft.Text(t('actions')))
+                ft.DataColumn(ft.Text(t('assignment')), numeric=False),
+                ft.DataColumn(ft.Text(t('student_answer')), numeric=False),
+                ft.DataColumn(ft.Text(t('questions')), numeric=False),
+                ft.DataColumn(ft.Text(t('exam_date')), numeric=False),
+                ft.DataColumn(ft.Text(t('status')), numeric=False),
+                ft.DataColumn(ft.Text(t('actions')), numeric=False)
             ],
             rows=[],
             width=float("inf"),
@@ -96,7 +96,7 @@ class Grading(ft.UserControl):
                 WHERE q.question_type IN ('essay', 'short_answer')
                 AND ua.points_earned IS NULL
                 AND ua.answer_text IS NOT NULL
-                AND ua.answer_text != ''
+                AND TRIM(ua.answer_text) != ''
                 AND es.is_completed = 1
                 AND es.assignment_id IS NOT NULL
                 {filter_clause}
@@ -167,7 +167,7 @@ class Grading(ft.UserControl):
                     AND q.question_type IN ('essay', 'short_answer')
                     AND ua.points_earned IS NULL
                     AND ua.answer_text IS NOT NULL
-                    AND ua.answer_text != ''
+                    AND TRIM(ua.answer_text) != ''
                 )
                 {filter_clause}
                 ORDER BY es.end_time DESC
@@ -195,10 +195,9 @@ class Grading(ft.UserControl):
             status_text = t('passed') + " ✅" if passed else t('failed') + " ❌"
             status_color = COLORS['success'] if passed else COLORS['error']
 
-            # Display assignment name (with topic in tooltip)
+            # Display assignment name - allow full name to display
             assignment_display = session.get('assignment_name') or session.get('topic_titles') or t('no_data')
-            if len(assignment_display) > 35:
-                assignment_display = assignment_display[:32] + "..."
+            full_assignment_name = assignment_display
 
             # Email button with reload callback
             email_btn = create_email_button(
@@ -211,7 +210,9 @@ class Grading(ft.UserControl):
 
             self.completed_list.rows.append(
                 ft.DataRow([
-                    ft.DataCell(ft.Text(assignment_display, weight=ft.FontWeight.BOLD, size=13)),
+                    ft.DataCell(
+                        ft.Text(full_assignment_name, weight=ft.FontWeight.BOLD, size=13, tooltip=full_assignment_name)
+                    ),
                     ft.DataCell(ft.Text(session['student_name'])),
                     ft.DataCell(ft.Text(f"{score}%", weight=ft.FontWeight.BOLD)),
                     ft.DataCell(ft.Text(status_text, color=status_color)),
@@ -300,17 +301,31 @@ class Grading(ft.UserControl):
 
             topic_titles = session.get('topic_titles') or t('no_data')
 
-            # Display assignment name (with topic in subtitle)
+            # Display assignment name (with topic in subtitle) - allow full name to display
             assignment_display = session.get('assignment_name') or topic_titles
-            if assignment_display and len(assignment_display) > 35:
-                assignment_display = assignment_display[:32] + "..."
+            full_assignment_name = assignment_display or t('assignment')
+            
+            # Create assignment cell with tooltip for full name - no truncation
+            assignment_text = ft.Text(
+                full_assignment_name,
+                weight=ft.FontWeight.BOLD,
+                size=13,
+                tooltip=full_assignment_name
+            )
+            topic_text = ft.Text(
+                f"{t('topic_title')}: {topic_titles}",
+                size=11,
+                color=COLORS['text_secondary']
+            )
 
             self.answers_list.rows.append(
                 ft.DataRow([
-                    ft.DataCell(ft.Column([
-                        ft.Text(assignment_display or t('assignment'), weight=ft.FontWeight.BOLD, size=13),
-                        ft.Text(f"{t('topic_title')}: {topic_titles}", size=11, color=COLORS['text_secondary'])
-                    ], spacing=2)),
+                    ft.DataCell(
+                        ft.Column([
+                            assignment_text,
+                            topic_text
+                        ], spacing=2, tight=True)
+                    ),
                     ft.DataCell(ft.Text(session.get('student_name', t('no_data')))),
                     ft.DataCell(ft.Text(question_summary)),
                     ft.DataCell(ft.Text(self.format_date(session.get('end_time')))),
@@ -357,7 +372,7 @@ class Grading(ft.UserControl):
             WHERE ua.session_id = ?
             AND q.question_type IN ('essay', 'short_answer')
             AND ua.answer_text IS NOT NULL
-            AND ua.answer_text != ''
+            AND TRIM(ua.answer_text) != ''
             ORDER BY q.order_index, q.id
         """, (session_data['session_id'],))
 

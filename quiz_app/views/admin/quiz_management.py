@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta, date
 from quiz_app.config import COLORS
 from quiz_app.utils.permissions import UnitPermissionManager, get_dept_unit_abbreviation
-from quiz_app.utils.localization import t, get_language
+from quiz_app.utils.localization import t, get_language, get_department_abbreviation, get_unit_abbreviation
 
 logger = logging.getLogger(__name__)
 
@@ -508,7 +508,7 @@ class QuizManagement(ft.UserControl):
                    COALESCE(tc.total_medium, ea.medium_questions_count) as selected_medium_count,
                    COALESCE(tc.total_hard, ea.hard_questions_count) as selected_hard_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
-                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.start_time >= au.granted_at THEN au.user_id END) as completed_users_count,
+                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.assignment_id = ea.id THEN au.user_id END) as completed_users_count,
                    u.full_name as creator_name,
                    u.department as creator_department,
                    u.unit as creator_unit
@@ -517,7 +517,7 @@ class QuizManagement(ft.UserControl):
             LEFT JOIN template_counts tc ON tc.assignment_id = ea.id
             LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
-            LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
+            LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND es.assignment_id = ea.id
             LEFT JOIN users u ON ea.created_by = u.id
             WHERE ea.is_archived = 0 {filter_clause}
             GROUP BY ea.id
@@ -1719,6 +1719,9 @@ class QuizManagement(ft.UserControl):
 
         self.assignment_deadline_picker.on_change = deadline_changed
 
+        # Import helper functions for department/unit handling
+        from quiz_app.config import ORGANIZATIONAL_STRUCTURE, get_department_key
+
         # User selection containers (same as single-template version)
         self.selected_assignment_users = []
         self.selected_assignment_departments = []
@@ -1767,10 +1770,19 @@ class QuizManagement(ft.UserControl):
                     WHERE department = u.department AND role IN ('examinee', 'expert') AND is_active = 1
                 )
             """, (assignment['id'],))
-            # Filter out departments that are covered by unit assignments
-            assigned_dept_names = [d['department'] for d in assigned_depts_data]
+            # Map to department keys and filter out ones covered by units
+            assigned_dept_keys = []
             unit_dept_names = {unit[0] for unit in self.selected_assignment_units}
-            self.selected_assignment_departments = [d for d in assigned_dept_names if d not in unit_dept_names]
+            for d in assigned_depts_data:
+                dept_key = get_department_key(d['department'])
+                if not dept_key:
+                    continue
+                # Skip if this dept is already represented by a unit
+                if d['department'] in unit_dept_names:
+                    continue
+                if dept_key not in assigned_dept_keys:
+                    assigned_dept_keys.append(dept_key)
+            self.selected_assignment_departments = assigned_dept_keys
             print(f"[EDIT] Loaded {len(self.selected_assignment_units)} units: {self.selected_assignment_units}")
             print(f"[EDIT] Loaded {len(self.selected_assignment_departments)} departments (after filtering): {self.selected_assignment_departments}")
 
@@ -1782,7 +1794,29 @@ class QuizManagement(ft.UserControl):
             ORDER BY full_name
         """)
 
-        department_values = sorted({u['department'] for u in users if u.get('department')})
+        # Get current language for display
+        current_lang = get_language()
+
+        def get_department_display(dept_key: str, lang: str):
+            data = ORGANIZATIONAL_STRUCTURE.get(dept_key, {})
+            name = data.get('name_en' if lang == 'en' else 'name_az') or data.get('name_en') or dept_key
+            abbr = data.get('abbr_en' if lang == 'en' else 'abbr_az') or ""
+            return name, abbr
+
+        # Build unique department entries keyed by department key
+        department_entries = {}
+        for u in users:
+            dept_name = u.get('department')
+            dept_key = get_department_key(dept_name)
+            if not dept_key:
+                continue
+            if dept_key in department_entries:
+                continue
+            name, abbr = get_department_display(dept_key, current_lang)
+            department_entries[dept_key] = {"key": dept_key, "name": name, "abbr": abbr}
+
+        # Sorted by display name for stable ordering
+        sorted_department_entries = sorted(department_entries.values(), key=lambda d: d["name"])
         unit_combo_set = {
             (u['department'], u['unit'])
             for u in users
@@ -1791,7 +1825,6 @@ class QuizManagement(ft.UserControl):
         unit_combo_list = sorted(list(unit_combo_set), key=lambda combo: (combo[0], combo[1]))
 
         # Helper function to extract unit name in current language
-        current_lang = get_language()
         def get_unit_display_name(dept, unit):
             """Extract unit name in current language"""
             # If unit contains " / ", it's bilingual
@@ -1812,13 +1845,20 @@ class QuizManagement(ft.UserControl):
         from quiz_app.utils.localization import get_department_abbreviation, get_unit_abbreviation
 
         # Create filter dropdowns with white background
+        # One option per unique department key; label shows abbr + name to avoid duplicates (e.g., multiple "SGD")
+        department_filter_options = [ft.dropdown.Option("", t('all'))]
+        for dept_entry in sorted_department_entries:
+            label_text = (
+                f"{dept_entry['abbr']} - {dept_entry['name']}"
+                if dept_entry['abbr'] and dept_entry['abbr'] != dept_entry['name']
+                else dept_entry['name']
+            )
+            department_filter_options.append(ft.dropdown.Option(dept_entry["key"], label_text))
+
         department_filter = self.create_styled_dropdown(
             ref=filter_department,
             label=t('filter_by_department'),
-            options=[ft.dropdown.Option("", t('all'))] + [
-                ft.dropdown.Option(dept, get_department_abbreviation(dept, current_lang))
-                for dept in department_values
-            ],
+            options=department_filter_options,
             width=220,
             content_padding=10,
             text_size=14,
@@ -1849,9 +1889,13 @@ class QuizManagement(ft.UserControl):
             """Filter users based on department, unit, and search text"""
             filtered = users
 
-            # Filter by department
+            # Filter by department (match via department key to merge AZ/EN/abbr variants)
             if filter_department.current and filter_department.current.value:
-                filtered = [u for u in filtered if u.get('department') == filter_department.current.value]
+                selected_dept_key = filter_department.current.value
+                filtered = [
+                    u for u in filtered
+                    if get_department_key(u.get('department')) == selected_dept_key
+                ]
 
             # Filter by unit
             if filter_unit.current and filter_unit.current.value:
@@ -1997,10 +2041,21 @@ class QuizManagement(ft.UserControl):
         )
 
         # Department dropdown for bulk assignment (keep for backward compatibility)
+        # One option per unique department key; label shows abbr + name for clarity
+        department_dropdown_options = [
+            ft.dropdown.Option(
+                dept_entry["key"],
+                f"{dept_entry['abbr']} - {dept_entry['name']}"
+                if dept_entry['abbr'] and dept_entry['abbr'] != dept_entry['name']
+                else dept_entry['name']
+            )
+            for dept_entry in sorted_department_entries
+        ]
+
         department_dropdown = self.create_styled_dropdown(
             label=t('assign_department'),
             hint_text="Choose departments",
-            options=[ft.dropdown.Option(dept, dept) for dept in department_values],
+            options=department_dropdown_options,
             expand=True,
             height=56,
             content_padding=5
@@ -2055,12 +2110,12 @@ class QuizManagement(ft.UserControl):
                 if self.page:
                     self.page.update()
 
-        def remove_department(dept):
-            if dept in self.selected_assignment_departments:
-                self.selected_assignment_departments.remove(dept)
+        def remove_department(dept_key):
+            if dept_key in self.selected_assignment_departments:
+                self.selected_assignment_departments.remove(dept_key)
                 # Remove chip from UI
                 for i, control in enumerate(selected_chips_row.controls):
-                    if isinstance(control, ft.Chip) and control.label.value == f"Department: {dept}":
+                    if isinstance(control, ft.Chip) and getattr(control, "data", None) == ('dept', dept_key):
                         selected_chips_row.controls.pop(i)
                         break
                 if self.page:
@@ -2090,13 +2145,15 @@ class QuizManagement(ft.UserControl):
                 )
                 selected_chips_row.controls.append(chip)
 
-            # Add department chips
-            for dept in self.selected_assignment_departments:
+            # Add department chips (stored as department keys)
+            for dept_key in self.selected_assignment_departments:
+                dept_entry = department_entries.get(dept_key)
+                display_name = dept_entry['name'] if dept_entry else dept_key
                 chip = ft.Chip(
-                    label=ft.Text(f"Department: {dept}"),
-                    on_delete=lambda e, d=dept: remove_department(d),
+                    label=ft.Text(f"Department: {display_name}"),
+                    on_delete=lambda e, d=dept_key: remove_department(d),
                     delete_icon_color=COLORS['error'],
-                    data=('dept', dept)  # Add data attribute for consistency
+                    data=('dept', dept_key)  # Add data attribute for consistency
                 )
                 selected_chips_row.controls.append(chip)
 
@@ -2114,14 +2171,18 @@ class QuizManagement(ft.UserControl):
             if not e.control.value:
                 return
 
-            dept = e.control.value
-            if dept not in self.selected_assignment_departments:
-                self.selected_assignment_departments.append(dept)
+            dept_key = e.control.value
+            if dept_key not in self.selected_assignment_departments:
+                self.selected_assignment_departments.append(dept_key)
 
+                # Build display label from department entry
+                dept_entry = department_entries.get(dept_key)
+                display_name = dept_entry['name'] if dept_entry else dept_key
                 chip = ft.Chip(
-                    label=ft.Text(f"Department: {dept}"),
-                    on_delete=lambda e, d=dept: remove_department(d),
-                    delete_icon_color=COLORS['error']
+                    label=ft.Text(f"Department: {display_name}"),
+                    on_delete=lambda e, d=dept_key: remove_department(d),
+                    delete_icon_color=COLORS['error'],
+                    data=('dept', dept_key)
                 )
                 selected_chips_row.controls.append(chip)
 
@@ -2169,6 +2230,17 @@ class QuizManagement(ft.UserControl):
                 error_text.visible = True
                 assignment_dialog.update()
                 return
+
+            # Helper: get all textual variants for a department key
+            def get_department_variants(dept_key: str):
+                from quiz_app.config import ORGANIZATIONAL_STRUCTURE
+                data = ORGANIZATIONAL_STRUCTURE.get(dept_key, {})
+                variants = set()
+                for field in ('name_az', 'name_en', 'abbr_az', 'abbr_en'):
+                    val = data.get(field)
+                    if val:
+                        variants.add(val)
+                return list(variants)
 
             try:
                 duration = int(duration_field.value)
@@ -2262,32 +2334,33 @@ class QuizManagement(ft.UserControl):
                         assignment_id
                     ))
 
-                    # Update template-level pool counts
-                    for exam in exams:
+                    # Delete all existing templates for this assignment to avoid duplicates
+                    # This ensures clean state before inserting new template configurations
+                    self.db.execute_update("""
+                        DELETE FROM assignment_exam_templates
+                        WHERE assignment_id = ?
+                    """, (assignment_id,))
+
+                    # Insert template-level pool counts (after deletion above)
+                    for order_idx, exam in enumerate(exams):
                         exam_pool = next((p for p in pool_settings if p['exam_id'] == exam['id']), None)
 
                         if using_pool and exam_pool:
-                            # Update or insert template pool configuration
-                            existing = self.db.execute_single("""
-                                SELECT id FROM assignment_exam_templates
-                                WHERE assignment_id = ? AND exam_id = ?
-                            """, (assignment_id, exam['id']))
-
-                            if existing:
-                                self.db.execute_update("""
-                                    UPDATE assignment_exam_templates
-                                    SET easy_count = ?, medium_count = ?, hard_count = ?
-                                    WHERE assignment_id = ? AND exam_id = ?
-                                """, (exam_pool['easy'], exam_pool['medium'], exam_pool['hard'],
-                                      assignment_id, exam['id']))
-                            else:
-                                self.db.execute_insert("""
-                                    INSERT INTO assignment_exam_templates (
-                                        assignment_id, exam_id, order_index,
-                                        easy_count, medium_count, hard_count
-                                    ) VALUES (?, ?, 0, ?, ?, ?)
-                                """, (assignment_id, exam['id'],
-                                      exam_pool['easy'], exam_pool['medium'], exam_pool['hard']))
+                            # Insert template pool configuration
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_exam_templates (
+                                    assignment_id, exam_id, order_index,
+                                    easy_count, medium_count, hard_count
+                                ) VALUES (?, ?, ?, ?, ?, ?)
+                            """, (assignment_id, exam['id'], order_idx,
+                                  exam_pool['easy'], exam_pool['medium'], exam_pool['hard']))
+                        else:
+                            # Insert template without pool configuration (use all questions)
+                            self.db.execute_insert("""
+                                INSERT INTO assignment_exam_templates (
+                                    assignment_id, exam_id, order_index
+                                ) VALUES (?, ?, ?)
+                            """, (assignment_id, exam['id'], order_idx))
 
                     # Delete any cached PDF snapshots for this assignment to force regeneration
                     # Use assignment_id for multi-template assignments
@@ -2380,12 +2453,17 @@ class QuizManagement(ft.UserControl):
                             VALUES (?, ?, ?)
                         """, (assignment_id, user_id, self.user_data['id']))
 
-                # Assign departments
-                for dept in self.selected_assignment_departments:
-                    dept_users = self.db.execute_query("""
+                # Assign departments (department keys) - map to all known variants for matching
+                for dept_key in self.selected_assignment_departments:
+                    variants = get_department_variants(dept_key)
+                    if not variants:
+                        continue
+
+                    placeholders = ",".join("?" * len(variants))
+                    dept_users = self.db.execute_query(f"""
                         SELECT id FROM users
-                        WHERE department = ? AND role IN ('examinee', 'expert') AND is_active = 1
-                    """, (dept,))
+                        WHERE department IN ({placeholders}) AND role IN ('examinee', 'expert') AND is_active = 1
+                    """, tuple(variants))
 
                     for user in dept_users:
                         # Check if already assigned
@@ -2604,6 +2682,8 @@ class QuizManagement(ft.UserControl):
     def show_assignment_creation_dialog_from_preset(self, preset_config, preset_name):
         """Show assignment dialog using preset template configuration"""
         from datetime import datetime, date
+        from quiz_app.utils.localization import get_department_abbreviation, get_unit_abbreviation
+        from quiz_app.utils.permissions import get_dept_unit_full_name, get_dept_unit_abbreviation
 
         # Preset-based assignments are always in create mode (no edit)
         is_edit = False
@@ -2844,10 +2924,16 @@ class QuizManagement(ft.UserControl):
             content_padding=5
         )
 
+        def extract_dept_abbr(dept_str):
+            """Extract abbreviation from department string (e.g., 'IT - IT and Security' -> 'IT')"""
+            if ' - ' in dept_str:
+                return dept_str.split(' - ')[0].strip()
+            return get_department_abbreviation(dept_str, current_lang)
+
         department_dropdown = self.create_styled_dropdown(
             label=t('assign_department'),
             hint_text="Choose departments",
-            options=[ft.dropdown.Option(dept, dept) for dept in department_values],
+            options=[ft.dropdown.Option(dept, extract_dept_abbr(dept)) for dept in department_values],
             expand=True,
             height=56,
             content_padding=5
@@ -3045,9 +3131,15 @@ class QuizManagement(ft.UserControl):
         department_filter.on_change = update_search_results
         unit_filter.on_change = update_search_results
 
+        def extract_dept_abbr_multi(dept_str):
+            """Extract abbreviation from department string"""
+            if ' - ' in dept_str:
+                return dept_str.split(' - ')[0].strip()
+            return get_department_abbreviation(dept_str, current_lang)
+
         department_assign_dropdown = self.create_styled_dropdown(
             label=t('assign_department'), hint_text="Choose departments",
-            options=[ft.dropdown.Option(dept, dept) for dept in department_values],
+            options=[ft.dropdown.Option(dept, extract_dept_abbr_multi(dept)) for dept in department_values],
             expand=True, height=56, content_padding=5,
             on_change=lambda e: on_department_assign(e.control.value) if e.control.value else None
         )
@@ -3541,6 +3633,20 @@ class QuizManagement(ft.UserControl):
             WHERE department IS NOT NULL AND department != '' AND role IN ('examinee', 'expert')
             ORDER BY department
         """)
+
+        # Normalize departments to only those known in organizational structure (dedupe by department key)
+        from quiz_app.config import get_department_key, ORGANIZATIONAL_STRUCTURE
+        dept_entry_map = {}
+        for d in departments:
+            dept_key = get_department_key(d['department'])
+            if not dept_key or dept_key in dept_entry_map:
+                continue
+            data = ORGANIZATIONAL_STRUCTURE.get(dept_key, {})
+            name = data.get('name_en') or data.get('name_az') or dept_key
+            abbr = data.get('abbr_en') or data.get('abbr_az') or ""
+            label = f"{abbr} - {name}" if abbr and abbr != name else name
+            dept_entry_map[dept_key] = {"key": dept_key, "label": label}
+        normalized_departments = sorted(dept_entry_map.values(), key=lambda d: d["label"])
         
         for dept in departments:
             is_assigned = dept['department'] in assigned_dept_names
@@ -3931,15 +4037,40 @@ class QuizManagement(ft.UserControl):
         return ft.Column(badges, spacing=2, tight=True)
     def show_edit_assignment_dialog(self, assignment):
         """Edit an existing assignment - reuses creation dialog with pre-filled values"""
+        # SAFETY CHECK: Warn if students have already started this assignment
+        students_progress = self.db.execute_single("""
+            SELECT
+                COUNT(*) as total_started,
+                SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN is_completed = 0 THEN 1 ELSE 0 END) as in_progress
+            FROM exam_sessions
+            WHERE assignment_id = ?
+        """, (assignment['id'],))
+
+        if students_progress and students_progress['total_started'] > 0:
+            # Students have started - show warning dialog first
+            self.show_edit_warning_dialog(assignment, students_progress)
+            return
+
+        # No students started yet - proceed with editing
+        self._proceed_with_edit(assignment)
+
+    def _proceed_with_edit(self, assignment):
+        """Internal method to proceed with editing after safety checks"""
         # Check if this is a multi-template assignment
+        from quiz_app.utils.assignment_helpers import deduplicate_templates_by_exam_id
+
         templates = self.db.execute_query("""
-            SELECT e.id, e.title, e.description,
+            SELECT e.id as id, e.id as exam_id, e.title, e.description,
                    aet.easy_count, aet.medium_count, aet.hard_count
             FROM assignment_exam_templates aet
             JOIN exams e ON aet.exam_id = e.id
             WHERE aet.assignment_id = ?
             ORDER BY aet.order_index
         """, (assignment['id'],))
+
+        # Safety net for legacy data: remove any duplicate exam entries
+        templates = deduplicate_templates_by_exam_id(templates)
 
         if templates and len(templates) > 0:
             # Multi-template assignment - use multi-template edit dialog
@@ -3965,6 +4096,90 @@ class QuizManagement(ft.UserControl):
 
             # Wrap single exam as list and use multi-template dialog (works for both single and multi)
             self.show_assignment_creation_dialog_multi([exam], pool_configs=None, assignment=assignment)
+
+    def show_edit_warning_dialog(self, assignment, students_progress):
+        """Show warning dialog when editing an assignment that students have already started"""
+        total_started = students_progress['total_started']
+        completed = students_progress['completed'] or 0
+        in_progress = students_progress['in_progress'] or 0
+
+        def close_dialog(e=None):
+            warning_dialog.open = False
+            self.page.update()
+
+        def proceed_anyway(e):
+            close_dialog()
+            self._proceed_with_edit(assignment)
+
+        # Build warning message
+        warning_parts = []
+        if in_progress > 0:
+            warning_parts.append(f"• {in_progress} student(s) are currently taking this exam")
+        if completed > 0:
+            warning_parts.append(f"• {completed} student(s) have already completed this exam")
+
+        warning_message = "\n".join(warning_parts)
+
+        warning_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING, color=COLORS['warning'], size=28),
+                ft.Text("Assignment Already Started", color=COLORS['warning'], weight=ft.FontWeight.BOLD, size=18)
+            ], spacing=10),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text(
+                        f"⚠️ {total_started} student(s) have started this assignment:",
+                        size=16,
+                        weight=ft.FontWeight.W_500
+                    ),
+                    ft.Container(height=10),
+                    ft.Text(warning_message, size=14),
+                    ft.Container(height=15),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text("Editing may affect:", size=14, weight=ft.FontWeight.BOLD),
+                            ft.Text("• Students currently taking the exam", size=13),
+                            ft.Text("• Already submitted results and scores", size=13),
+                            ft.Text("• Assignment fairness and consistency", size=13)
+                        ], spacing=5),
+                        padding=ft.padding.all(12),
+                        bgcolor=ft.colors.with_opacity(0.1, COLORS['warning']),
+                        border_radius=8,
+                        border=ft.border.all(1, ft.colors.with_opacity(0.3, COLORS['warning']))
+                    ),
+                    ft.Container(height=10),
+                    ft.Text(
+                        "⚠️ Proceed with caution!",
+                        size=14,
+                        color=COLORS['error'],
+                        weight=ft.FontWeight.BOLD,
+                        italic=True
+                    )
+                ], spacing=5),
+                width=500
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancel",
+                    on_click=close_dialog,
+                    style=ft.ButtonStyle(color=COLORS['text_secondary'])
+                ),
+                ft.ElevatedButton(
+                    "Edit Anyway",
+                    on_click=proceed_anyway,
+                    style=ft.ButtonStyle(
+                        bgcolor=COLORS['warning'],
+                        color=ft.colors.WHITE
+                    )
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+
+        self.page.dialog = warning_dialog
+        warning_dialog.open = True
+        self.page.update()
 
     def show_assignment_detail_dialog(self, assignment):
         """Show comprehensive assignment details with editing capabilities"""
@@ -4017,7 +4232,13 @@ class QuizManagement(ft.UserControl):
         department_dropdown = self.create_styled_dropdown(
             label="Add Entry",
             hint_text="Select department to add",
-            options=[ft.dropdown.Option(key=dept['department'], text=dept['department']) for dept in departments],
+            options=[
+                ft.dropdown.Option(
+                    key=dept["key"],
+                    text=dept["label"]
+                )
+                for dept in normalized_departments
+            ],
             width=400
         )
 
@@ -4083,13 +4304,25 @@ class QuizManagement(ft.UserControl):
             if not department_dropdown.value:
                 return
 
-            dept = department_dropdown.value
+            dept_key = department_dropdown.value
 
-            # Get all users in department
-            dept_users = self.db.execute_query("""
+            # Get all variants for this department key
+            variants = []
+            data = ORGANIZATIONAL_STRUCTURE.get(dept_key, {})
+            for field in ('name_az', 'name_en', 'abbr_az', 'abbr_en'):
+                val = data.get(field)
+                if val:
+                    variants.append(val)
+
+            if not variants:
+                department_dropdown.value = None
+                return
+
+            placeholders = ",".join("?" * len(variants))
+            dept_users = self.db.execute_query(f"""
                 SELECT id FROM users
-                WHERE department = ? AND role IN ('examinee', 'expert') AND is_active = 1
-            """, (dept,))
+                WHERE department IN ({placeholders}) AND role IN ('examinee', 'expert') AND is_active = 1
+            """, tuple(variants))
 
             for user in dept_users:
                 existing = self.db.execute_single("""
@@ -4137,25 +4370,45 @@ class QuizManagement(ft.UserControl):
                     WHERE assignment_id = ? AND is_completed = 1
                 """, (assignment['id'],))
 
-                if total_stats and completed_stats:
+                # Get assignment max_attempts
+                assignment_info = self.db.execute_single("""
+                    SELECT max_attempts
+                    FROM exam_assignments
+                    WHERE id = ?
+                """, (assignment['id'],))
+
+                if total_stats and assignment_info:
                     total_assigned = total_stats['total_assigned']
-                    completed_count = completed_stats['completed_count']
+                    max_attempts = assignment_info['max_attempts']
 
-                    print(f"📋 Assignment {assignment['id']}: {completed_count}/{total_assigned} users completed")
+                    # Count how many users have used ALL their attempts
+                    users_at_max = self.db.execute_query("""
+                        SELECT au.user_id, COUNT(es.id) as attempt_count
+                        FROM assignment_users au
+                        LEFT JOIN exam_sessions es ON au.user_id = es.user_id
+                            AND es.assignment_id = au.assignment_id
+                        WHERE au.assignment_id = ? AND au.is_active = 1
+                        GROUP BY au.user_id
+                        HAVING attempt_count >= ?
+                    """, (assignment['id'], max_attempts))
 
-                    # If all users completed, archive the assignment
-                    if total_assigned > 0 and completed_count == total_assigned:
+                    users_at_max_count = len(users_at_max)
+
+                    print(f"📋 Assignment {assignment['id']}: {users_at_max_count}/{total_assigned} users used all {max_attempts} attempts")
+
+                    # Only archive if ALL users have exhausted ALL their attempts
+                    if total_assigned > 0 and users_at_max_count == total_assigned:
                         self.db.execute_update("""
                             UPDATE exam_assignments
                             SET is_archived = 1
                             WHERE id = ?
                         """, (assignment['id'],))
-                        print(f"✅ Assignment {assignment['id']} auto-archived - all users completed!")
+                        print(f"✅ Assignment {assignment['id']} auto-archived - all users exhausted all {max_attempts} attempts!")
 
                         # Show notification
                         if self.page:
                             self.page.snack_bar = ft.SnackBar(
-                                content=ft.Text(f"Assignment auto-archived - all users completed!"),
+                                content=ft.Text(f"Assignment auto-archived - all users exhausted all attempts!"),
                                 bgcolor=COLORS['success']
                             )
                             self.page.snack_bar.open = True
@@ -4210,6 +4463,8 @@ class QuizManagement(ft.UserControl):
             (new_status, assignment['id'])
         )
         self.load_exams()
+        if self.page:
+            self.update()
     
     def delete_assignment(self, assignment):
         """Delete an assignment"""
@@ -4952,13 +5207,13 @@ class QuizManagement(ft.UserControl):
                    e.description as exam_description,
                    COUNT(DISTINCT q.id) as question_count,
                    COUNT(DISTINCT au.user_id) as assigned_users_count,
-                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.start_time >= au.granted_at THEN au.user_id END) as completed_users_count,
+                   COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.assignment_id = ea.id THEN au.user_id END) as completed_users_count,
                    u.full_name as creator_name
             FROM exam_assignments ea
             JOIN exams e ON ea.exam_id = e.id
             LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
-            LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
+            LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND es.assignment_id = ea.id
             LEFT JOIN users u ON ea.created_by = u.id
             WHERE ea.is_archived = 1
             GROUP BY ea.id
@@ -5007,13 +5262,13 @@ class QuizManagement(ft.UserControl):
                        e.description as exam_description,
                        COUNT(DISTINCT q.id) as question_count,
                        COUNT(DISTINCT au.user_id) as assigned_users_count,
-                       COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.start_time >= au.granted_at THEN au.user_id END) as completed_users_count,
+                       COUNT(DISTINCT CASE WHEN es.is_completed = 1 AND es.assignment_id = ea.id THEN au.user_id END) as completed_users_count,
                        u.full_name as creator_name
                 FROM exam_assignments ea
                 JOIN exams e ON ea.exam_id = e.id
                 LEFT JOIN questions q ON e.id = q.exam_id AND q.is_active = 1
                 LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
-                LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND e.id = es.exam_id
+                LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND es.assignment_id = ea.id
                 LEFT JOIN users u ON ea.created_by = u.id
                 WHERE ea.is_archived = 1
                 GROUP BY ea.id

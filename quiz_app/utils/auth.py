@@ -84,9 +84,11 @@ class AuthManager:
 
             password_hash = self.hash_password(password)
 
+            # CRITICAL FIX: Explicitly set is_active=1 to ensure new users are active
+            # SQLCipher databases sometimes don't apply DEFAULT values correctly
             user_id = self.db.execute_insert('''
-                INSERT INTO users (username, email, password_hash, full_name, role, department, section, unit, language_preference)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (username, email, password_hash, full_name, role, department, section, unit, language_preference, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             ''', (username, email, password_hash, full_name, role, department, section, unit, language_preference))
 
             return user_id

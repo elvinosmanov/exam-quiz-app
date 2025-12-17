@@ -646,31 +646,112 @@ def create_tables():
 def create_default_admin():
     """Create default admin user if none exists"""
     import bcrypt
-    
+
     db = Database()
-    
+
     # Check if admin exists
     admin = db.execute_single("SELECT id FROM users WHERE role = 'admin'")
-    
+
     if not admin:
         # Create default admin
         password = "admin123"  # Change this in production
         password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
+
         db.execute_insert('''
             INSERT INTO users (username, email, password_hash, full_name, role, is_active)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', ('admin', 'admin@example.com', password_hash, 'System Administrator', 'admin', 1))
-        
+
         print("Default admin user created:")
         print("Username: admin")
         print("Password: admin123")
         print("Please change the password after first login!")
 
+def populate_organizational_structure():
+    """Populate organizational structure table with default data from config.py"""
+    from quiz_app.config import ORGANIZATIONAL_STRUCTURE
+
+    db = Database()
+
+    # Check if table is already populated
+    existing_count = db.execute_query("SELECT COUNT(*) as count FROM organizational_structure")
+    if existing_count and existing_count[0]['count'] > 0:
+        print("Organizational structure already populated, skipping...")
+        return
+
+    print("Populating organizational structure...")
+
+    # Process each department/section/unit from ORGANIZATIONAL_STRUCTURE
+    for key, data in ORGANIZATIONAL_STRUCTURE.items():
+        org_type = data.get('type', 'department')
+        name_az = data.get('name_az', '')
+        name_en = data.get('name_en', '')
+        abbr_az = data.get('abbr_az', '')
+        abbr_en = data.get('abbr_en', '')
+
+        # Insert department
+        db.execute_insert("""
+            INSERT INTO organizational_structure (key, type, name_az, name_en, abbr_az, abbr_en, parent_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (key, org_type, name_az, name_en, abbr_az, abbr_en, None))
+
+        # Process sections under this department
+        sections = data.get('sections', {})
+        for section_key, section_data in sections.items():
+            section_name_az = section_data.get('name_az', '')
+            section_name_en = section_data.get('name_en', '')
+            section_abbr_az = section_data.get('abbr_az', '')
+            section_abbr_en = section_data.get('abbr_en', '')
+
+            full_section_key = f"{key}_{section_key}"
+
+            db.execute_insert("""
+                INSERT INTO organizational_structure (key, type, name_az, name_en, abbr_az, abbr_en, parent_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (full_section_key, 'section', section_name_az, section_name_en, section_abbr_az, section_abbr_en, key))
+
+            # Process units under this section
+            section_units = section_data.get('units', [])
+            for unit in section_units:
+                unit_name_az = unit.get('name_az', '')
+                unit_name_en = unit.get('name_en', '')
+                unit_abbr_az = unit.get('abbr_az', '')
+                unit_abbr_en = unit.get('abbr_en', '')
+
+                # Generate unique key for unit
+                import uuid
+                unit_key = f"{full_section_key}_unit_{uuid.uuid4().hex[:8]}"
+
+                db.execute_insert("""
+                    INSERT INTO organizational_structure (key, type, name_az, name_en, abbr_az, abbr_en, parent_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (unit_key, 'unit', unit_name_az, unit_name_en, unit_abbr_az, unit_abbr_en, full_section_key))
+
+        # Process units directly under department (no section)
+        dept_units = data.get('units', [])
+        for unit in dept_units:
+            unit_name_az = unit.get('name_az', '')
+            unit_name_en = unit.get('name_en', '')
+            unit_abbr_az = unit.get('abbr_az', '')
+            unit_abbr_en = unit.get('abbr_en', '')
+
+            # Generate unique key for unit
+            import uuid
+            unit_key = f"{key}_unit_{uuid.uuid4().hex[:8]}"
+
+            db.execute_insert("""
+                INSERT INTO organizational_structure (key, type, name_az, name_en, abbr_az, abbr_en, parent_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (unit_key, 'unit', unit_name_az, unit_name_en, unit_abbr_az, unit_abbr_en, key))
+
+    entries_count = db.execute_query("SELECT COUNT(*) as count FROM organizational_structure")
+    print(f"Organizational structure populated with {entries_count[0]['count']} entries")
+
 def init_database():
     """Initialize the database with tables and default data"""
     create_tables()
     create_default_admin()
+    populate_organizational_structure()
     print(f"Database initialized at: {DATABASE_PATH}")
 
 if __name__ == "__main__":

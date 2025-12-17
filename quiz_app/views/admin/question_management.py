@@ -43,6 +43,15 @@ class QuestionManagement(ft.UserControl):
             expand=True
         )
 
+        # Edit topic button (enabled when a topic is selected)
+        self.edit_exam_btn = ft.IconButton(
+            icon=ft.icons.EDIT,
+            tooltip=t('edit_topic'),
+            on_click=self.edit_selected_exam,
+            disabled=True,  # Disabled until an exam is selected
+            icon_color=COLORS['primary']
+        )
+
         # Search control
         self.search_field = ft.TextField(
             label=t('search_questions'),
@@ -208,10 +217,11 @@ class QuestionManagement(ft.UserControl):
             # Load questions for the selected exam
             self.load_questions()
 
-            # Update observer button availability
+            # Update button availability
             self.update_observers_button_state()
             self.update_add_question_button_state()
             self.update_import_export_buttons_state()
+            self.update_edit_exam_button_state()
 
             # Update the UI if it's already mounted
             if hasattr(self, 'page') and self.page:
@@ -239,6 +249,7 @@ class QuestionManagement(ft.UserControl):
             # Filters
             ft.Row([
                 self.exam_selector,
+                self.edit_exam_btn,
                 self.search_field,
                 self.type_filter,
                 self.status_filter
@@ -440,6 +451,18 @@ class QuestionManagement(ft.UserControl):
             if self.page and getattr(self.export_questions_btn, 'page', None):
                 self.export_questions_btn.update()
 
+    def update_edit_exam_button_state(self):
+        """Enable/disable edit exam button based on exam selection"""
+        if not hasattr(self, 'edit_exam_btn') or not self.edit_exam_btn:
+            return
+
+        has_exam = bool(self.selected_exam_id)
+        self.edit_exam_btn.disabled = not has_exam
+        self.edit_exam_btn.tooltip = t('edit_topic') if has_exam else t('select_exam_to_edit')
+
+        if self.page and getattr(self.edit_exam_btn, 'page', None):
+            self.edit_exam_btn.update()
+
     def exam_selected(self, e):
         old_exam_id = self.selected_exam_id
         self.selected_exam_id = int(e.control.value) if e.control.value else None
@@ -458,6 +481,7 @@ class QuestionManagement(ft.UserControl):
         self.update_observers_button_state()
         self.update_add_question_button_state()
         self.update_import_export_buttons_state()
+        self.update_edit_exam_button_state()
     
     def load_questions(self):
         if not self.selected_exam_id:
@@ -2125,6 +2149,17 @@ class QuestionManagement(ft.UserControl):
         """Show dialog to create a new exam template"""
         self.show_exam_dialog()
 
+    def edit_selected_exam(self, e):
+        """Edit the currently selected exam/topic"""
+        if not self.selected_exam_id:
+            return
+
+        # Find the selected exam data
+        exam_data = next((exam for exam in self.exams_data if exam['id'] == self.selected_exam_id), None)
+
+        if exam_data:
+            self.show_exam_dialog(exam_data)
+
     def show_exam_dialog(self, exam=None):
         """Create or edit exam template dialog"""
         is_edit = exam is not None
@@ -2133,7 +2168,7 @@ class QuestionManagement(ft.UserControl):
         # Form fields - Only basic topic information
         exam_title_field = ft.TextField(
             label=t('title') + " *",
-            value=exam['title'] if is_edit else "",
+            value=exam.get('title', '') if is_edit else "",
             content_padding=8,
             hint_text=t('enter_descriptive_title'),
             width=600
@@ -2141,7 +2176,7 @@ class QuestionManagement(ft.UserControl):
 
         description_field = ft.TextField(
             label=t('description'),
-            value=exam['description'] if is_edit else "",
+            value=exam.get('description', '') if is_edit else "",
             multiline=True,
             min_lines=3,
             max_lines=6,
@@ -2171,7 +2206,7 @@ class QuestionManagement(ft.UserControl):
                     params = (
                         exam_title_field.value.strip(),
                         description_field.value.strip() or None,
-                        exam['id']
+                        exam.get('id')
                     )
                     self.db.execute_update(query, params)
                 else:

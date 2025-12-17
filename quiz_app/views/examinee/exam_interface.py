@@ -1,6 +1,7 @@
 import flet as ft
 import json
 import os
+import base64
 import threading
 import time
 from datetime import datetime, timedelta
@@ -502,20 +503,38 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         #     print(f"Error starting question timer: {e}")
     
     def render_question_image(image_path):
-        """Render question image if present - same logic as admin interface"""
+        """Render question image if present"""
         if not image_path:
             return ft.Container()
-        
-        # Convert relative path to absolute path - same as admin interface
+
+        print(f"[IMAGE] Original image_path from DB: {image_path}")
+
+        # Convert relative path to absolute path
+        # assets folder is at project root, NOT inside quiz_app folder
         if not os.path.isabs(image_path):
-            # Use exact same path construction as admin interface
-            full_image_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                image_path
-            )
+            # __file__ is at: quiz_app/views/examinee/exam_interface.py
+            # Need to go up 4 levels to reach project root: ../../../..
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            full_image_path = os.path.join(project_root, image_path)
         else:
             full_image_path = image_path
-        
+
+        # Check if file exists
+        if not os.path.exists(full_image_path):
+            print(f"[IMAGE] ERROR: Image file not found at: {full_image_path}")
+            return ft.Container(
+                content=ft.Text(
+                    f"Image not found: {image_path}",
+                    size=14,
+                    color=EXAM_COLORS['error'],
+                    italic=True
+                ),
+                padding=ft.padding.all(20)
+            )
+
+        print(f"[IMAGE] File exists at: {full_image_path}")
+        print(f"[IMAGE] Using display path for Flet: {full_image_path}")
+
         return ft.Container(
             content=ft.Column([
                 ft.Image(
@@ -523,9 +542,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     width=600,
                     height=300,
                     fit=ft.ImageFit.CONTAIN,
-                    border_radius=8
+                    border_radius=8,
+                    error_content=ft.Text("Failed to load image", color=EXAM_COLORS['error'])
                 ),
-                ft.Container(height=8),  # Small spacing between image and hint text
+                ft.Container(height=8),
                 ft.Text(
                     t('click_to_view'),
                     size=12,
@@ -549,11 +569,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 page = exam_state['main_container'].page
 
             if page:
-                
                 def close_image_dialog(e):
                     image_dialog.open = False
                     page.update()
-                
+
                 image_dialog = ft.AlertDialog(
                     modal=True,
                     title=ft.Text(t('question_image'), size=18, weight=ft.FontWeight.BOLD),
@@ -562,7 +581,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                             src=image_path,
                             width=800,
                             height=600,
-                            fit=ft.ImageFit.CONTAIN
+                            fit=ft.ImageFit.CONTAIN,
+                            error_content=ft.Text("Failed to load image", color=EXAM_COLORS['error'])
                         ),
                         width=800,
                         height=600,
@@ -576,7 +596,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                         )
                     ]
                 )
-                
+
                 page.dialog = image_dialog
                 image_dialog.open = True
                 page.update()
@@ -676,12 +696,28 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             elif 'answer_text' in answer_data:
                 # Text-based questions - explicitly set points_earned based on question type
                 if question_type in ['essay', 'short_answer']:
+                    # Check if answer is empty after trimming
+                    trimmed_answer = (answer_data['answer_text'] or '').strip()
+                    if not trimmed_answer:
+                        # DELETE the old answer from database if user cleared the text
+                        db.execute_update("""
+                            DELETE FROM user_answers
+                            WHERE session_id = ? AND question_id = ?
+                        """, (session_id, question_id))
+
+                        # Remove from exam_state if it exists
+                        if question_id in exam_state['user_answers']:
+                            del exam_state['user_answers'][question_id]
+
+                        print(f"Deleted empty essay/short_answer for question {question_id}")
+                        return
+
                     # Essay/short_answer questions need manual grading - set points_earned to NULL
                     db.execute_update("""
                         INSERT OR REPLACE INTO user_answers (
                             session_id, question_id, answer_text, points_earned, time_spent_seconds, answered_at
                         ) VALUES (?, ?, ?, NULL, ?, ?)
-                    """, (session_id, question_id, answer_data['answer_text'], time_spent, datetime.now().isoformat()))
+                    """, (session_id, question_id, trimmed_answer, time_spent, datetime.now().isoformat()))
                 else:
                     # True/false questions - auto-grade immediately
                     answer_text = answer_data['answer_text']
@@ -768,10 +804,17 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     print("Warning: 5 minutes remaining!")
                 elif exam_state['time_remaining'] == 60:  # 1 minute
                     print("Warning: 1 minute remaining!")
-                elif exam_state['time_remaining'] == 0:
-                    print("Time's up! Auto-submitting exam...")
-                    exam_state['timer_running'] = False
-                    submit_exam_final()
+
+            # CRITICAL FIX: Check if time expired after loop exits
+            # This runs when time_remaining reaches 0 OR timer is manually stopped
+            if exam_state['time_remaining'] <= 0 and exam_state['timer_running']:
+                print("⏰ Time's up! Auto-submitting exam...")
+                exam_state['timer_running'] = False
+                # Call submit function from exam_state (set in create_main_content)
+                if 'submit_exam_final' in exam_state and callable(exam_state['submit_exam_final']):
+                    exam_state['submit_exam_final']()
+                else:
+                    print("[TIMER] ERROR: submit_exam_final function not found in exam_state")
         except Exception as e:
             print(f"[TIMER] Timer thread error: {e}")
         finally:
@@ -1203,27 +1246,40 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     WHERE assignment_id = ? AND is_active = 1
                 """, (assignment_id,))
 
-                # Get completed users count
-                completed_stats = db.execute_single("""
-                    SELECT COUNT(DISTINCT user_id) as completed_count
-                    FROM exam_sessions
-                    WHERE assignment_id = ? AND is_completed = 1
+                # Get assignment max_attempts to check if users exhausted all attempts
+                assignment_info = db.execute_single("""
+                    SELECT max_attempts
+                    FROM exam_assignments
+                    WHERE id = ?
                 """, (assignment_id,))
 
-                if total_stats and completed_stats:
+                if total_stats and assignment_info:
                     total_assigned = total_stats['total_assigned']
-                    completed_count = completed_stats['completed_count']
+                    max_attempts = assignment_info['max_attempts']
 
-                    print(f"📋 Assignment {assignment_id}: {completed_count}/{total_assigned} users completed")
+                    # Count how many users have used ALL their attempts
+                    users_at_max = db.execute_query("""
+                        SELECT au.user_id, COUNT(es.id) as attempt_count
+                        FROM assignment_users au
+                        LEFT JOIN exam_sessions es ON au.user_id = es.user_id
+                            AND es.assignment_id = au.assignment_id
+                        WHERE au.assignment_id = ? AND au.is_active = 1
+                        GROUP BY au.user_id
+                        HAVING attempt_count >= ?
+                    """, (assignment_id, max_attempts))
 
-                    # If all users completed, archive the assignment
-                    if total_assigned > 0 and completed_count == total_assigned:
+                    users_at_max_count = len(users_at_max)
+
+                    print(f"📋 Assignment {assignment_id}: {users_at_max_count}/{total_assigned} users used all {max_attempts} attempts")
+
+                    # Only archive if ALL users have exhausted ALL their attempts
+                    if total_assigned > 0 and users_at_max_count == total_assigned:
                         db.execute_update("""
                             UPDATE exam_assignments
                             SET is_archived = 1
                             WHERE id = ?
                         """, (assignment_id,))
-                        print(f"✅ Assignment {assignment_id} auto-archived - all users completed!")
+                        print(f"✅ Assignment {assignment_id} auto-archived - all users exhausted all {max_attempts} attempts!")
 
             except Exception as e:
                 print(f"Error checking assignment completion for auto-archive: {e}")
@@ -1233,6 +1289,12 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         def submit_exam_final():
             """Final exam submission with proper processing"""
             try:
+                # Prevent multiple simultaneous submissions
+                if exam_state.get('exam_finished'):
+                    print("[SUBMIT] Exam already submitted, ignoring duplicate submission")
+                    return
+
+                exam_state['exam_finished'] = True  # Mark as finished immediately
                 cleanup_page_handlers()
 
                 # Track time for current question before submission
@@ -1427,7 +1489,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 except:
                     # Last resort fallback
                     show_exam_results(len(questions), 0, 0, 0, 70)
-        
+
+        # Store submit_exam_final in exam_state so timer thread can access it
+        exam_state['submit_exam_final'] = submit_exam_final
+
         def show_simple_submission_confirmation():
             """Show simple exam submission confirmation when results are hidden"""
             try:
@@ -1536,7 +1601,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                         AND q.question_type IN ('essay', 'short_answer')
                         AND ua.points_earned IS NULL
                         AND ua.answer_text IS NOT NULL
-                        AND ua.answer_text != ''
+                        AND TRIM(ua.answer_text) != ''
                     """, (session_id,))
                     
                     has_ungraded_manual_questions = ungraded_manual[0]['count'] > 0 if ungraded_manual else False

@@ -216,6 +216,11 @@ class UserManagement(ft.UserControl):
                 FROM users
                 ORDER BY created_at DESC
             """)
+        # Normalize is_active values: convert None to 0 (SQLite may return None for boolean columns)
+        for user in self.all_users_data:
+            if user['is_active'] is None:
+                user['is_active'] = 0
+        
         self.users_data = self.all_users_data.copy()
         self.apply_filters(None)
     
@@ -878,8 +883,16 @@ class UserManagement(ft.UserControl):
         self.page.update()
     
     def toggle_user_status(self, user):
+        # Normalize is_active: ensure it's 0 or 1 (handle None values)
+        is_active_value = user.get('is_active')
+        if is_active_value is None:
+            is_active_value = 0
+        
+        # Convert to boolean (SQLite returns 0/1 as integers)
+        is_currently_active = bool(is_active_value)
+        
         # Check if trying to deactivate an admin
-        if user['is_active'] and user['role'] == 'admin':
+        if is_currently_active and user['role'] == 'admin':
             # Count active admins
             active_admins = self.db.execute_query(
                 "SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND is_active = 1"
@@ -906,15 +919,38 @@ class UserManagement(ft.UserControl):
                 self.page.update()
                 return
 
-        new_status = 0 if user['is_active'] else 1
-        self.db.execute_update(
-            "UPDATE users SET is_active = ? WHERE id = ?",
-            (new_status, user['id'])
-        )
+        # Toggle status: if active (1), set to inactive (0), otherwise set to active (1)
+        new_status = 0 if is_currently_active else 1
+        
+        # Handle case where id might be None (use username as fallback)
+        user_id = user.get('id')
+        username = user.get('username')
+        
+        if user_id is not None:
+            # Use ID if available (normal case)
+            self.db.execute_update(
+                "UPDATE users SET is_active = ? WHERE id = ?",
+                (new_status, user_id)
+            )
+        elif username:
+            # Fallback to username if ID is None (data integrity issue)
+            self.db.execute_update(
+                "UPDATE users SET is_active = ? WHERE username = ?",
+                (new_status, username)
+            )
+        else:
+            # No identifier available - show error
+            if self.page:
+                self.page.show_snack_bar(ft.SnackBar(
+                    content=ft.Text("Error: Cannot update user status - missing user identifier"),
+                    bgcolor=COLORS['error']
+                ))
+                self.page.update()
+            return
 
         # Reload users and update UI
         self.load_users()
-
+        
         # Force update of the component
         if self.page:
             self.update()

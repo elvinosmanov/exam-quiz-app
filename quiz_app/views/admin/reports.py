@@ -33,7 +33,48 @@ class Reports(ft.UserControl):
         plt.style.use('default')
         plt.rcParams['figure.facecolor'] = 'white'
         plt.rcParams['axes.facecolor'] = 'white'
-        
+
+    def register_unicode_fonts_for_pdf(self):
+        """
+        Register Unicode-capable fonts for PDF generation supporting Azerbaijani characters.
+        Returns tuple: (font_name, bold_font_name, registered_success)
+        """
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import os
+
+        # Try multiple font paths for cross-platform compatibility
+        font_candidates = [
+            # Windows paths
+            ('Arial', 'C:\\Windows\\Fonts\\arial.ttf', 'C:\\Windows\\Fonts\\arialbd.ttf', 'C:\\Windows\\Fonts\\ariali.ttf'),
+            # macOS paths
+            ('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf', '/System/Library/Fonts/Supplemental/Arial Bold.ttf', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'),
+            # Linux DejaVu paths
+            ('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf'),
+        ]
+
+        for font_name, normal_path, bold_path, italic_path in font_candidates:
+            if os.path.exists(normal_path) and os.path.exists(bold_path):
+                try:
+                    pdfmetrics.registerFont(TTFont(f'{font_name}-Report', normal_path))
+                    pdfmetrics.registerFont(TTFont(f'{font_name}-Report-Bold', bold_path))
+                    if os.path.exists(italic_path):
+                        pdfmetrics.registerFont(TTFont(f'{font_name}-Report-Italic', italic_path))
+                    pdfmetrics.registerFontFamily(
+                        f'{font_name}-Report',
+                        normal=f'{font_name}-Report',
+                        bold=f'{font_name}-Report-Bold',
+                        italic=f'{font_name}-Report-Italic' if os.path.exists(italic_path) else f'{font_name}-Report'
+                    )
+                    print(f"[INFO] Successfully registered {font_name} fonts for Azerbaijani text from: {normal_path}")
+                    return (f'{font_name}-Report', f'{font_name}-Report-Bold', True)
+                except Exception as e:
+                    print(f"[WARN] Could not register {font_name}: {e}")
+                    continue
+
+        print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
+        return ('Helvetica', 'Helvetica-Bold', False)
+
     def did_mount(self):
         super().did_mount()
         # Add file picker to overlay
@@ -822,13 +863,13 @@ class Reports(ft.UserControl):
             # Combine both lists
             exams = assignments + standalone_exams
 
-            # Get all students with exam attempts
+            # Get all users (examinee and expert roles) with exam attempts
             students = self.db.execute_query("""
-                SELECT DISTINCT u.id, u.username, u.full_name, u.department, u.unit,
+                SELECT DISTINCT u.id, u.username, u.full_name, u.department, u.unit, u.role,
                        COUNT(DISTINCT es.id) as exam_count
                 FROM users u
                 JOIN exam_sessions es ON u.id = es.user_id
-                WHERE u.role = 'examinee' AND es.is_completed = 1
+                WHERE u.role IN ('examinee', 'expert') AND es.is_completed = 1
                 GROUP BY u.id
                 ORDER BY u.full_name
             """)
@@ -930,11 +971,13 @@ class Reports(ft.UserControl):
             dept_unit = f"{student['department'] or 'N/A'}"
             if student.get('unit'):
                 dept_unit += f" / {student['unit']}"
+            # Add role indicator
+            role_label = student.get('role', 'examinee').capitalize()
             student_items.append(
                 ft.ListTile(
                     leading=ft.Icon(ft.icons.PERSON, color=COLORS['primary']),
                     title=ft.Text(student['full_name'], weight=ft.FontWeight.BOLD),
-                    subtitle=ft.Text(f"{student['username']} • {dept_unit} • {student['exam_count']} {t('exams')}"),
+                    subtitle=ft.Text(f"{student['username']} • {role_label} • {dept_unit} • {student['exam_count']} {t('exams')}"),
                     trailing=ft.IconButton(
                         icon=ft.icons.PICTURE_AS_PDF,
                         icon_color=COLORS['error'],
@@ -1137,13 +1180,13 @@ class Reports(ft.UserControl):
     def show_student_report_selector(self, e):
         """Show dialog to select student for PDF report"""
         try:
-            # Get all students with exam attempts
+            # Get all users (examinee and expert roles) with exam attempts
             students = self.db.execute_query("""
-                SELECT DISTINCT u.id, u.username, u.full_name, u.department, u.unit,
+                SELECT DISTINCT u.id, u.username, u.full_name, u.department, u.unit, u.role,
                        COUNT(DISTINCT es.id) as exam_count
                 FROM users u
                 JOIN exam_sessions es ON u.id = es.user_id
-                WHERE u.role = 'examinee' AND es.is_completed = 1
+                WHERE u.role IN ('examinee', 'expert') AND es.is_completed = 1
                 GROUP BY u.id
                 ORDER BY u.full_name
             """)
@@ -1241,34 +1284,7 @@ class Reports(ft.UserControl):
             filepath = os.path.join(self.temp_dir, filename)
 
             # Register Unicode font for Azerbaijani characters
-            unicode_font_registered = False
-            try:
-                # Try Arial first (supports Azerbaijani)
-                from reportlab.pdfbase.ttfonts import TTFont
-                pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
-                pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
-                pdfmetrics.registerFont(TTFont('Arial-Italic', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'))
-                pdfmetrics.registerFontFamily('Arial', normal='Arial', bold='Arial-Bold', italic='Arial-Italic')
-                unicode_font = 'Arial'
-                unicode_font_bold = 'Arial-Bold'
-                unicode_font_registered = True
-                print("[INFO] Registered Arial fonts for Azerbaijani text")
-            except Exception as e:
-                print(f"[WARN] Could not register Arial: {e}")
-                try:
-                    # Try DejaVu Sans as fallback
-                    pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-                    unicode_font = 'DejaVuSans'
-                    unicode_font_bold = 'DejaVuSans-Bold'
-                    unicode_font_registered = True
-                    print("[INFO] Registered DejaVu Sans for text")
-                except Exception as e2:
-                    print(f"[WARN] Could not register DejaVu Sans: {e2}")
-                    # Last resort: Helvetica (won't display special characters properly)
-                    unicode_font = 'Helvetica'
-                    unicode_font_bold = 'Helvetica-Bold'
-                    print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
+            unicode_font, unicode_font_bold, font_registered = self.register_unicode_fonts_for_pdf()
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1325,83 +1341,117 @@ class Reports(ft.UserControl):
             story = []
             styles = getSampleStyleSheet()
 
-            # Update styles to use Unicode font
+            # Update styles to use Unicode font (keep default fontSize)
             styles['Normal'].fontName = unicode_font
             styles['Heading1'].fontName = unicode_font_bold
             styles['Heading2'].fontName = unicode_font_bold
             styles['Heading3'].fontName = unicode_font_bold
 
+            # Custom styles - Proper readable sizes
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=rl_colors.HexColor('#1a237e'), fontName=unicode_font_bold, alignment=1)
+            exam_title_style = ParagraphStyle('ExamTitle', parent=styles['Heading2'], fontSize=12, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold, alignment=1)
+            meta_style = ParagraphStyle('Meta', parent=styles['Normal'], fontSize=10, textColor=rl_colors.grey, fontName=unicode_font, alignment=1)
+            section_heading_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=14, textColor=rl_colors.HexColor('#1565c0'), fontName=unicode_font_bold, spaceAfter=8)
+
+            # Small styles for table cells (8pt for compact tables)
+            table_cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, fontName=unicode_font, leading=10)
+            table_header_style = ParagraphStyle('TableHeader', parent=styles['Normal'], fontSize=9, fontName=unicode_font_bold, leading=11)
+
             # Title
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold)
-            story.append(Paragraph(f"{t('exam_report')}: {exam_title}", title_style))
-            story.append(Spacer(1, 0.3*inch))
+            story.append(Paragraph(f"<b>{t('exam_report').upper()}</b>", title_style))
+            story.append(Spacer(1, 0.1*inch))
 
-            # Date
-            story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            story.append(Spacer(1, 0.3*inch))
+            # Exam title
+            story.append(Paragraph(exam_title, exam_title_style))
+            story.append(Spacer(1, 0.08*inch))
 
-            # Statistics - Use Paragraphs for table cells
-            story.append(Paragraph(t('performance_summary'), styles['Heading2']))
+            # Date and metadata
+            story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style))
+            story.append(Spacer(1, 0.3*inch))
+            story.append(Paragraph(f"📊 {t('performance_summary')}", section_heading_style))
+            story.append(Spacer(1, 0.1*inch))
+
             stats_data = [
-                [Paragraph(f'<b>{t("metric")}</b>', styles['Normal']), Paragraph(f'<b>{t("value")}</b>', styles['Normal'])],
-                [Paragraph(t('total_attempts'), styles['Normal']), Paragraph(str(exam_stats['total_attempts']) if exam_stats else '0', styles['Normal'])],
-                [Paragraph(t('average_score'), styles['Normal']), Paragraph(f"{exam_stats['avg_score']:.2f}%" if exam_stats and exam_stats['avg_score'] else 'N/A', styles['Normal'])],
-                [Paragraph(t('highest_score'), styles['Normal']), Paragraph(f"{exam_stats['max_score']:.2f}%" if exam_stats and exam_stats['max_score'] else 'N/A', styles['Normal'])],
-                [Paragraph(t('lowest_score'), styles['Normal']), Paragraph(f"{exam_stats['min_score']:.2f}%" if exam_stats and exam_stats['min_score'] else 'N/A', styles['Normal'])],
-                [Paragraph(t('pass_rate'), styles['Normal']), Paragraph(f"{exam_stats['pass_rate']:.2f}%" if exam_stats and exam_stats['pass_rate'] else 'N/A', styles['Normal'])],
+                [Paragraph(f'<b>{t("metric")}</b>', table_header_style), Paragraph(f'<b>{t("value")}</b>', table_header_style)],
+                [Paragraph(f"• {t('total_attempts')}", table_cell_style), Paragraph(str(exam_stats['total_attempts']) if exam_stats else '0', table_cell_style)],
+                [Paragraph(f"• {t('average_score')}", table_cell_style), Paragraph(f"<b>{exam_stats['avg_score']:.1f}%</b>" if exam_stats and exam_stats['avg_score'] else 'N/A', table_cell_style)],
+                [Paragraph(f"• {t('highest_score')}", table_cell_style), Paragraph(f"{exam_stats['max_score']:.1f}%" if exam_stats and exam_stats['max_score'] else 'N/A', table_cell_style)],
+                [Paragraph(f"• {t('lowest_score')}", table_cell_style), Paragraph(f"{exam_stats['min_score']:.1f}%" if exam_stats and exam_stats['min_score'] else 'N/A', table_cell_style)],
+                [Paragraph(f"• {t('pass_rate')}", table_cell_style), Paragraph(f"<b>{exam_stats['pass_rate']:.1f}%</b>" if exam_stats and exam_stats['pass_rate'] else 'N/A', table_cell_style)],
             ]
 
-            stats_table = Table(stats_data, colWidths=[3*inch, 3*inch])
+            stats_table = Table(stats_data, colWidths=[3.5*inch, 2.5*inch])
             stats_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#1565c0')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.HexColor('#f5f5f5')),
+                ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#cccccc')),
+                ('LINEABOVE', (0, 0), (-1, 0), 1.5, rl_colors.HexColor('#1565c0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
             story.append(stats_table)
-            story.append(Spacer(1, 0.5*inch))
+            story.append(Spacer(1, 0.3*inch))
 
             # Student attempts
-            story.append(Paragraph(t('student_performance'), styles['Heading2']))
-            story.append(Spacer(1, 0.2*inch))
+            story.append(Paragraph(f"👥 {t('student_performance')}", section_heading_style))
+            story.append(Spacer(1, 0.1*inch))
 
             if attempts:
-                # Use Paragraphs for table cells
+                # Use Paragraphs for table cells with small styles
                 attempts_data = [[
-                    Paragraph(f'<b>{t("student")}</b>', styles['Normal']),
-                    Paragraph(f'<b>{t("department")}</b>', styles['Normal']),
-                    Paragraph(f'<b>{t("exam_date")}</b>', styles['Normal']),
-                    Paragraph(f'<b>{t("score")}</b>', styles['Normal']),
-                    Paragraph(f'<b>{t("correct_total")}</b>', styles['Normal']),
-                    Paragraph(f'<b>{t("duration_min")}</b>', styles['Normal'])
+                    Paragraph(f'<b>{t("student")}</b>', table_header_style),
+                    Paragraph(f'<b>{t("department")}</b>', table_header_style),
+                    Paragraph(f'<b>{t("exam_date")}</b>', table_header_style),
+                    Paragraph(f'<b>{t("score")}</b>', table_header_style),
+                    Paragraph(f'<b>{t("correct_total")}</b>', table_header_style),
+                    Paragraph(f'<b>{t("duration_min")}</b>', table_header_style)
                 ]]
-                for attempt in attempts:
+                for idx, attempt in enumerate(attempts):
                     duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
                     exam_date = attempt['start_time'][:10] if attempt['start_time'] else 'N/A'
+
+                    # Color code score (no bold)
+                    score_val = attempt['score']
+                    if score_val >= 90:
+                        score_text = f"<font color='green'>{score_val:.1f}%</font>"
+                    elif score_val >= 70:
+                        score_text = f"<font color='orange'>{score_val:.1f}%</font>"
+                    else:
+                        score_text = f"<font color='red'>{score_val:.1f}%</font>"
+
                     attempts_data.append([
-                        Paragraph(attempt['full_name'], styles['Normal']),
-                        Paragraph(attempt['department'] or 'N/A', styles['Normal']),
-                        Paragraph(exam_date, styles['Normal']),
-                        Paragraph(f"{attempt['score']:.1f}%", styles['Normal']),
-                        Paragraph(f"{attempt['correct_answers']}/{attempt['total_questions']}", styles['Normal']),
-                        Paragraph(str(duration_min), styles['Normal'])
+                        Paragraph(attempt['full_name'], table_cell_style),
+                        Paragraph(attempt['department'] or 'N/A', table_cell_style),
+                        Paragraph(exam_date, table_cell_style),
+                        Paragraph(score_text, table_cell_style),
+                        Paragraph(f"{attempt['correct_answers']}/{attempt['total_questions']}", table_cell_style),
+                        Paragraph(f"{duration_min} min", table_cell_style)
                     ])
 
-                attempts_table = Table(attempts_data, colWidths=[1.5*inch, 1.2*inch, 0.9*inch, 0.8*inch, 1*inch, 0.8*inch])
+                attempts_table = Table(attempts_data, colWidths=[1.8*inch, 1.3*inch, 0.9*inch, 0.8*inch, 0.9*inch, 0.8*inch])
                 attempts_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#2e7d32')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
+                    ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                    ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
                     ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
-                    ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+                    ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#cccccc')),
+                    ('LINEABOVE', (0, 0), (-1, 0), 1.5, rl_colors.HexColor('#2e7d32')),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor('#f9f9f9')])
                 ]))
                 story.append(attempts_table)
-                story.append(Spacer(1, 0.5*inch))
+                story.append(Spacer(1, 0.3*inch))
 
                 # Add question-level analysis for each student
                 story.append(Paragraph("Detailed Question Analysis by Student", styles['Heading2']))
@@ -1412,10 +1462,11 @@ class Reports(ft.UserControl):
                     question_breakdown = self.db.execute_query("""
                         SELECT
                             q.question_text, q.question_type, q.points,
-                            ua.is_correct
+                            MAX(ua.is_correct) as is_correct
                         FROM user_answers ua
                         JOIN questions q ON ua.question_id = q.id
                         WHERE ua.session_id = ?
+                        GROUP BY q.id
                         ORDER BY q.id
                     """, (attempt['session_id'],))
 
@@ -1427,29 +1478,33 @@ class Reports(ft.UserControl):
 
                         # Create question breakdown table with Paragraphs
                         q_data = [[
-                            Paragraph('<b>#</b>', styles['Normal']),
-                            Paragraph('<b>Question (preview)</b>', styles['Normal']),
-                            Paragraph('<b>Type</b>', styles['Normal']),
-                            Paragraph('<b>Points</b>', styles['Normal']),
-                            Paragraph('<b>Result</b>', styles['Normal'])
+                            Paragraph('<b>#</b>', table_header_style),
+                            Paragraph('<b>Question (preview)</b>', table_header_style),
+                            Paragraph('<b>Type</b>', table_header_style),
+                            Paragraph('<b>Points</b>', table_header_style),
+                            Paragraph('<b>Result</b>', table_header_style)
                         ]]
                         for idx, qb in enumerate(question_breakdown, 1):
                             q_text = qb['question_text'][:60] + '...' if len(qb['question_text']) > 60 else qb['question_text']
-                            result = '✓' if qb['is_correct'] else '✗'
+                            result = 'CORRECT' if qb['is_correct'] else 'WRONG'
+                            result_color = 'green' if qb['is_correct'] else 'red'
                             q_data.append([
-                                Paragraph(str(idx), styles['Normal']),
-                                Paragraph(q_text, styles['Normal']),
-                                Paragraph(qb['question_type'][:10], styles['Normal']),
-                                Paragraph(str(qb['points']), styles['Normal']),
-                                Paragraph(result, styles['Normal'])
+                                Paragraph(str(idx), table_cell_style),
+                                Paragraph(q_text, table_cell_style),
+                                Paragraph(qb['question_type'][:10], table_cell_style),
+                                Paragraph(str(qb['points']), table_cell_style),
+                                Paragraph(f"<font color='{result_color}'>{result}</font>", table_cell_style)
                             ])
 
-                        q_table = Table(q_data, colWidths=[0.3*inch, 3*inch, 0.8*inch, 0.5*inch, 0.5*inch])
+                        q_table = Table(q_data, colWidths=[0.3*inch, 3*inch, 0.8*inch, 0.5*inch, 0.6*inch])
                         q_table.setStyle(TableStyle([
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
-                            ('FONTSIZE', (0, 0), (-1, -1), 8),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                             ('ALIGN', (3, 0), (4, -1), 'CENTER'),
+                            ('TOPPADDING', (0, 0), (-1, 0), 4),
+                            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+                            ('TOPPADDING', (0, 1), (-1, -1), 3),
+                            ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
                             ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
                             ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
                         ]))
@@ -1521,34 +1576,7 @@ class Reports(ft.UserControl):
             filepath = os.path.join(self.temp_dir, filename)
 
             # Register Unicode font for Azerbaijani characters
-            unicode_font_registered = False
-            try:
-                # Try Arial first (supports Azerbaijani)
-                from reportlab.pdfbase.ttfonts import TTFont
-                pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
-                pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
-                pdfmetrics.registerFont(TTFont('Arial-Italic', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'))
-                pdfmetrics.registerFontFamily('Arial', normal='Arial', bold='Arial-Bold', italic='Arial-Italic')
-                unicode_font = 'Arial'
-                unicode_font_bold = 'Arial-Bold'
-                unicode_font_registered = True
-                print("[INFO] Registered Arial fonts for Azerbaijani text")
-            except Exception as e:
-                print(f"[WARN] Could not register Arial: {e}")
-                try:
-                    # Try DejaVu Sans as fallback
-                    pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-                    unicode_font = 'DejaVuSans'
-                    unicode_font_bold = 'DejaVuSans-Bold'
-                    unicode_font_registered = True
-                    print("[INFO] Registered DejaVu Sans for text")
-                except Exception as e2:
-                    print(f"[WARN] Could not register DejaVu Sans: {e2}")
-                    # Last resort: Helvetica (won't display special characters properly)
-                    unicode_font = 'Helvetica'
-                    unicode_font_bold = 'Helvetica-Bold'
-                    print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
+            unicode_font, unicode_font_bold, font_registered = self.register_unicode_fonts_for_pdf()
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1611,61 +1639,85 @@ class Reports(ft.UserControl):
             styles['Heading2'].fontName = unicode_font_bold
             styles['Heading3'].fontName = unicode_font_bold
 
-            # Title
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=24, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold)
-            story.append(Paragraph(f"Student Report: {student_name}", title_style))
-            story.append(Spacer(1, 0.3*inch))
+            # CRITICAL: Small styles for table cells (8pt for very compact tables)
+            table_cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, fontName=unicode_font, leading=10)
+            table_header_style = ParagraphStyle('TableHeader', parent=styles['Normal'], fontSize=9, fontName=unicode_font_bold, leading=11)
 
-            # Date
-            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            story.append(Spacer(1, 0.3*inch))
+            # Title - Improved styling
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=rl_colors.HexColor('#1a237e'), fontName=unicode_font_bold, alignment=1)
+            story.append(Paragraph(f"<b>STUDENT PERFORMANCE REPORT</b>", title_style))
+            story.append(Spacer(1, 0.15*inch))
 
-            # Student Info - Use Paragraphs
-            story.append(Paragraph("Student Information", styles['Heading2']))
+            # Student name
+            student_title_style = ParagraphStyle('StudentTitle', parent=styles['Heading2'], fontSize=12, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold, alignment=1)
+            story.append(Paragraph(student_name, student_title_style))
+            story.append(Spacer(1, 0.1*inch))
+
+            # Date and metadata
+            meta_style = ParagraphStyle('Meta', parent=styles['Normal'], fontSize=8, textColor=rl_colors.grey, fontName=unicode_font, alignment=1)
+            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style))
+            story.append(Spacer(1, 0.4*inch))
+
+            # Student Info - Use Paragraphs with improved styling
+            section_heading_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=14, textColor=rl_colors.HexColor('#1565c0'), fontName=unicode_font_bold, spaceAfter=10)
+            story.append(Paragraph(f"👤 Student Information", section_heading_style))
+            story.append(Spacer(1, 0.1*inch))
+
             info_data = [
-                [Paragraph('<b>Field</b>', styles['Normal']), Paragraph('<b>Value</b>', styles['Normal'])],
-                [Paragraph('Full Name', styles['Normal']), Paragraph(student_stats['full_name'], styles['Normal'])],
-                [Paragraph('Username', styles['Normal']), Paragraph(student_stats['username'], styles['Normal'])],
-                [Paragraph('Email', styles['Normal']), Paragraph(student_stats['email'] or 'N/A', styles['Normal'])],
-                [Paragraph('Department', styles['Normal']), Paragraph(student_stats['department'] or 'N/A', styles['Normal'])],
-                [Paragraph('Unit', styles['Normal']), Paragraph(student_stats.get('unit') or 'N/A', styles['Normal'])],
+                [Paragraph('<b>Field</b>', table_header_style), Paragraph('<b>Value</b>', table_header_style)],
+                [Paragraph('• Full Name', table_cell_style), Paragraph(f"{student_stats['full_name']}", table_cell_style)],
+                [Paragraph('• Username', table_cell_style), Paragraph(student_stats['username'], table_cell_style)],
+                [Paragraph('• Email', table_cell_style), Paragraph(student_stats['email'] or 'N/A', table_cell_style)],
+                [Paragraph('• Department', table_cell_style), Paragraph(student_stats['department'] or 'N/A', table_cell_style)],
+                [Paragraph('• Unit', table_cell_style), Paragraph(student_stats.get('unit') or 'N/A', table_cell_style)],
             ]
 
-            info_table = Table(info_data, colWidths=[2*inch, 4*inch])
+            info_table = Table(info_data, colWidths=[2.5*inch, 3.5*inch])
             info_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#1565c0')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+                ('TOPPADDING', (0, 0), (-1, 0), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+                ('TOPPADDING', (0, 1), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.HexColor('#f5f5f5')),
+                ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#cccccc')),
+                ('LINEABOVE', (0, 0), (-1, 0), 1.5, rl_colors.HexColor('#1565c0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
             story.append(info_table)
-            story.append(Spacer(1, 0.5*inch))
+            story.append(Spacer(1, 0.4*inch))
 
-            # Performance Summary - Use Paragraphs
-            story.append(Paragraph("Performance Summary", styles['Heading2']))
+            # Performance Summary - Use Paragraphs with improved styling
+            story.append(Paragraph(f"📊 Performance Summary", section_heading_style))
+            story.append(Spacer(1, 0.1*inch))
+
             summary_data = [
-                [Paragraph('<b>Metric</b>', styles['Normal']), Paragraph('<b>Value</b>', styles['Normal'])],
-                [Paragraph('Total Exams Taken', styles['Normal']), Paragraph(str(student_stats['total_exams']), styles['Normal'])],
-                [Paragraph('Average Score', styles['Normal']), Paragraph(f"{student_stats['avg_score']:.2f}%" if student_stats['avg_score'] else 'N/A', styles['Normal'])],
-                [Paragraph('Highest Score', styles['Normal']), Paragraph(f"{student_stats['max_score']:.2f}%" if student_stats['max_score'] else 'N/A', styles['Normal'])],
-                [Paragraph('Lowest Score', styles['Normal']), Paragraph(f"{student_stats['min_score']:.2f}%" if student_stats['min_score'] else 'N/A', styles['Normal'])],
+                [Paragraph('<b>Metric</b>', table_header_style), Paragraph('<b>Value</b>', table_header_style)],
+                [Paragraph('• Total Exams Taken', table_cell_style), Paragraph(f"{student_stats['total_exams']}", table_cell_style)],
+                [Paragraph('• Average Score', table_cell_style), Paragraph(f"{student_stats['avg_score']:.1f}%" if student_stats['avg_score'] else 'N/A', table_cell_style)],
+                [Paragraph('• Highest Score', table_cell_style), Paragraph(f"{student_stats['max_score']:.1f}%" if student_stats['max_score'] else 'N/A', table_cell_style)],
+                [Paragraph('• Lowest Score', table_cell_style), Paragraph(f"{student_stats['min_score']:.1f}%" if student_stats['min_score'] else 'N/A', table_cell_style)],
             ]
 
-            summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+            summary_table = Table(summary_data, colWidths=[3.5*inch, 2.5*inch])
             summary_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#48BB78')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#2e7d32')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('TOPPADDING', (0, 0), (-1, 0), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+                ('TOPPADDING', (0, 1), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.HexColor('#f5f5f5')),
+                ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#cccccc')),
+                ('LINEABOVE', (0, 0), (-1, 0), 1.5, rl_colors.HexColor('#2e7d32')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
             story.append(summary_table)
-            story.append(Spacer(1, 0.5*inch))
+            story.append(Spacer(1, 0.4*inch))
 
             # Exam History
             story.append(Paragraph("Exam History", styles['Heading2']))
@@ -1674,22 +1726,23 @@ class Reports(ft.UserControl):
             if attempts:
                 # Use Paragraphs for exam history table
                 history_data = [[
-                    Paragraph('<b>Exam</b>', styles['Normal']),
-                    Paragraph('<b>Date</b>', styles['Normal']),
-                    Paragraph('<b>Score</b>', styles['Normal']),
-                    Paragraph('<b>Correct/Total</b>', styles['Normal']),
-                    Paragraph('<b>Duration (min)</b>', styles['Normal']),
-                    Paragraph('<b>Status</b>', styles['Normal'])
+                    Paragraph('<b>Exam</b>', table_header_style),
+                    Paragraph('<b>Date</b>', table_header_style),
+                    Paragraph('<b>Score</b>', table_header_style),
+                    Paragraph('<b>Correct/Total</b>', table_header_style),
+                    Paragraph('<b>Duration (min)</b>', table_header_style),
+                    Paragraph('<b>Status</b>', table_header_style)
                 ]]
                 for attempt in attempts:
                     duration_min = attempt['duration_seconds'] // 60 if attempt['duration_seconds'] else 0
+                    status_color = 'green' if attempt['status'] == 'PASS' else 'red'
                     history_data.append([
-                        Paragraph(attempt['exam_title'][:30], styles['Normal']),
-                        Paragraph(attempt['start_time'][:10], styles['Normal']),
-                        Paragraph(f"{attempt['score']:.1f}%", styles['Normal']),
-                        Paragraph(f"{attempt['correct_answers']}/{attempt['total_questions']}", styles['Normal']),
-                        Paragraph(str(duration_min), styles['Normal']),
-                        Paragraph(attempt['status'], styles['Normal'])
+                        Paragraph(attempt['exam_title'][:30], table_cell_style),
+                        Paragraph(attempt['start_time'][:10], table_cell_style),
+                        Paragraph(f"{attempt['score']:.1f}%", table_cell_style),
+                        Paragraph(f"{attempt['correct_answers']}/{attempt['total_questions']}", table_cell_style),
+                        Paragraph(str(duration_min), table_cell_style),
+                        Paragraph(f"<font color='{status_color}'>{attempt['status']}</font>", table_cell_style)
                     ])
 
                 history_table = Table(history_data, colWidths=[2.5*inch, 1*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.6*inch])
@@ -1697,8 +1750,10 @@ class Reports(ft.UserControl):
                     ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#9F7AEA')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 9),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('TOPPADDING', (0, 0), (-1, 0), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+                    ('TOPPADDING', (0, 1), (-1, -1), 3),
+                    ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
                     ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
                     ('GRID', (0, 0), (-1, -1), 1, rl_colors.black)
                 ]))
@@ -1714,10 +1769,11 @@ class Reports(ft.UserControl):
                     question_breakdown = self.db.execute_query("""
                         SELECT
                             q.question_text, q.question_type, q.points,
-                            ua.is_correct
+                            MAX(ua.is_correct) as is_correct
                         FROM user_answers ua
                         JOIN questions q ON ua.question_id = q.id
                         WHERE ua.session_id = ?
+                        GROUP BY q.id
                         ORDER BY q.id
                     """, (attempt['session_id'],))
 
@@ -1733,23 +1789,23 @@ class Reports(ft.UserControl):
 
                         # Create question breakdown table with Paragraphs
                         q_data = [[
-                            Paragraph('<b>#</b>', styles['Normal']),
-                            Paragraph('<b>Question (preview)</b>', styles['Normal']),
-                            Paragraph('<b>Type</b>', styles['Normal']),
-                            Paragraph('<b>Points</b>', styles['Normal']),
-                            Paragraph('<b>Result</b>', styles['Normal'])
+                            Paragraph('<b>#</b>', table_header_style),
+                            Paragraph('<b>Question (preview)</b>', table_header_style),
+                            Paragraph('<b>Type</b>', table_header_style),
+                            Paragraph('<b>Points</b>', table_header_style),
+                            Paragraph('<b>Result</b>', table_header_style)
                         ]]
                         for idx, qb in enumerate(question_breakdown, 1):
                             q_text = qb['question_text'][:50] + '...' if len(qb['question_text']) > 50 else qb['question_text']
-                            result = '✓ Correct' if qb['is_correct'] else '✗ Wrong'
-                            result_color = rl_colors.green if qb['is_correct'] else rl_colors.red
+                            result = 'CORRECT' if qb['is_correct'] else 'WRONG'
+                            result_color = 'green' if qb['is_correct'] else 'red'
 
                             q_data.append([
-                                Paragraph(str(idx), styles['Normal']),
-                                Paragraph(q_text, styles['Normal']),
-                                Paragraph(qb['question_type'][:10], styles['Normal']),
-                                Paragraph(str(qb['points']), styles['Normal']),
-                                Paragraph(result, styles['Normal'])
+                                Paragraph(str(idx), table_cell_style),
+                                Paragraph(q_text, table_cell_style),
+                                Paragraph(qb['question_type'][:10], table_cell_style),
+                                Paragraph(str(qb['points']), table_cell_style),
+                                Paragraph(f"<font color='{result_color}'>{result}</font>", table_cell_style)
                             ])
 
                         q_table = Table(q_data, colWidths=[0.3*inch, 2.8*inch, 0.8*inch, 0.5*inch, 0.8*inch])
@@ -1757,20 +1813,15 @@ class Reports(ft.UserControl):
                         # Build style with conditional colors for results
                         table_style_commands = [
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
-                            ('FONTSIZE', (0, 0), (-1, -1), 8),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                             ('ALIGN', (3, 0), (4, -1), 'CENTER'),
+                            ('TOPPADDING', (0, 0), (-1, 0), 4),
+                            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+                            ('TOPPADDING', (0, 1), (-1, -1), 3),
+                            ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
                             ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
                             ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
                         ]
-
-                        # Add color coding for correct/incorrect
-                        for idx, qb in enumerate(question_breakdown, 1):
-                            row = idx
-                            if qb['is_correct']:
-                                table_style_commands.append(('TEXTCOLOR', (4, row), (4, row), rl_colors.green))
-                            else:
-                                table_style_commands.append(('TEXTCOLOR', (4, row), (4, row), rl_colors.red))
 
                         q_table.setStyle(TableStyle(table_style_commands))
                         story.append(q_table)
@@ -1778,8 +1829,8 @@ class Reports(ft.UserControl):
                         # Add summary line
                         summary_text = f"<i>Summary: {correct_count} correct out of {total_count} questions</i>"
                         story.append(Spacer(1, 0.05*inch))
-                        story.append(Paragraph(summary_text, styles['Normal']))
-                        story.append(Spacer(1, 0.3*inch))
+                        story.append(Paragraph(summary_text, table_cell_style))
+                        story.append(Spacer(1, 0.2*inch))
 
             # Build PDF with custom header and footer
             doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
@@ -1844,7 +1895,7 @@ class Reports(ft.UserControl):
                 JOIN questions q ON ua.question_id = q.id
                 LEFT JOIN question_options qo ON q.id = qo.question_id
                 WHERE ua.session_id = ?
-                GROUP BY q.id, ua.id
+                GROUP BY q.id
                 ORDER BY q.id
             """, (session['id'],))
 
@@ -1856,34 +1907,7 @@ class Reports(ft.UserControl):
             filepath = os.path.join(self.temp_dir, filename)
 
             # Register Unicode font for Azerbaijani characters
-            unicode_font_registered = False
-            try:
-                # Try Arial first (supports Azerbaijani)
-                from reportlab.pdfbase.ttfonts import TTFont
-                pdfmetrics.registerFont(TTFont('Arial', '/System/Library/Fonts/Supplemental/Arial.ttf'))
-                pdfmetrics.registerFont(TTFont('Arial-Bold', '/System/Library/Fonts/Supplemental/Arial Bold.ttf'))
-                pdfmetrics.registerFont(TTFont('Arial-Italic', '/System/Library/Fonts/Supplemental/Arial Italic.ttf'))
-                pdfmetrics.registerFontFamily('Arial', normal='Arial', bold='Arial-Bold', italic='Arial-Italic')
-                unicode_font = 'Arial'
-                unicode_font_bold = 'Arial-Bold'
-                unicode_font_registered = True
-                print("[INFO] Registered Arial fonts for Azerbaijani text")
-            except Exception as e:
-                print(f"[WARN] Could not register Arial: {e}")
-                try:
-                    # Try DejaVu Sans as fallback
-                    pdfmetrics.registerFont(TTFont('DejaVuSans', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'))
-                    pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'))
-                    unicode_font = 'DejaVuSans'
-                    unicode_font_bold = 'DejaVuSans-Bold'
-                    unicode_font_registered = True
-                    print("[INFO] Registered DejaVu Sans for text")
-                except Exception as e2:
-                    print(f"[WARN] Could not register DejaVu Sans: {e2}")
-                    # Last resort: Helvetica (won't display special characters properly)
-                    unicode_font = 'Helvetica'
-                    unicode_font_bold = 'Helvetica-Bold'
-                    print("[WARN] Using Helvetica (may not display Azerbaijani characters correctly)")
+            unicode_font, unicode_font_bold, font_registered = self.register_unicode_fonts_for_pdf()
 
             # Custom document template with header and footer
             def add_header_footer(canvas_obj, doc):
@@ -1932,149 +1956,196 @@ class Reports(ft.UserControl):
             story = []
             styles = getSampleStyleSheet()
 
-            # Update styles to use Unicode font
+            # Update styles to use Unicode font (keep default fontSize)
             styles['Normal'].fontName = unicode_font
             styles['Heading1'].fontName = unicode_font_bold
             styles['Heading2'].fontName = unicode_font_bold
             styles['Heading3'].fontName = unicode_font_bold
 
-            # Custom styles
-            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=20, textColor=rl_colors.HexColor('#2D3748'), fontName=unicode_font_bold)
-            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, textColor=rl_colors.grey, fontName=unicode_font)
+            # Custom styles - Proper readable sizes: titles 14pt, normal 12pt, small 10pt
+            title_style = ParagraphStyle('CustomTitle', parent=styles['Heading1'], fontSize=14, textColor=rl_colors.HexColor('#1a237e'), fontName=unicode_font_bold, alignment=1)
+            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=12, textColor=rl_colors.HexColor('#424242'), fontName=unicode_font, alignment=1)
+            meta_style = ParagraphStyle('Meta', parent=styles['Normal'], fontSize=10, textColor=rl_colors.grey, fontName=unicode_font, alignment=1)
+            section_heading_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=14, textColor=rl_colors.HexColor('#1565c0'), fontName=unicode_font_bold, spaceAfter=8)
+
+            # CRITICAL: Small styles for table cells (8pt for very compact tables)
+            table_cell_style = ParagraphStyle('TableCell', parent=styles['Normal'], fontSize=8, fontName=unicode_font, leading=10)
+            table_header_style = ParagraphStyle('TableHeader', parent=styles['Normal'], fontSize=9, fontName=unicode_font_bold, leading=11)
 
             # Title
-            story.append(Paragraph(t('detailed_exam_report'), title_style))
-            story.append(Paragraph(f"{exam_title}", styles['Heading2']))
-            story.append(Paragraph(f"{t('student')}: {student_name}", subtitle_style))
-            story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", subtitle_style))
+            story.append(Paragraph(f"<b>{t('detailed_exam_report').upper()}</b>", title_style))
+            story.append(Spacer(1, 0.1*inch))
+            story.append(Paragraph(f"<b>{exam_title}</b>", subtitle_style))
+            story.append(Spacer(1, 0.08*inch))
+            story.append(Paragraph(f"{t('student')}: <b>{student_name}</b>", subtitle_style))
+            story.append(Spacer(1, 0.03*inch))
+            story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style))
             story.append(Spacer(1, 0.3*inch))
 
-            # Exam Summary - Use Paragraphs
-            story.append(Paragraph(t('exam_summary'), styles['Heading2']))
+            # Exam Summary - Use Paragraphs with improved styling
+            story.append(Paragraph(f"📝 {t('exam_summary')}", section_heading_style))
+            story.append(Spacer(1, 0.1*inch))
+
             duration_min = session['duration_seconds'] // 60 if session['duration_seconds'] else 0
             status = t('pass') if session['score'] >= session['passing_score'] else t('fail')
-            status_color = rl_colors.green if session['score'] >= session['passing_score'] else rl_colors.red
+            passed = session['score'] >= session['passing_score']
 
             # Extract exam date from start_time
             exam_date = session['start_time'][:10] if session['start_time'] else 'N/A'
 
+            # Color code status and score
+            if passed:
+                status_text = f"<b><font color='green'>✓ {status.upper()}</font></b>"
+                score_text = f"<b><font color='green'>{session['score']:.1f}%</font></b>"
+            else:
+                status_text = f"<b><font color='red'>✗ {status.upper()}</font></b>"
+                score_text = f"<font color='red'>{session['score']:.1f}%</font>"
+
             summary_data = [
-                [Paragraph(f'<b>{t("metric")}</b>', styles['Normal']), Paragraph(f'<b>{t("value")}</b>', styles['Normal'])],
-                [Paragraph(t('exam_date'), styles['Normal']), Paragraph(exam_date, styles['Normal'])],
-                [Paragraph(t('final_score'), styles['Normal']), Paragraph(f"{session['score']:.2f}%", styles['Normal'])],
-                [Paragraph(t('correct_answers_count'), styles['Normal']), Paragraph(f"{session['correct_answers']} / {session['total_questions']}", styles['Normal'])],
-                [Paragraph(t('passing_score'), styles['Normal']), Paragraph(f"{session['passing_score']}%", styles['Normal'])],
-                [Paragraph(t('status'), styles['Normal']), Paragraph(status, styles['Normal'])],
-                [Paragraph(t('duration'), styles['Normal']), Paragraph(f"{duration_min} {t('minutes_label')}", styles['Normal'])],
-                [Paragraph(t('start_time'), styles['Normal']), Paragraph(session['start_time'][:19], styles['Normal'])],
-                [Paragraph(t('end_time'), styles['Normal']), Paragraph(session['end_time'][:19] if session['end_time'] else 'N/A', styles['Normal'])],
+                [Paragraph(f'<b>{t("metric")}</b>', table_header_style), Paragraph(f'<b>{t("value")}</b>', table_header_style)],
+                [Paragraph(f"• {t('exam_date')}", table_cell_style), Paragraph(exam_date, table_cell_style)],
+                [Paragraph(f"• {t('final_score')}", table_cell_style), Paragraph(score_text, table_cell_style)],
+                [Paragraph(f"• {t('correct_answers_count')}", table_cell_style), Paragraph(f"<b>{session['correct_answers']}</b> / {session['total_questions']}", table_cell_style)],
+                [Paragraph(f"• {t('passing_score')}", table_cell_style), Paragraph(f"{session['passing_score']}%", table_cell_style)],
+                [Paragraph(f"• {t('status')}", table_cell_style), Paragraph(status_text, table_cell_style)],
+                [Paragraph(f"• {t('duration')}", table_cell_style), Paragraph(f"<b>{duration_min}</b> {t('minutes_label')}", table_cell_style)],
+                [Paragraph(f"• {t('start_time')}", table_cell_style), Paragraph(session['start_time'][:19], table_cell_style)],
+                [Paragraph(f"• {t('end_time')}", table_cell_style), Paragraph(session['end_time'][:19] if session['end_time'] else 'N/A', table_cell_style)],
             ]
 
-            summary_table = Table(summary_data, colWidths=[2.5*inch, 3.5*inch])
+            summary_table = Table(summary_data, colWidths=[2.8*inch, 3.2*inch])
             summary_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#4299E1')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTSIZE', (0, 0), (-1, 0), 11),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, rl_colors.black),
-                ('TEXTCOLOR', (1, 5), (1, 5), status_color),  # Status color (row index adjusted)
+                ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#1565c0')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
+                ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+                ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), rl_colors.HexColor('#f5f5f5')),
+                ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#cccccc')),
+                ('LINEABOVE', (0, 0), (-1, 0), 1.5, rl_colors.HexColor('#1565c0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ]))
             story.append(summary_table)
-            story.append(Spacer(1, 0.4*inch))
+            story.append(Spacer(1, 0.3*inch))
 
-            # Question-by-Question Breakdown
-            story.append(Paragraph(t('question_by_question_breakdown'), styles['Heading2']))
-            story.append(Spacer(1, 0.2*inch))
+            # Question-by-Question Breakdown - Compact Table Format
+            story.append(Paragraph(f"📋 {t('question_by_question_breakdown')}", section_heading_style))
+            story.append(Spacer(1, 0.1*inch))
 
             if question_details:
+                # Create comprehensive table with all questions
+                questions_data = [[
+                    Paragraph('<b>#</b>', table_header_style),
+                    Paragraph('<b>Question (preview)</b>', table_header_style),
+                    Paragraph('<b>Correct Answer</b>', table_header_style),
+                    Paragraph('<b>Student Answer</b>', table_header_style),
+                    Paragraph('<b>Result</b>', table_header_style)
+                ]]
+
                 for idx, q in enumerate(question_details, 1):
-                    # Question header with result icon
-                    result_icon = "✓" if q['is_correct'] else "✗"
-                    result_color = rl_colors.green if q['is_correct'] else rl_colors.red
+                    # Prepare question text (truncate if too long)
+                    question_text = q['question_text']
+                    if len(question_text) > 100:
+                        question_text = question_text[:100] + '...'
+                    question_para = Paragraph(f"<b>Q{idx}:</b> {question_text}<br/><i><font size=6>{q['question_type']} ({q['points']}pts)</font></i>", table_cell_style)
 
-                    q_header_style = ParagraphStyle(
-                        f'QHeader{idx}',
-                        parent=styles['Heading3'],
-                        fontSize=12,
-                        textColor=result_color,
-                        spaceAfter=6
-                    )
-
-                    story.append(Paragraph(f"{result_icon} {t('question')} {idx}: {q['question_type'].upper()} ({q['points']} {t('pts')})", q_header_style))
-
-                    # Question text
-                    question_text = q['question_text'][:500]  # Limit length
-                    story.append(Paragraph(f"<b>Q:</b> {question_text}", styles['Normal']))
-                    story.append(Spacer(1, 0.1*inch))
-
-                    # Handle different question types
-                    if q['question_type'] in ['multiple_choice', 'true_false']:
-                        # Parse options - Use Paragraphs
+                    # Prepare correct answer
+                    correct_answer = ""
+                    if q['question_type'] in ['multiple_choice', 'single_choice', 'true_false']:
                         if q['options']:
                             options_list = q['options'].split(';;;')
-                            options_data = [[
-                                Paragraph(f'<b>{t("option")}</b>', styles['Normal']),
-                                Paragraph(f'<b>{t("correct_answer_label")}</b>', styles['Normal']),
-                                Paragraph(f'<b>{t("student_selected")}</b>', styles['Normal'])
-                            ]]
-
                             for opt in options_list:
                                 if '|' in opt:
                                     opt_text, is_correct = opt.rsplit('|', 1)
-                                    is_correct_bool = is_correct == '1'
-
-                                    # Check if this option was selected by the student
-                                    was_selected = ''
-                                    if q['selected_option_id']:
-                                        # Find option ID (would need to enhance query to get option IDs)
-                                        was_selected = '✓' if is_correct_bool and q['is_correct'] else ''
-
-                                    options_data.append([
-                                        Paragraph(opt_text[:60], styles['Normal']),
-                                        Paragraph('✓' if is_correct_bool else '', styles['Normal']),
-                                        Paragraph('✓' if q['answer_text'] and opt_text in q['answer_text'] else '', styles['Normal'])
-                                    ])
-
-                            if len(options_data) > 1:
-                                opts_table = Table(options_data, colWidths=[3*inch, 1*inch, 1*inch])
-                                opts_table.setStyle(TableStyle([
-                                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
-                                    ('FONTSIZE', (0, 0), (-1, -1), 9),
-                                    ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-                                    ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
-                                    ('BACKGROUND', (0, 1), (-1, -1), rl_colors.white),
-                                ]))
-                                story.append(opts_table)
-
+                                    if is_correct == '1':
+                                        # Truncate option text if too long
+                                        if len(opt_text) > 40:
+                                            opt_text = opt_text[:40] + '...'
+                                        correct_answer = opt_text
+                                        break
                     elif q['question_type'] in ['short_answer', 'essay']:
-                        # Show student's answer - Use Paragraphs
-                        answer_data = [
-                            [Paragraph(f'<b>{t("student_answer")}</b>', styles['Normal']),
-                             Paragraph(q['answer_text'][:200] if q['answer_text'] else t('no_answer_provided'), styles['Normal'])],
-                        ]
+                        # For short answer and essay, show "See rubric" or model answer if available
+                        correct_answer = "[Manual grading required]"
 
-                        answer_table = Table(answer_data, colWidths=[1.5*inch, 4.5*inch])
-                        answer_table.setStyle(TableStyle([
-                            ('BACKGROUND', (0, 0), (0, -1), rl_colors.HexColor('#E2E8F0')),
-                            ('FONTSIZE', (0, 0), (-1, -1), 9),
-                            ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.grey),
-                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                            ('BACKGROUND', (1, 0), (1, -1), rl_colors.white),
-                        ]))
-                        story.append(answer_table)
+                    if not correct_answer:
+                        correct_answer = "[Not set]"
 
-                    # Result
-                    result_status = t('correct_uppercase') if q['is_correct'] else t('incorrect_uppercase')
-                    result_text = f"<b>{t('result')}:</b> <font color=\"{'green' if q['is_correct'] else 'red'}\">{result_status}</font>"
-                    story.append(Spacer(1, 0.05*inch))
-                    story.append(Paragraph(result_text, styles['Normal']))
-                    story.append(Spacer(1, 0.2*inch))
+                    # Prepare student answer
+                    student_answer = ""
+                    if q['question_type'] in ['multiple_choice', 'single_choice', 'true_false']:
+                        if q['answer_text']:
+                            # Truncate if too long
+                            student_answer = q['answer_text']
+                            if len(student_answer) > 40:
+                                student_answer = student_answer[:40] + '...'
+                        else:
+                            student_answer = "[No answer]"
+                    elif q['question_type'] in ['short_answer', 'essay']:
+                        if q['answer_text']:
+                            student_answer = q['answer_text']
+                            if len(student_answer) > 80:
+                                student_answer = student_answer[:80] + '...'
+                        else:
+                            student_answer = "[No answer]"
 
-                    # Add separator
-                    story.append(Paragraph("<hr/>", styles['Normal']))
-                    story.append(Spacer(1, 0.1*inch))
+                    # Result icon and color (same size as normal text, no bold)
+                    if q['is_correct']:
+                        result_text = "CORRECT"
+                        result_color = 'green'
+                    else:
+                        result_text = "WRONG"
+                        result_color = 'red'
+
+                    # Add row
+                    questions_data.append([
+                        Paragraph(f"<b>{idx}</b>", table_cell_style),
+                        question_para,
+                        Paragraph(correct_answer, table_cell_style),
+                        Paragraph(student_answer, table_cell_style),
+                        Paragraph(f"<font color='{result_color}'>{result_text}</font>", table_cell_style)
+                    ])
+
+                # Create the table with wider columns for better spacing
+                questions_table = Table(questions_data, colWidths=[0.35*inch, 2.8*inch, 1.6*inch, 1.6*inch, 0.8*inch])
+                questions_table.setStyle(TableStyle([
+                    # Header styling
+                    ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#1565c0')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), rl_colors.white),
+                    ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+                    ('TOPPADDING', (0, 0), (-1, 0), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+
+                    # Body styling - COMPACT!
+                    ('TOPPADDING', (0, 1), (-1, -1), 3),
+                    ('BOTTOMPADDING', (0, 1), (-1, -1), 3),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+
+                    # Alignment
+                    ('ALIGN', (0, 1), (0, -1), 'CENTER'),  # Question number centered
+                    ('ALIGN', (4, 1), (4, -1), 'CENTER'),  # Result centered
+                    ('ALIGN', (1, 1), (3, -1), 'LEFT'),    # Text columns left
+
+                    # Grid and borders
+                    ('GRID', (0, 0), (-1, -1), 0.5, rl_colors.HexColor('#cccccc')),
+                    ('LINEABOVE', (0, 0), (-1, 0), 1.5, rl_colors.HexColor('#1565c0')),
+
+                    # Alternating row colors
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor('#f9f9f9')])
+                ]))
+
+                story.append(questions_table)
+                story.append(Spacer(1, 0.2*inch))
+
+                # Add summary note
+                summary_correct = sum(1 for q in question_details if q['is_correct'])
+                summary_total = len(question_details)
+                summary_text = f"<i>Summary: {summary_correct} correct out of {summary_total} questions ({(summary_correct/summary_total*100):.1f}%)</i>"
+                story.append(Paragraph(summary_text, styles['Normal']))
 
             # Build PDF with custom header and footer
             doc.build(story, onFirstPage=add_header_footer, onLaterPages=add_header_footer)
@@ -2209,16 +2280,20 @@ class Reports(ft.UserControl):
 
             if report_type == "exam_performance":
                 content = self.create_exam_performance_details()
+                dialog_title = "📊 Exam Performance - Detailed Report"
             elif report_type == "user_progress":
                 content = self.create_user_progress_details()
+                dialog_title = "👥 User Progress - Detailed Report"
             elif report_type == "question_analysis":
                 content = self.create_question_analysis_details()
+                dialog_title = "📋 Question Analysis - Detailed Report"
             else:
                 content = ft.Text(t('loading') + "...")
+                dialog_title = "Loading..."
 
             # Use safe dialog creation with MUCH bigger size
             success = self.safe_show_dialog(
-                title=f"{report_type} - Detailed Report",
+                title=dialog_title,
                 content=content,
                 width=1400,
                 height=900
@@ -2415,7 +2490,7 @@ class Reports(ft.UserControl):
                     LEFT JOIN exam_sessions es ON u.id = es.user_id AND es.is_completed = 1"""
 
                 params = []
-                where_conditions = ["u.is_active = 1", "u.role = 'examinee'"]
+                where_conditions = ["u.is_active = 1", "u.role IN ('examinee', 'expert')"]
 
                 # Add exam filter if selected
                 if filter_value != "all":
@@ -2438,8 +2513,8 @@ class Reports(ft.UserControl):
                     return ft.Container(
                         content=ft.Column([
                             ft.Icon(ft.icons.PERSON_OFF, size=60, color=COLORS['text_secondary']),
-                            ft.Text("No examinee users found", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
-                            ft.Text("Add some examinees to see progress reports", size=14, color=COLORS['text_secondary'])
+                            ft.Text("No users found", size=18, weight=ft.FontWeight.BOLD, color=COLORS['text_secondary']),
+                            ft.Text("Add examinees or experts to see progress reports", size=14, color=COLORS['text_secondary'])
                         ], spacing=15, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                         padding=ft.padding.all(40),
                         alignment=ft.alignment.center,
@@ -2495,6 +2570,7 @@ class Reports(ft.UserControl):
                 progress_table = ft.DataTable(
                     columns=[
                         ft.DataColumn(ft.Text(t('username'), weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text('Role', weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text(t('department'), weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text(t('exams'), weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text(t('attempts_count'), weight=ft.FontWeight.BOLD)),
@@ -2507,7 +2583,7 @@ class Reports(ft.UserControl):
                     ],
                     rows=[],
                     width=float("inf"),
-                    column_spacing=15,
+                    column_spacing=12,
                     border=ft.border.all(1, ft.colors.BLACK12),
                     border_radius=8
                 )
@@ -2537,12 +2613,23 @@ class Reports(ft.UserControl):
                     # Color coding
                     score_color = COLORS['success'] if avg_score >= 80 else (COLORS['warning'] if avg_score >= 60 else COLORS['error'])
 
+                    # Get role and color
+                    role = user.get('role', 'examinee')
+                    role_display = role.capitalize()
+                    role_color = COLORS['primary'] if role == 'examinee' else COLORS['warning']
+
                     progress_table.rows.append(
                         ft.DataRow([
                             ft.DataCell(ft.Column([
                                 ft.Text(user['full_name'], weight=ft.FontWeight.BOLD, size=13),
                                 ft.Text(f"@{user['username']}", size=11, color=COLORS['text_secondary'])
                             ], spacing=2)),
+                            ft.DataCell(ft.Container(
+                                content=ft.Text(role_display, size=11, color=ft.colors.WHITE, weight=ft.FontWeight.BOLD),
+                                bgcolor=role_color,
+                                padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                                border_radius=4
+                            )),
                             ft.DataCell(ft.Text(user['department'] or "N/A", size=13)),
                             ft.DataCell(ft.Text(str(exams_taken), size=13)),
                             ft.DataCell(ft.Text(str(total_attempts), size=13)),
@@ -2567,16 +2654,6 @@ class Reports(ft.UserControl):
                     ft.Container(
                         content=summary_cards,
                         padding=ft.padding.only(bottom=20)
-                    ),
-                    # Export button
-                    ft.Container(
-                        content=ft.ElevatedButton(
-                            text="Export User Data",
-                            icon=ft.icons.DOWNLOAD,
-                            on_click=lambda e: self.export_user_progress_simple(user_progress_data),
-                            style=ft.ButtonStyle(bgcolor=COLORS['success'], color=ft.colors.WHITE)
-                        ),
-                        padding=ft.padding.only(bottom=15)
                     ),
                     # Table
                     ft.Container(
