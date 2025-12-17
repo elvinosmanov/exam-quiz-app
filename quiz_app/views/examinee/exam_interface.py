@@ -114,6 +114,38 @@ class ExamInterfaceWrapper(ft.UserControl):
             super().will_unmount()
 
 
+class SubmitTrigger(ft.UserControl):
+    """
+    An invisible control that triggers a callback when mounted to the page.
+    This is used to safely marshal a call from a background thread to the main UI thread.
+    """
+    def __init__(self, submit_callback, page_ref):
+        super().__init__()
+        self.submit_callback = submit_callback
+        self.page_ref = page_ref
+
+    def did_mount(self):
+        """Called when control is added to the page - guaranteed to run on the UI thread."""
+        try:
+            if callable(self.submit_callback):
+                print("[THREAD] SubmitTrigger mounted, invoking callback on main thread.")
+                self.submit_callback()
+        except Exception as e:
+            print(f"[THREAD] Error executing submit callback from trigger: {e}")
+        finally:
+            # Clean up: remove self from overlay
+            if self.page_ref and self.page_ref.overlay and self in self.page_ref.overlay:
+                self.page_ref.overlay.remove(self)
+                try:
+                    self.page_ref.update()
+                except Exception as update_err:
+                    print(f"[THREAD] Error updating page after trigger cleanup: {update_err}")
+
+    def build(self):
+        # This control is invisible
+        return ft.Container()
+
+
 def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, assignment_id=None, page=None):
     """Create complete exam interface as pure function - no UserControl issues"""
 
@@ -172,38 +204,48 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
     def cleanup_page_handlers():
         """Restore original page event handlers and allow closing the window."""
         if exam_state.get('handlers_restored'):
+            print("[CLEANUP] Handlers already restored. Skipping.")
             return
 
+        print("[CLEANUP] Starting cleanup of page handlers...")
         page_ref = exam_state.get('page_ref')
         if not page_ref and exam_state.get('main_container') and hasattr(exam_state['main_container'], 'page'):
             page_ref = exam_state['main_container'].page
 
         try:
             if page_ref:
+                print("[CLEANUP] Page reference found. Restoring handlers.")
                 # Restore keyboard handler
                 if exam_state.get('keyboard_hooked'):
-                    if exam_state['original_keyboard_handler'] is not None:
-                        page_ref.on_keyboard_event = exam_state['original_keyboard_handler']
-                    else:
-                        page_ref.on_keyboard_event = None
+                    page_ref.on_keyboard_event = exam_state.get('original_keyboard_handler')
+                    print("[CLEANUP] Restored keyboard handler.")
 
                 # Restore window event handler
                 if exam_state.get('window_event_hooked'):
-                    if exam_state['original_window_event'] is not None:
-                        page_ref.on_window_event = exam_state['original_window_event']
-                    else:
-                        page_ref.on_window_event = None
+                    page_ref.on_window_event = exam_state.get('original_window_event')
+                    print("[CLEANUP] Restored window event handler.")
 
-                    # Restore prevent-close flag if supported
-                    if exam_state['original_window_prevent_close'] is not None:
-                        try:
-                            page_ref.window_prevent_close = exam_state['original_window_prevent_close']
-                        except AttributeError:
-                            pass
+                # CRITICAL: Force window_prevent_close to False to ensure exit is possible
+                try:
+                    if hasattr(page_ref, 'window_prevent_close'):
+                        print(f"[CLEANUP] Current window_prevent_close: {page_ref.window_prevent_close}. Forcing to False.")
+                        page_ref.window_prevent_close = False
+                    else:
+                        print("[CLEANUP] window_prevent_close attribute not found.")
+                except Exception as e:
+                    print(f"[CLEANUP] CRITICAL ERROR: Failed to set window_prevent_close to False: {e}")
+
+                # Update the page to apply changes
+                page_ref.update()
+                print("[CLEANUP] Page updated.")
+
+            else:
+                print("[CLEANUP] WARNING: No page reference found during cleanup.")
+
         except Exception as handler_error:
-            print(f"[EXIT] Error restoring page handlers: {handler_error}")
+            print(f"[CLEANUP] Error during handler restoration: {handler_error}")
         finally:
-            if exam_state.get('beforeunload_registered') and hasattr(page_ref, "run_javascript"):
+            if page_ref and exam_state.get('beforeunload_registered') and hasattr(page_ref, "run_javascript"):
                 try:
                     page_ref.run_javascript("""
                         if (window.__examBeforeUnloadHandler) {
@@ -211,11 +253,13 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                             delete window.__examBeforeUnloadHandler;
                         }
                     """)
+                    print("[CLEANUP] Removed 'beforeunload' browser handler.")
                 except Exception as js_err:
-                    print(f"[EXIT] Error removing beforeunload handler: {js_err}")
+                    print(f"[CLEANUP] Error removing 'beforeunload' handler: {js_err}")
 
-        exam_state['handlers_restored'] = True
-        exam_state['exam_finished'] = True
+            exam_state['handlers_restored'] = True
+            exam_state['exam_finished'] = True
+            print("[CLEANUP] Cleanup process finished.")
 
     def return_to_dashboard():
         """Return to dashboard safely, ensuring fullscreen and handlers are reset."""
@@ -805,14 +849,24 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 elif exam_state['time_remaining'] == 60:  # 1 minute
                     print("Warning: 1 minute remaining!")
 
-            # CRITICAL FIX: Check if time expired after loop exits
             # This runs when time_remaining reaches 0 OR timer is manually stopped
             if exam_state['time_remaining'] <= 0 and exam_state['timer_running']:
                 print("⏰ Time's up! Auto-submitting exam...")
                 exam_state['timer_running'] = False
-                # Call submit function from exam_state (set in create_main_content)
-                if 'submit_exam_final' in exam_state and callable(exam_state['submit_exam_final']):
-                    exam_state['submit_exam_final']()
+
+                page_ref = exam_state.get('page_ref')
+                submit_callback = exam_state.get('submit_exam_final')
+
+                if page_ref and callable(submit_callback) and hasattr(page_ref, 'overlay'):
+                    # Use a trigger control to safely marshal the call to the main UI thread
+                    print("[TIMER] Scheduling exam submission on main thread.")
+                    submit_trigger = SubmitTrigger(submit_callback, page_ref)
+                    page_ref.overlay.append(submit_trigger)
+                    page_ref.update()
+                elif callable(submit_callback):
+                    # Fallback if page_ref is not available for some reason
+                    print("[TIMER] WARNING: Page reference not found, calling submit directly (may be unsafe)")
+                    submit_callback()
                 else:
                     print("[TIMER] ERROR: submit_exam_final function not found in exam_state")
         except Exception as e:

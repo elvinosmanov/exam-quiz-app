@@ -1846,7 +1846,7 @@ class QuizManagement(ft.UserControl):
 
         # Create filter dropdowns with white background
         # One option per unique department key; label shows abbr + name to avoid duplicates (e.g., multiple "SGD")
-        department_filter_options = [ft.dropdown.Option("", t('all'))]
+        department_filter_options = []
         for dept_entry in sorted_department_entries:
             label_text = (
                 f"{dept_entry['abbr']} - {dept_entry['name']}"
@@ -3065,11 +3065,10 @@ class QuizManagement(ft.UserControl):
         department_filter = self.create_styled_dropdown(
             ref=filter_department,
             label=t('filter_by_department'),
-            options=[ft.dropdown.Option("", t('all'))] + [
-                ft.dropdown.Option(dept, get_department_abbreviation(dept, current_lang))
-                for dept in department_values
-            ],
-            width=220, content_padding=10, text_size=14, value=""
+                            options=[
+                                ft.dropdown.Option(dept, get_department_abbreviation(dept, current_lang))
+                                for dept in department_values
+                            ],            width=220, content_padding=10, text_size=14, value=""
         )
 
         unit_filter = self.create_styled_dropdown(
