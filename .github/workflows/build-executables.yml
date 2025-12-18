@@ -85,7 +85,7 @@ jobs:
         echo "Build completed. Checking output..."
         dir dist
         echo "Verifying executable exists..."
-        if exist dist\QuizExamSystem.exe (echo Executable found!) else (echo ERROR: Executable not found! && exit 1)
+        if (Test-Path dist\QuizExamSystem.exe) { echo "Executable found!" } else { echo "ERROR: Executable not found!"; exit 1 }
 
     - name: List dist directory (Windows)
       if: runner.os == 'Windows'
