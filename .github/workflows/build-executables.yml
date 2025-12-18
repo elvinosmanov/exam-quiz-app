@@ -51,7 +51,16 @@ jobs:
         python -m pip install pyinstaller
         python -m pip install -r requirements.txt
 
-    - name: Verify Assets
+    - name: Verify Assets (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        echo "Checking assets directory..."
+        dir quiz_app\assets\images\
+        echo "Logo file info:"
+        dir quiz_app\assets\images\azercosmos-logo.png
+
+    - name: Verify Assets (macOS/Linux)
+      if: runner.os != 'Windows'
       run: |
         echo "Checking assets directory..."
         ls -la quiz_app/assets/images/
