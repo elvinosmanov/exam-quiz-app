@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -86,11 +85,11 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.ico',  # Set executable icon
+    icon='icon.ico',  # Icon for exe (converted from icon.png by build script)
 )
 app = BUNDLE(
     exe,
     name='QuizExamSystem.app',
-    icon='icon.ico',  # Set app bundle icon (PyInstaller will convert to .icns for macOS)
+    icon=None,  # No icon file for bundle
     bundle_identifier=None,
 )

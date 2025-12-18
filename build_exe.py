@@ -21,6 +21,19 @@ def build_executable():
     print("Building Quiz Examination System Executable")
     print("=" * 60)
 
+    # Convert icon.png to icon.ico for Windows executable
+    if os.path.exists('icon.png'):
+        print("\nConverting icon.png to icon.ico...")
+        try:
+            from PIL import Image
+            img = Image.open('icon.png')
+            # Resize to common icon sizes and save as .ico
+            img.save('icon.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+            print("✓ Icon converted successfully")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not convert icon: {e}")
+            print("   Continuing without icon...")
+
     # Ensure database exists
     if not os.path.exists('quiz_app.db'):
         print("\n⚠️  Database not found. Running initialization...")

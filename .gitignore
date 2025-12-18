@@ -68,3 +68,4 @@ quiz_app/assets/images/*.png
 # But keep the background image
 !quiz_app/assets/images/background.png
 !quiz_app/assets/images/azercosmos-logo.png
+icon.ico
