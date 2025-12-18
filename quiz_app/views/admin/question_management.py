@@ -1025,14 +1025,14 @@ class QuestionManagement(ft.UserControl):
                     if not question_text_field.value.strip():
                         error_text.value = t('question_text_required')
                         error_text.visible = True
-                        self.question_dialog.update()
+                        self.page.update()
                         return
 
                     points = float(points_field.value)
                     if points <= 0:
                         error_text.value = t('points_greater_zero')
                         error_text.visible = True
-                        self.question_dialog.update()
+                        self.page.update()
                         return
                     
                     # Prepare question data
@@ -1129,11 +1129,11 @@ class QuestionManagement(ft.UserControl):
                 except ValueError:
                     error_text.value = t('valid_numeric')
                     error_text.visible = True
-                    self.question_dialog.update()
+                    self.page.update()
                 except Exception as ex:
                     error_text.value = t('error_saving_question').format(str(ex))
                     error_text.visible = True
-                    self.question_dialog.update()
+                    self.page.update()
             
             def close_dialog(e):
                 self.question_dialog.open = False
@@ -1221,7 +1221,7 @@ class QuestionManagement(ft.UserControl):
         elif question_type in ['short_answer', 'essay']:
             self.setup_text_answer_ui(question_type)
         
-        self.question_dialog.update()
+        self.page.update()
     
     def add_default_options(self):
         self.options_data = [
@@ -1404,26 +1404,26 @@ class QuestionManagement(ft.UserControl):
             
             # Rebuild UI to reflect changes
             self.rebuild_options_ui(self.current_question_type)
-            self.question_dialog.update()
+            self.page.update()
     
     def update_multiple_choice_correct(self, index, is_correct):
         """Update correct answer for multiple choice questions (checkbox behavior)"""
         if index < len(self.options_data):
             self.options_data[index]['is_correct'] = is_correct
-            self.question_dialog.update()
+            self.page.update()
     
     def add_option(self, e):
         self.options_data.append({'text': '', 'is_correct': False})
         # Use stored question type instead of trying to detect it
         self.rebuild_options_ui(self.current_question_type)
-        self.question_dialog.update()
+        self.page.update()
     
     def remove_option(self, index):
         if len(self.options_data) > 2:
             self.options_data.pop(index)
             # Use stored question type instead of trying to detect it
             self.rebuild_options_ui(self.current_question_type)
-            self.question_dialog.update()
+            self.page.update()
     
     def view_question(self, question):
         # Get question options if it's a choice-based question
@@ -2131,7 +2131,7 @@ class QuestionManagement(ft.UserControl):
         if hasattr(self, 'image_container') and self.image_container:
             self.image_container.content = self.build_image_upload_ui()
             if hasattr(self, 'question_dialog') and self.question_dialog:
-                self.question_dialog.update()
+                self.page.update()
     
     def show_fullscreen_image(self, image_base64):
         """Show image in fullscreen dialog"""
@@ -2213,7 +2213,7 @@ class QuestionManagement(ft.UserControl):
             if not exam_title_field.value.strip():
                 error_text.value = t('exam_title_required')
                 error_text.visible = True
-                self.exam_dialog.update()
+                self.page.update()
                 return
 
             try:
@@ -2271,7 +2271,7 @@ class QuestionManagement(ft.UserControl):
             except Exception as ex:
                 error_text.value = f"Error saving exam: {str(ex)}"
                 error_text.visible = True
-                self.exam_dialog.update()
+                self.page.update()
 
         def close_dialog(e):
             self.exam_dialog.open = False
@@ -2434,7 +2434,7 @@ class QuestionManagement(ft.UserControl):
             except Exception as ex:
                 error_text.value = f"{t('error_deleting_topic')}: {str(ex)}"
                 error_text.visible = True
-                self.delete_topic_dialog.update()
+                self.page.update()
 
         def cancel_delete(ev):
             self.delete_topic_dialog.open = False
@@ -2789,7 +2789,7 @@ class QuestionManagement(ft.UserControl):
         self.update_observers_dropdown()
         self.populate_observers_list()
         if self.page and self.observers_dialog:
-            self.observers_dialog.update()
+            self.page.update()
 
     def show_observers_message(self, message, success=False):
         """Display inline feedback inside the observers dialog"""

@@ -268,13 +268,13 @@ class LoginView(ft.UserControl):
             if not new_password_field.value or len(new_password_field.value) < 6:
                 error_text.value = "Password must be at least 6 characters"
                 error_text.visible = True
-                change_dialog.update()
+                self.page.update()
                 return
 
             if new_password_field.value != confirm_password_field.value:
                 error_text.value = "Passwords do not match"
                 error_text.visible = True
-                change_dialog.update()
+                self.page.update()
                 return
 
             # Update password
@@ -308,7 +308,7 @@ class LoginView(ft.UserControl):
             except Exception as ex:
                 error_text.value = f"Failed to update password: {str(ex)}"
                 error_text.visible = True
-                change_dialog.update()
+                self.page.update()
 
         change_dialog = ft.AlertDialog(
             modal=True,

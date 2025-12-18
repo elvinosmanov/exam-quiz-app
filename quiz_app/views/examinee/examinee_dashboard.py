@@ -2058,17 +2058,17 @@ class ExamineeDashboard(ft.UserControl):
             # Validation
             if not current_password.value or not new_password.value or not confirm_password.value:
                 error_text.value = t('field_required')
-                dialog.update()
+                self.page.update()
                 return
 
             if new_password.value != confirm_password.value:
                 error_text.value = t('password_mismatch')
-                dialog.update()
+                self.page.update()
                 return
 
             if len(new_password.value) < 6:
                 error_text.value = t('value_too_short')
-                dialog.update()
+                self.page.update()
                 return
 
             # Verify current password
@@ -2080,7 +2080,7 @@ class ExamineeDashboard(ft.UserControl):
 
             if not user or not bcrypt.checkpw(current_password.value.encode('utf-8'), user['password_hash'].encode('utf-8')):
                 error_text.value = t('incorrect_password')
-                dialog.update()
+                self.page.update()
                 return
 
             # Update password
@@ -2097,7 +2097,7 @@ class ExamineeDashboard(ft.UserControl):
                 current_password.value = ""
                 new_password.value = ""
                 confirm_password.value = ""
-                dialog.update()
+                self.page.update()
 
                 # Close dialog after 1.5 seconds
                 import time
@@ -2112,7 +2112,7 @@ class ExamineeDashboard(ft.UserControl):
 
             except Exception as ex:
                 error_text.value = f"Error changing password: {str(ex)}"
-                dialog.update()
+                self.page.update()
 
         # Create dialog
         dialog = ft.AlertDialog(
