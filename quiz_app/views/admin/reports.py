@@ -1496,7 +1496,7 @@ class Reports(ft.UserControl):
                                 Paragraph(f"<font color='{result_color}'>{result}</font>", table_cell_style)
                             ])
 
-                        q_table = Table(q_data, colWidths=[0.4*inch, 4.2*inch, 0.8*inch, 0.4*inch, 0.4*inch])
+                        q_table = Table(q_data, colWidths=[0.3*inch, 3.8*inch, 0.8*inch, 0.6*inch, 0.7*inch])
                         q_table.setStyle(TableStyle([
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -1808,7 +1808,7 @@ class Reports(ft.UserControl):
                                 Paragraph(f"<font color='{result_color}'>{result}</font>", table_cell_style)
                             ])
 
-                        q_table = Table(q_data, colWidths=[0.4*inch, 4.2*inch, 0.8*inch, 0.4*inch, 0.4*inch])
+                        q_table = Table(q_data, colWidths=[0.3*inch, 3.8*inch, 0.8*inch, 0.6*inch, 0.7*inch])
 
                         # Build style with conditional colors for results
                         table_style_commands = [
