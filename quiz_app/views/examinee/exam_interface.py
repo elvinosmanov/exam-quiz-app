@@ -546,43 +546,27 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
         # except Exception as e:
         #     print(f"Error starting question timer: {e}")
     
-    def render_question_image(image_path):
-        """Render question image if present"""
-        if not image_path:
+    def render_question_image(question_id):
+        """Render question image if present - loads from encrypted database"""
+        if not question_id:
             return ft.Container()
 
-        print(f"[IMAGE] Original image_path from DB: {image_path}")
+        # Load image from encrypted database
+        db = Database()
+        image_data_dict = db.get_question_image(question_id)
 
-        # Convert relative path to absolute path
-        # assets folder is at project root, NOT inside quiz_app folder
-        if not os.path.isabs(image_path):
-            # __file__ is at: quiz_app/views/examinee/exam_interface.py
-            # Need to go up 4 levels to reach project root: ../../../..
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            full_image_path = os.path.join(project_root, image_path)
-        else:
-            full_image_path = image_path
+        if not image_data_dict:
+            return ft.Container()
 
-        # Check if file exists
-        if not os.path.exists(full_image_path):
-            print(f"[IMAGE] ERROR: Image file not found at: {full_image_path}")
-            return ft.Container(
-                content=ft.Text(
-                    f"Image not found: {image_path}",
-                    size=14,
-                    color=EXAM_COLORS['error'],
-                    italic=True
-                ),
-                padding=ft.padding.all(20)
-            )
+        print(f"[IMAGE] Loading encrypted image from database for question {question_id}")
 
-        print(f"[IMAGE] File exists at: {full_image_path}")
-        print(f"[IMAGE] Using display path for Flet: {full_image_path}")
+        # Convert binary data to base64 for display
+        image_base64 = base64.b64encode(image_data_dict['data']).decode('utf-8')
 
         return ft.Container(
             content=ft.Column([
                 ft.Image(
-                    src=full_image_path,
+                    src_base64=image_base64,
                     width=600,
                     height=300,
                     fit=ft.ImageFit.CONTAIN,
@@ -601,10 +585,10 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             bgcolor=ft.colors.with_opacity(0.02, EXAM_COLORS['primary']),
             border_radius=8,
             border=ft.border.all(1, ft.colors.with_opacity(0.1, EXAM_COLORS['border'])),
-            on_click=lambda e: show_image_fullscreen(full_image_path)
+            on_click=lambda e, img=image_base64: show_image_fullscreen(img)
         )
     
-    def show_image_fullscreen(image_path):
+    def show_image_fullscreen(image_base64):
         """Show image in fullscreen dialog"""
         try:
             # Access page through main_container
@@ -622,7 +606,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                     title=ft.Text(t('question_image'), size=18, weight=ft.FontWeight.BOLD),
                     content=ft.Container(
                         content=ft.Image(
-                            src=image_path,
+                            src_base64=image_base64,
                             width=800,
                             height=600,
                             fit=ft.ImageFit.CONTAIN,
@@ -645,7 +629,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 image_dialog.open = True
                 page.update()
             else:
-                print(f"Cannot show fullscreen image: Page not available. Path: {image_path}")
+                print(f"Cannot show fullscreen image: Page not available")
         except Exception as e:
             print(f"Error showing fullscreen image: {e}")
     
@@ -944,8 +928,8 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
             selectable=True
         )
         
-        # Question image (if present)
-        question_image = render_question_image(current_question.get('image_path'))
+        # Question image (if present) - loaded from encrypted database
+        question_image = render_question_image(current_question.get('id'))
         
         # Answer section based on question type
         if current_question['question_type'] == 'single_choice':

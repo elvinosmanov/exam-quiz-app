@@ -30,9 +30,10 @@ class QuestionManagement(ft.UserControl):
             visible=False
         )
         
-        # Image upload state
-        self.current_image_path = None  # Relative path for database
-        self.current_image_full_path = None  # Full path for display
+        # Image upload state (stored as encrypted BLOB in database)
+        self.current_image_data = None  # Binary image data
+        self.current_image_filename = None  # Original filename
+        self.current_image_mime_type = None  # MIME type (e.g., "image/png")
         self.image_file_picker = None
         
         # Topic selector
@@ -493,8 +494,14 @@ class QuestionManagement(ft.UserControl):
 
         print(f"DEBUG: Loading questions for exam ID: {self.selected_exam_id}")
         # Load questions with exam's created_by for permission checking
+        # Note: We don't load image_data BLOB here to avoid loading all images at once
+        # Instead, we check if image_data IS NOT NULL to show icon
         self.all_questions_data = self.db.execute_query("""
-            SELECT q.*, e.created_by as exam_created_by
+            SELECT q.id, q.exam_id, q.question_text, q.question_type, q.correct_answer,
+                   q.explanation, q.points, q.difficulty_level, q.order_index, q.is_active,
+                   q.created_at, q.image_filename, q.image_mime_type,
+                   CASE WHEN q.image_data IS NOT NULL THEN 1 ELSE 0 END as has_image,
+                   e.created_by as exam_created_by
             FROM questions q
             JOIN exams e ON q.exam_id = e.id
             WHERE q.exam_id = ?
@@ -562,8 +569,8 @@ class QuestionManagement(ft.UserControl):
             # Create image indicator
             image_cell = ft.DataCell(
                 ft.Icon(
-                    ft.icons.IMAGE if question.get('image_path') else ft.icons.IMAGE_NOT_SUPPORTED,
-                    color=COLORS['success'] if question.get('image_path') else COLORS['text_secondary'],
+                    ft.icons.IMAGE if question.get('has_image') else ft.icons.IMAGE_NOT_SUPPORTED,
+                    color=COLORS['success'] if question.get('has_image') else COLORS['text_secondary'],
                     size=20
                 )
             )
@@ -946,15 +953,21 @@ class QuestionManagement(ft.UserControl):
             )
             
             # Image upload section
-            self.current_image_path = question.get('image_path') if is_edit else None
-            # Set full path for display if image exists
-            if self.current_image_path:
-                self.current_image_full_path = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                    self.current_image_path
-                )
+            # Load existing image from database if editing
+            if is_edit and question.get('id'):
+                image_data = self.db.get_question_image(question['id'])
+                if image_data:
+                    self.current_image_data = image_data['data']
+                    self.current_image_filename = image_data['filename']
+                    self.current_image_mime_type = image_data['mime_type']
+                else:
+                    self.current_image_data = None
+                    self.current_image_filename = None
+                    self.current_image_mime_type = None
             else:
-                self.current_image_full_path = None
+                self.current_image_data = None
+                self.current_image_filename = None
+                self.current_image_mime_type = None
             
             # Create file picker for images
             self.image_file_picker = ft.FilePicker(
@@ -1029,16 +1042,15 @@ class QuestionManagement(ft.UserControl):
                         'question_type': question_type_dropdown.value,
                         'difficulty_level': difficulty_dropdown.value,
                         'points': points,
-                        'explanation': explanation_field.value.strip() or None,
-                        'image_path': self.current_image_path
+                        'explanation': explanation_field.value.strip() or None
                     }
-                    
+
                     if is_edit:
                         # Update existing question
                         question_id = question['id']
                         query = """
-                            UPDATE questions SET question_text = ?, question_type = ?, 
-                            difficulty_level = ?, points = ?, explanation = ?, image_path = ?
+                            UPDATE questions SET question_text = ?, question_type = ?,
+                            difficulty_level = ?, points = ?, explanation = ?
                             WHERE id = ?
                         """
                         params = [
@@ -1047,15 +1059,26 @@ class QuestionManagement(ft.UserControl):
                             question_data['difficulty_level'],
                             question_data['points'],
                             question_data['explanation'],
-                            question_data['image_path'],
                             question['id']
                         ]
                         self.db.execute_update(query, params)
+
+                        # Store image in database if present
+                        if self.current_image_data:
+                            self.db.store_question_image(
+                                question_id,
+                                self.current_image_data,
+                                self.current_image_filename,
+                                self.current_image_mime_type
+                            )
+                        else:
+                            # Delete image if removed
+                            self.db.delete_question_image(question_id)
                     else:
                         # Create new question (default status is Active)
                         query = """
-                            INSERT INTO questions (exam_id, question_text, question_type, difficulty_level, points, explanation, image_path, is_active)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                            INSERT INTO questions (exam_id, question_text, question_type, difficulty_level, points, explanation, is_active)
+                            VALUES (?, ?, ?, ?, ?, ?, 1)
                         """
                         params = [
                             question_data['exam_id'],
@@ -1063,10 +1086,18 @@ class QuestionManagement(ft.UserControl):
                             question_data['question_type'],
                             question_data['difficulty_level'],
                             question_data['points'],
-                            question_data['explanation'],
-                            question_data['image_path']
+                            question_data['explanation']
                         ]
                         question_id = self.db.execute_insert(query, params)
+
+                        # Store image in database if present
+                        if self.current_image_data:
+                            self.db.store_question_image(
+                                question_id,
+                                self.current_image_data,
+                                self.current_image_filename,
+                                self.current_image_mime_type
+                            )
                     
                     # Save options for choice-based questions
                     if question_type_dropdown.value in ['single_choice', 'multiple_choice', 'true_false']:
@@ -1427,30 +1458,35 @@ class QuestionManagement(ft.UserControl):
         ]
         
         # Add image if present
-        if question.get('image_path'):
-            header_content.append(
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(t('question_image_label'), size=14, weight=ft.FontWeight.BOLD),
-                        ft.Container(
-                            content=ft.Image(
-                                src=question['image_path'],
-                                width=400,
-                                height=250,
-                                fit=ft.ImageFit.CONTAIN,
-                                border_radius=8
+        if question.get('has_image'):
+            # Load image from encrypted database
+            import base64
+            image_data_dict = self.db.get_question_image(question['id'])
+            if image_data_dict:
+                image_base64 = base64.b64encode(image_data_dict['data']).decode('utf-8')
+                header_content.append(
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(t('question_image_label'), size=14, weight=ft.FontWeight.BOLD),
+                            ft.Container(
+                                content=ft.Image(
+                                    src_base64=image_base64,
+                                    width=400,
+                                    height=250,
+                                    fit=ft.ImageFit.CONTAIN,
+                                    border_radius=8
+                                ),
+                                bgcolor=ft.colors.WHITE,
+                                border_radius=8,
+                                border=ft.border.all(1, ft.colors.OUTLINE),
+                                padding=ft.padding.all(5),
+                                on_click=lambda e, img=image_base64: self.show_fullscreen_image(img)
                             ),
-                            bgcolor=ft.colors.WHITE,
-                            border_radius=8,
-                            border=ft.border.all(1, ft.colors.OUTLINE),
-                            padding=ft.padding.all(5),
-                            on_click=lambda e: self.show_fullscreen_image(question['image_path'])
-                        ),
-                        ft.Text(t('click_to_view'), size=12, italic=True, color=COLORS['text_secondary'])
-                    ], spacing=8),
-                    margin=ft.margin.only(top=12)
+                            ft.Text(t('click_to_view'), size=12, italic=True, color=COLORS['text_secondary'])
+                        ], spacing=8),
+                        margin=ft.margin.only(top=12)
+                    )
                 )
-            )
         
         header_card = ft.Container(
             content=ft.Column(header_content, spacing=12),
@@ -1600,18 +1636,8 @@ class QuestionManagement(ft.UserControl):
 
     def delete_question(self, question):
         def confirm_delete(e):
-            # Delete associated image file if it exists
-            if question.get('image_path'):
-                try:
-                    full_path = os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                        question['image_path']
-                    )
-                    if os.path.exists(full_path):
-                        os.remove(full_path)
-                        print(f"Deleted image file: {full_path}")
-                except Exception as ex:
-                    print(f"Warning: Could not delete image file {full_path}: {ex}")
+            # Note: Images are now stored as encrypted BLOBs in the database
+            # They will be automatically deleted when the question row is deleted
 
             # Delete database records
             self.db.execute_update("DELETE FROM questions WHERE id = ?", (question['id'],))
@@ -1972,14 +1998,19 @@ class QuestionManagement(ft.UserControl):
     
     def build_image_upload_ui(self):
         """Build the image upload interface"""
+        import base64
+
         # Image preview and upload controls with horizontal layout
         header = ft.Text(t('question_image_title'), size=14, weight=ft.FontWeight.BOLD)
-        
-        if self.current_image_full_path:
+
+        if self.current_image_data:
             # State 1: Image on left, action buttons on right
+            # Convert binary data to base64 for display
+            image_base64 = base64.b64encode(self.current_image_data).decode('utf-8')
+
             image_container = ft.Container(
                 content=ft.Image(
-                    src=self.current_image_full_path,
+                    src_base64=image_base64,
                     width=200,
                     height=120,
                     fit=ft.ImageFit.CONTAIN,
@@ -2047,7 +2078,7 @@ class QuestionManagement(ft.UserControl):
         """Handle image file selection"""
         if e.files and len(e.files) > 0:
             file = e.files[0]
-            
+
             # Validate file size
             if file.size > MAX_FILE_SIZE:
                 self.show_error_dialog(t('file_size_too_large').format(MAX_FILE_SIZE // (1024*1024)))
@@ -2058,50 +2089,40 @@ class QuestionManagement(ft.UserControl):
             if file_ext not in ALLOWED_EXTENSIONS:
                 self.show_error_dialog(t('invalid_file_type').format(', '.join(ALLOWED_EXTENSIONS)))
                 return
-            
+
             try:
-                # Create unique filename
-                unique_filename = f"{uuid.uuid4().hex}.{file_ext}"
-                
-                # Ensure upload directory exists
-                os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-                
-                # Copy file to upload directory
-                destination_path = os.path.join(UPLOAD_FOLDER, unique_filename)
-                
-                # Read and write file (Flet file handling)
+                # Read image as binary data (will be stored as encrypted BLOB in database)
                 with open(file.path, 'rb') as src:
-                    with open(destination_path, 'wb') as dst:
-                        dst.write(src.read())
-                
-                # Store paths
-                self.current_image_path = f"assets/images/{unique_filename}"  # Relative for database
-                self.current_image_full_path = destination_path  # Full path for display
-                
+                    image_bytes = src.read()
+
+                # Determine MIME type based on extension
+                mime_types = {
+                    'png': 'image/png',
+                    'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg',
+                    'gif': 'image/gif',
+                    'bmp': 'image/bmp',
+                    'webp': 'image/webp'
+                }
+
+                # Store image data in memory (will be saved to encrypted database when question is saved)
+                self.current_image_data = image_bytes
+                self.current_image_filename = file.name
+                self.current_image_mime_type = mime_types.get(file_ext, 'image/png')
+
                 # Update UI
                 self.update_image_upload_ui()
-                
+
             except Exception as ex:
                 self.show_error_dialog(t('error_uploading_image').format(str(ex)))
     
     def remove_image(self, e):
         """Remove the current image"""
-        # Remove physical file if it exists
-        if self.current_image_path:
-            try:
-                full_path = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                    self.current_image_path
-                )
-                if os.path.exists(full_path):
-                    os.remove(full_path)
-            except Exception as ex:
-                print(f"Warning: Could not remove file {full_path}: {ex}")
-        
-        # Clear image paths
-        self.current_image_path = None
-        self.current_image_full_path = None
-        
+        # Clear image data from memory
+        self.current_image_data = None
+        self.current_image_filename = None
+        self.current_image_mime_type = None
+
         # Update UI
         self.update_image_upload_ui()
     
@@ -2112,18 +2133,18 @@ class QuestionManagement(ft.UserControl):
             if hasattr(self, 'question_dialog') and self.question_dialog:
                 self.question_dialog.update()
     
-    def show_fullscreen_image(self, image_path):
+    def show_fullscreen_image(self, image_base64):
         """Show image in fullscreen dialog"""
         def close_image_dialog(e):
             image_dialog.open = False
             self.page.update()
-        
+
         image_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(t('question_image_title'), size=18, weight=ft.FontWeight.BOLD),
             content=ft.Container(
                 content=ft.Image(
-                    src=image_path,
+                    src_base64=image_base64,
                     width=800,
                     height=600,
                     fit=ft.ImageFit.CONTAIN
@@ -2335,24 +2356,8 @@ class QuestionManagement(ft.UserControl):
 
         def confirm_delete(ev):
             try:
-                # Delete all associated image files from questions in this exam (before deleting DB records)
-                questions_with_images = self.db.execute_query(
-                    "SELECT image_path FROM questions WHERE exam_id = ? AND image_path IS NOT NULL",
-                    (self.selected_exam_id,)
-                )
-
-                for question in questions_with_images:
-                    if question.get('image_path'):
-                        try:
-                            full_path = os.path.join(
-                                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                                question['image_path']
-                            )
-                            if os.path.exists(full_path):
-                                os.remove(full_path)
-                                print(f"Deleted image file: {full_path}")
-                        except Exception as ex:
-                            print(f"Warning: Could not delete image file {full_path}: {ex}")
+                # Note: Images are now stored as encrypted BLOBs in the database
+                # They will be automatically deleted when questions are deleted (CASCADE)
 
                 # Delete all related data in the correct order (due to foreign keys)
                 # 1. Delete user answers

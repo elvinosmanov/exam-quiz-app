@@ -113,6 +113,88 @@ class Database:
             logger.error("Failed to add column %s.%s: %s", table, column, exc)
             raise
 
+    # Image storage helper methods
+    def store_question_image(self, question_id: int, image_bytes: bytes, filename: str, mime_type: str) -> bool:
+        """
+        Store image data as encrypted BLOB in database for a question.
+
+        Args:
+            question_id: The question ID to attach the image to
+            image_bytes: Binary image data
+            filename: Original filename (e.g., "diagram.png")
+            mime_type: MIME type (e.g., "image/png", "image/jpeg")
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE questions
+                    SET image_data = ?, image_filename = ?, image_mime_type = ?
+                    WHERE id = ?
+                """, (image_bytes, filename, mime_type, question_id))
+                conn.commit()
+                logger.info(f"Stored encrypted image for question {question_id}: {filename} ({len(image_bytes)} bytes)")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to store image for question {question_id}: {e}")
+            return False
+
+    def get_question_image(self, question_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve encrypted image data from database for a question.
+
+        Args:
+            question_id: The question ID to retrieve image for
+
+        Returns:
+            Dict with 'data' (bytes), 'filename' (str), 'mime_type' (str), or None if no image
+        """
+        try:
+            result = self.execute_single("""
+                SELECT image_data, image_filename, image_mime_type
+                FROM questions
+                WHERE id = ? AND image_data IS NOT NULL
+            """, (question_id,))
+
+            if result and result.get('image_data'):
+                return {
+                    'data': result['image_data'],
+                    'filename': result.get('image_filename', 'image.png'),
+                    'mime_type': result.get('image_mime_type', 'image/png')
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to retrieve image for question {question_id}: {e}")
+            return None
+
+    def delete_question_image(self, question_id: int) -> bool:
+        """
+        Delete image data from a question.
+
+        Args:
+            question_id: The question ID to remove image from
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE questions
+                    SET image_data = NULL, image_filename = NULL, image_mime_type = NULL
+                    WHERE id = ?
+                """, (question_id,))
+                conn.commit()
+                logger.info(f"Deleted image for question {question_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete image for question {question_id}: {e}")
+            return False
+
 # Database schema creation
 def create_tables():
     db = Database()
@@ -259,7 +341,9 @@ def create_tables():
                 exam_id INTEGER NOT NULL,
                 question_text TEXT NOT NULL,
                 question_type TEXT NOT NULL,
-                image_path TEXT,
+                image_data BLOB,
+                image_filename TEXT,
+                image_mime_type TEXT,
                 correct_answer TEXT,
                 explanation TEXT,
                 points REAL DEFAULT 1.0,
