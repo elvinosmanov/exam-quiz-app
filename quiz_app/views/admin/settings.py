@@ -1,4 +1,5 @@
 import flet as ft
+import os
 from quiz_app.database.database import Database
 from quiz_app.utils.email_templates import EmailTemplateManager
 from quiz_app.utils.email_handler import EmailHandler
@@ -25,6 +26,9 @@ class Settings(ft.UserControl):
         self.session_manager = session_manager
         self.on_language_change = on_language_change  # Callback to reload UI when language changes
         self.current_settings = {}
+
+        # FilePicker for database location selection
+        self.database_file_picker = ft.FilePicker(on_result=self.on_database_path_selected)
 
         # Ensure settings table exists
         self.initialize_settings_table()
@@ -115,6 +119,125 @@ class Settings(ft.UserControl):
             )
             self.page.snack_bar.open = True
             self.page.update()
+
+    def did_mount(self):
+        """Add FilePicker to page overlay when view is mounted"""
+        if self.page:
+            self.page.overlay.append(self.database_file_picker)
+            self.page.update()
+
+    def will_unmount(self):
+        """Remove FilePicker from page overlay when view is unmounted"""
+        if self.page and self.database_file_picker in self.page.overlay:
+            self.page.overlay.remove(self.database_file_picker)
+            self.page.update()
+
+    def on_database_path_selected(self, e: ft.FilePickerResultEvent):
+        """Handle database folder selection with validation"""
+        if not e.path:
+            return  # User cancelled
+
+        # Validate folder exists
+        if not os.path.exists(e.path):
+            self.show_error_message(t('folder_does_not_exist'))
+            return
+
+        # Validate folder is writable
+        if not os.access(e.path, os.W_OK):
+            self.show_error_message(t('folder_not_writable'))
+            return
+
+        # Show confirmation dialog with current vs. new location
+        self.show_database_change_confirmation(e.path)
+
+    def show_database_change_confirmation(self, new_folder_path):
+        """Show confirmation dialog before changing database location"""
+        from quiz_app.config import DATA_DIR
+
+        current_location = self.current_settings.get('custom_database_path', '')
+        if not current_location:
+            current_location = DATA_DIR  # Show default location
+
+        new_db_path = os.path.join(new_folder_path, 'quiz_app.db')
+        db_exists_at_new = os.path.exists(new_db_path)
+
+        # Build confirmation message
+        message_lines = [
+            t('current_db_location') + f": {current_location}",
+            t('new_db_location') + f": {new_folder_path}",
+            "",
+        ]
+
+        if db_exists_at_new:
+            message_lines.append(t('database_exists_at_new_location'))
+            message_lines.append(t('will_use_existing_database'))
+        else:
+            message_lines.append(t('no_database_at_new_location'))
+            message_lines.append(t('will_create_fresh_database'))
+
+        message_lines.append("")
+        message_lines.append(t('confirm_database_location_change'))
+
+        def confirm_change(e):
+            dialog.open = False
+            self.page.update()
+
+            # Save new location to settings
+            success = self.save_setting('custom_database_path', new_folder_path)
+
+            if success:
+                self.show_success_message(t('database_location_saved'))
+                # Show restart required dialog
+                self.show_restart_required_dialog()
+            else:
+                self.show_error_message(t('failed_to_save_database_location'))
+
+        def cancel_change(e):
+            dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text(t('confirm_database_location')),
+            content=ft.Text("\n".join(message_lines)),
+            actions=[
+                ft.TextButton(t('cancel'), on_click=cancel_change),
+                ft.TextButton(t('confirm'), on_click=confirm_change),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
+
+    def show_restart_required_dialog(self):
+        """Show dialog informing admin that restart is required"""
+        def close_dialog(e):
+            dialog.open = False
+            self.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text(t('restart_required')),
+            content=ft.Text(t('restart_required_message')),
+            actions=[
+                ft.TextButton(t('ok'), on_click=close_dialog),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
+
+    def reset_database_to_default(self, e):
+        """Reset database location to default (empty string)"""
+        success = self.save_setting('custom_database_path', '')
+
+        if success:
+            self.show_success_message(t('database_location_reset_to_default'))
+            self.show_restart_required_dialog()
+        else:
+            self.show_error_message(t('failed_to_reset_database_location'))
 
     def build_email_templates_card(self):
         """Build email templates editor card"""
@@ -341,6 +464,111 @@ class Settings(ft.UserControl):
             bgcolor=ft.colors.WHITE,
             border_radius=12,
             border=ft.border.all(1, COLORS['border'])
+        )
+
+    def build_database_location_card(self):
+        """Build database location configuration card"""
+        from quiz_app.config import DATA_DIR
+
+        # Get current database location
+        current_custom_path = self.current_settings.get('custom_database_path', '')
+
+        if current_custom_path:
+            current_display = current_custom_path
+            status_text = t('using_custom_location')
+            status_color = COLORS['primary']
+        else:
+            current_display = DATA_DIR
+            status_text = t('using_default_location')
+            status_color = COLORS['secondary']
+
+        # Current location display
+        current_location_text = ft.Text(
+            f"{t('current_database_location')}:",
+            size=14,
+            weight=ft.FontWeight.BOLD,
+            color=COLORS['text_primary']
+        )
+
+        location_display = ft.Container(
+            content=ft.Column([
+                ft.Text(
+                    current_display,
+                    size=13,
+                    color=COLORS['text_secondary'],
+                    selectable=True
+                ),
+                ft.Text(
+                    status_text,
+                    size=12,
+                    color=status_color,
+                    italic=True
+                ),
+            ], spacing=5),
+            padding=10,
+            border=ft.border.all(1, COLORS['border']),
+            border_radius=8,
+            bgcolor="#F5F5F5"
+        )
+
+        # Browse button
+        browse_button = ft.ElevatedButton(
+            text=t('browse_folder'),
+            icon=ft.icons.FOLDER_OPEN,
+            on_click=lambda e: self.database_file_picker.get_directory_path(
+                dialog_title=t('select_database_folder')
+            ),
+            bgcolor=COLORS['primary'],
+            color="white",
+        )
+
+        # Reset to default button
+        reset_button = ft.TextButton(
+            text=t('reset_to_default'),
+            icon=ft.icons.RESTORE,
+            on_click=self.reset_database_to_default,
+        )
+
+        # Info text about restart requirement
+        info_text = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.INFO_OUTLINE, size=16, color=COLORS['warning']),
+                ft.Text(
+                    t('database_location_restart_info'),
+                    size=12,
+                    color=COLORS['text_secondary'],
+                    italic=True,
+                ),
+            ], spacing=8),
+            padding=ft.padding.only(top=10)
+        )
+
+        return ft.Card(
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.icons.STORAGE, color=COLORS['primary']),
+                        ft.Text(
+                            t('database_location_settings'),
+                            size=18,
+                            weight=ft.FontWeight.BOLD,
+                            color=COLORS['text_primary']
+                        ),
+                    ], spacing=10),
+                    ft.Divider(height=1, color=COLORS['border']),
+                    ft.Container(height=10),
+                    current_location_text,
+                    location_display,
+                    ft.Container(height=15),
+                    ft.Row([
+                        browse_button,
+                        reset_button,
+                    ], spacing=10),
+                    info_text,
+                ], spacing=10),
+                padding=20,
+            ),
+            elevation=2,
         )
 
     def build_org_structure_card(self):
@@ -1052,6 +1280,11 @@ class Settings(ft.UserControl):
         # Email Templates Card
         email_templates_card = self.build_email_templates_card()
 
+        # Database Location Card (only for admins)
+        database_location_card = None
+        if self.user_data.get('role') == 'admin':
+            database_location_card = self.build_database_location_card()
+
         # Organizational Structure Card (only for admins)
         org_structure_card = None
         if self.user_data.get('role') == 'admin':
@@ -1245,6 +1478,8 @@ class Settings(ft.UserControl):
                 change_password_card,
                 ft.Container(height=20),
                 email_templates_card,
+                ft.Container(height=20) if database_location_card else ft.Container(height=0),
+                database_location_card if database_location_card else ft.Container(height=0),
                 ft.Container(height=20) if org_structure_card else ft.Container(height=0),
                 org_structure_card if org_structure_card else ft.Container(height=0)
             ], scroll=ft.ScrollMode.AUTO, expand=True)

@@ -658,26 +658,22 @@ class ExamineeDashboard(ft.UserControl):
                 if self.session_manager:
                     self.session_manager.set_user_language(language_code)
 
-                # Update current language
+                # Update current language immediately
                 from quiz_app.utils.localization import set_language
                 set_language(language_code)
 
                 # Show success message
-                self.show_snackbar(t('language_changed'), COLORS['success'])
+                self.show_success_message(t('language_changed'))
 
-                # Reload entire dashboard after a short delay
+                # Reload entire dashboard immediately (like admin does)
                 import time
-                import threading
-                def reload_ui():
-                    time.sleep(1)
-                    if self.page:
-                        self.reload_dashboard()
-
-                threading.Thread(target=reload_ui, daemon=True).start()
+                time.sleep(1)  # Give time for message to show
+                if self.page:
+                    self.reload_dashboard()
 
             except Exception as ex:
                 print(f"[ERROR] Failed to save language preference: {ex}")
-                self.show_snackbar(t('settings_failed'), COLORS['error'])
+                self.show_error_message(t('settings_failed'))
 
         # Create profile form
         profile_form = ft.Column([
@@ -1114,6 +1110,26 @@ class ExamineeDashboard(ft.UserControl):
             traceback.print_exc()
             self.show_error_dialog("Failed to start exam. Please try again.")
 
+
+    def show_success_message(self, message):
+        """Show success snackbar"""
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(message),
+                bgcolor=COLORS['success']
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+
+    def show_error_message(self, message):
+        """Show error snackbar"""
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text(message),
+                bgcolor=COLORS['error']
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
 
     def show_error_dialog(self, message):
         """Show error dialog"""

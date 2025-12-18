@@ -18,7 +18,6 @@ Migration files are NOT included in PyInstaller builds and will cause "no such t
 - Secure user authentication with bcrypt password hashing
 - Role-based access control (Admin/Examinee)
 - Session management with automatic timeout
-- Audit logging for all user actions
 
 ### 👨‍💼 Admin Dashboard
 - **User Management**: Create, edit, and manage user accounts
@@ -104,8 +103,7 @@ quiz_app/
     ├── 📁 utils/
     │   ├── 📄 auth.py        # Authentication utilities
     │   ├── 📄 session.py     # Session management
-    │   ├── 📄 bulk_import.py # Bulk import functionality
-    │   └── 📄 logging_config.py # Audit logging
+    │   └── 📄 bulk_import.py # Bulk import functionality
     ├── 📁 models/            # Data models (reserved for future use)
     ├── 📁 controllers/       # Business logic (reserved for future use)
     └── 📁 views/
@@ -119,11 +117,10 @@ quiz_app/
 
 ### ✅ Phase 1: Foundation (100% Complete)
 - [x] Project structure and dependencies
-- [x] SQLite database with comprehensive schema (8 tables)
+- [x] SQLite database with comprehensive schema (7 tables)
 - [x] User authentication and session management
 - [x] Role-based access control (Admin/Examinee)
 - [x] Security with bcrypt password hashing
-- [x] Audit logging system
 
 ### ✅ Phase 2: Admin Interface (100% Complete)
 - [x] Modern admin dashboard with statistics
@@ -160,7 +157,7 @@ quiz_app/
 
 ## 🗄️ Database Schema
 
-The application uses SQLite with 8 comprehensive tables:
+The application uses SQLite with 7 comprehensive tables:
 
 - **users**: User accounts, profiles, roles, and authentication data
 - **exams**: Exam configurations, settings, duration, and scheduling
@@ -169,7 +166,6 @@ The application uses SQLite with 8 comprehensive tables:
 - **exam_sessions**: User exam attempts, scores, and completion tracking
 - **user_answers**: Individual question responses and time tracking
 - **exam_permissions**: User-specific exam access and scheduling
-- **audit_log**: Comprehensive system activity and security tracking
 
 ## Configuration
 
@@ -186,7 +182,6 @@ Key settings can be modified in `quiz_app/config.py`:
 - **Password Hashing**: Uses bcrypt for secure password storage
 - **Session Management**: Automatic session timeout and validation
 - **Input Validation**: Prevents SQL injection and XSS attacks
-- **Audit Logging**: Comprehensive logging of all user actions
 - **Role-based Access**: Strict separation between admin and examinee functions
 
 ## 🎯 What Actually Works (Tested & Verified)
@@ -223,7 +218,7 @@ Key settings can be modified in `quiz_app/config.py`:
 ### ✅ Technical Features
 - **Database**: All CRUD operations working perfectly
 - **File Handling**: Image uploads and management
-- **Security**: Audit logging and session management
+- **Security**: Session management and role-based access control
 - **UI/UX**: Modern Material Design 3 interface
 
 ## Usage Guidelines
@@ -273,7 +268,6 @@ If you encounter issues:
 1. Check the console output for error messages
 2. Verify the database exists and is accessible
 3. Ensure all dependencies are properly installed
-4. Review the audit logs for any security issues
 
 ## Development Notes
 

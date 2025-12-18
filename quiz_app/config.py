@@ -1,5 +1,6 @@
 import os
 import sys
+import sqlite3
 
 def get_base_path():
     """Get base path for both development and packaged executable"""
@@ -30,8 +31,46 @@ def get_data_dir():
 BASE_PATH = get_base_path()
 DATA_DIR = get_data_dir()
 
+def get_database_path():
+    """
+    Get database path - uses custom location if set by admin, otherwise default
+
+    Returns:
+        str: Path to database file
+    """
+    default_path = os.path.join(DATA_DIR, 'quiz_app.db')
+
+    # If database doesn't exist yet, use default (initialization phase)
+    if not os.path.exists(default_path):
+        return default_path
+
+    try:
+        # Query system settings for custom path
+        conn = sqlite3.connect(default_path, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT setting_value FROM system_settings WHERE setting_key = 'custom_database_path'"
+        )
+        result = cursor.fetchone()
+        conn.close()
+
+        if result and result[0]:  # If custom path is set (not empty)
+            custom_folder = result[0]
+            custom_db_path = os.path.join(custom_folder, 'quiz_app.db')
+
+            # Validate custom path exists and is writable
+            if os.path.exists(custom_folder) and os.access(custom_folder, os.W_OK):
+                return custom_db_path
+
+        # Fall back to default if custom path is empty or invalid
+        return default_path
+
+    except Exception:
+        # Fall back to default on any error (database doesn't exist, table missing, etc.)
+        return default_path
+
 # Database configuration
-DATABASE_PATH = os.path.join(DATA_DIR, 'quiz_app.db')
+DATABASE_PATH = get_database_path()
 
 # Security settings
 SECRET_KEY = "your-secret-key-change-in-production"

@@ -383,23 +383,6 @@ def create_tables():
             )
         ''')
         
-        # Audit log table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                action TEXT NOT NULL,
-                table_name TEXT,
-                record_id INTEGER,
-                old_values TEXT,
-                new_values TEXT,
-                ip_address TEXT,
-                user_agent TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
-
         # PDF exports table (for tracking variant exports)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pdf_exports (
@@ -575,6 +558,12 @@ def create_tables():
         cursor.execute('''
             INSERT OR IGNORE INTO system_settings (setting_key, setting_value, description)
             VALUES ('language', 'English', 'System-wide language setting')
+        ''')
+
+        # Insert default custom database path setting (empty = use default)
+        cursor.execute('''
+            INSERT OR IGNORE INTO system_settings (setting_key, setting_value, description)
+            VALUES ('custom_database_path', '', 'Custom database location path (empty = use default)')
         ''')
 
         # Organizational Structure table (departments, sections, units)
