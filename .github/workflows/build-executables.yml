@@ -18,54 +18,34 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false  # Don't cancel other builds if one fails
-      matrix:
-        os: [windows-latest]  # Only build for Windows
-        python-version: ['3.11']
+    name: Build Windows Executable
+    runs-on: windows-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.11'
 
     - name: Display Python version
       run: python --version
 
-    - name: Install system dependencies (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-
-    - name: Install Python dependencies (All platforms)
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         python -m pip install wheel
         python -m pip install pyinstaller
         python -m pip install -r requirements.txt
 
-    - name: Verify Assets (Windows)
-      if: runner.os == 'Windows'
+    - name: Verify Assets
       run: |
         echo "Checking assets directory..."
         dir quiz_app\assets\images\
         echo "Logo file info:"
         dir quiz_app\assets\images\azercosmos-logo.png
-
-    - name: Verify Assets (macOS/Linux)
-      if: runner.os != 'Windows'
-      run: |
-        echo "Checking assets directory..."
-        ls -la quiz_app/assets/images/
-        echo "Logo file info:"
-        ls -lh quiz_app/assets/images/azercosmos-logo.png
 
     - name: Clean Previous Builds
       run: |
@@ -79,42 +59,19 @@ jobs:
     - name: Build Executable
       run: python build_exe.py
 
-    - name: Verify Build Output (Windows)
-      if: runner.os == 'Windows'
+    - name: Verify Build Output
       run: |
         echo "Build completed. Checking output..."
         dir dist
         echo "Verifying executable exists..."
         if (Test-Path dist\QuizExamSystem.exe) { echo "Executable found!" } else { echo "ERROR: Executable not found!"; exit 1 }
 
-    - name: List dist directory (Windows)
-      if: runner.os == 'Windows'
+    - name: List dist directory
       run: dir dist
 
-    - name: List dist directory (macOS/Linux)
-      if: runner.os != 'Windows'
-      run: ls -la dist/
-
     - name: Upload Windows Executable
-      if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
         name: QuizExamSystem-Windows
         path: dist/QuizExamSystem.exe
-        retention-days: 30
-
-    - name: Upload macOS Executable
-      if: runner.os == 'macOS'
-      uses: actions/upload-artifact@v4
-      with:
-        name: QuizExamSystem-macOS
-        path: dist/QuizExamSystem.app
-        retention-days: 30
-
-    - name: Upload Linux Executable
-      if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v4
-      with:
-        name: QuizExamSystem-Linux
-        path: dist/QuizExamSystem
         retention-days: 30

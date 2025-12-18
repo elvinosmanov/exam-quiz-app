@@ -1178,6 +1178,7 @@ class ExamineeDashboard(ft.UserControl):
             
         if page_ref and page_ref.dialog:
             page_ref.dialog.open = False
+            page_ref.dialog = None  # Clear dialog reference
             page_ref.update()
     
     def view_exam_details(self, session_id):
@@ -2106,6 +2107,7 @@ class ExamineeDashboard(ft.UserControl):
                     time.sleep(1.5)
                     if self.page:
                         dialog.open = False
+                        self.page.dialog = None  # Clear dialog reference
                         self.page.update()
 
                 threading.Thread(target=close_after_delay, daemon=True).start()
@@ -2152,6 +2154,7 @@ class ExamineeDashboard(ft.UserControl):
         """Close the current dialog"""
         if self.page and self.page.dialog:
             self.page.dialog.open = False
+            self.page.dialog = None  # Clear dialog reference
             self.page.update()
 
     def show_help(self):

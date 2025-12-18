@@ -198,6 +198,7 @@ class LoginView(ft.UserControl):
         if len(message) > 50 or '\n' in message:
             def close_dialog(e):
                 dialog.open = False
+                self.page.dialog = None  # Clear dialog reference
                 self.page.update()
 
             dialog = ft.AlertDialog(
@@ -290,15 +291,10 @@ class LoginView(ft.UserControl):
                 # Update user_data to reflect the change
                 user_data['password_change_required'] = 0
 
-                # Close dialog
+                # CRITICAL: Properly close and clear dialog before loading dashboard
                 change_dialog.open = False
+                self.page.dialog = None  # Clear dialog reference
                 self.page.update()
-
-                # Show success message
-                self.page.show_snack_bar(ft.SnackBar(
-                    content=ft.Text("✓ Password changed successfully!"),
-                    bgcolor=COLORS['success']
-                ))
 
                 # Now proceed to dashboard
                 self.login_button.text = t('loading_dashboard')
