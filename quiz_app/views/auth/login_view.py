@@ -291,10 +291,14 @@ class LoginView(ft.UserControl):
                 # Update user_data to reflect the change
                 user_data['password_change_required'] = 0
 
-                # CRITICAL: Properly close and clear dialog before loading dashboard
+                # CRITICAL: Close dialog completely before loading dashboard
                 change_dialog.open = False
-                self.page.dialog = None  # Clear dialog reference
+                self.page.dialog = None
                 self.page.update()
+
+                # Small delay to ensure dialog closes before dashboard loads
+                import time
+                time.sleep(0.1)
 
                 # Now proceed to dashboard
                 self.login_button.text = t('loading_dashboard')

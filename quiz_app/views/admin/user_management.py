@@ -734,21 +734,21 @@ class UserManagement(ft.UserControl):
                 error_text.value = "Username is required"
                 error_text.visible = True
                 email_error_text.visible = False
-                self.user_dialog.update()
+                self.page.update()
                 return
 
             if not email_field.value.strip():
                 error_text.value = "Email is required"
                 error_text.visible = True
                 email_error_text.visible = False
-                self.user_dialog.update()
+                self.page.update()
                 return
 
             if not full_name_field.value.strip():
                 error_text.value = "Full name is required"
                 error_text.visible = True
                 email_error_text.visible = False
-                self.user_dialog.update()
+                self.page.update()
                 return
 
             # Email validation with regex
@@ -757,7 +757,7 @@ class UserManagement(ft.UserControl):
                 email_error_text.value = "Please enter a valid email address (e.g., user@example.com)"
                 email_error_text.visible = True
                 error_text.visible = False
-                self.user_dialog.update()
+                self.page.update()
                 return
             else:
                 # Clear email error if valid
@@ -767,7 +767,7 @@ class UserManagement(ft.UserControl):
             if not is_edit and not password_field.value.strip():
                 error_text.value = t('password_required')
                 error_text.visible = True
-                self.user_dialog.update()
+                self.page.update()
                 return
 
             # Server-side role validation (SECURITY FIX)
@@ -775,7 +775,7 @@ class UserManagement(ft.UserControl):
             if role_dropdown.value not in valid_roles:
                 error_text.value = f"Invalid role: {role_dropdown.value}. Must be admin, expert, or examinee."
                 error_text.visible = True
-                self.user_dialog.update()
+                self.page.update()
                 return
 
             # Get department/section/unit values (handle both Dropdown and TextField)
@@ -783,12 +783,12 @@ class UserManagement(ft.UserControl):
             section_value = section_dropdown.value if hasattr(section_dropdown, 'value') else None
             unit_value = unit_dropdown.value if hasattr(unit_dropdown, 'value') else None
 
-            # Convert empty strings to None
-            if dept_value == "":
+            # Convert empty strings and placeholder values to None
+            if not dept_value or dept_value == "" or (isinstance(dept_value, str) and dept_value.strip().startswith("--")):
                 dept_value = None
-            if section_value == "":
+            if not section_value or section_value == "" or (isinstance(section_value, str) and section_value.strip().startswith("--")):
                 section_value = None
-            if unit_value == "":
+            if not unit_value or unit_value == "" or (isinstance(unit_value, str) and unit_value.strip().startswith("--")):
                 unit_value = None
 
             # Role-based validation
@@ -797,7 +797,7 @@ class UserManagement(ft.UserControl):
                 if not dept_value:
                     error_text.value = t('department_required_for_expert')
                     error_text.visible = True
-                    self.user_dialog.update()
+                    self.page.update()
                     return
                 # Section and unit are optional for experts (allows department-level experts)
 
@@ -806,7 +806,7 @@ class UserManagement(ft.UserControl):
                 if not section_value and not unit_value:
                     error_text.value = "Examinee must have at least a section or unit assigned"
                     error_text.visible = True
-                    self.user_dialog.update()
+                    self.page.update()
                     return
 
             # Admin role: no department/section/unit required (already hidden in UI)
@@ -850,7 +850,7 @@ class UserManagement(ft.UserControl):
                     if not user_id:
                         error_text.value = t('user_already_exists')
                         error_text.visible = True
-                        self.user_dialog.update()
+                        self.page.update()
                         return
 
                     # Set password_change_required flag for new users
@@ -859,8 +859,9 @@ class UserManagement(ft.UserControl):
                         (user_id,)
                     )
 
-                    # Close dialog
+                    # Close dialog properly
                     self.user_dialog.open = False
+                    self.page.dialog = None
                     if self.page:
                         self.page.update()
 
@@ -873,8 +874,9 @@ class UserManagement(ft.UserControl):
                     )
                     return  # Success dialog will handle reload
 
-                # For edit mode: Close dialog and refresh
+                # For edit mode: Close dialog properly and refresh
                 self.user_dialog.open = False
+                self.page.dialog = None
                 if self.page:
                     self.page.update()
 
@@ -888,10 +890,11 @@ class UserManagement(ft.UserControl):
             except Exception as ex:
                 error_text.value = f"{t('error')}: {str(ex)}"
                 error_text.visible = True
-                self.user_dialog.update()
+                self.page.update()
         
         def close_dialog(e):
             self.user_dialog.open = False
+            self.page.dialog = None
             self.page.update()
         
         # Build dialog content
@@ -1063,6 +1066,7 @@ class UserManagement(ft.UserControl):
 
         def close_success_dialog(e):
             success_dialog.open = False
+            self.page.dialog = None
             self.page.update()
             # Reload users and update UI
             self.load_users()

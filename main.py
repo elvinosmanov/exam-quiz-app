@@ -118,6 +118,11 @@ class QuizApp:
         self.show_login(page)
         
     def show_login(self, page: ft.Page):
+        # Clear any existing dialogs
+        if page.dialog:
+            page.dialog.open = False
+            page.dialog = None
+
         page.clean()
         login_view = LoginView(self.session_manager, self.on_login_success)
         page.add(login_view)
@@ -155,6 +160,11 @@ class QuizApp:
             expand=True,
             bgcolor=ft.colors.WHITE
         )
+
+        # Clear any existing dialogs before cleaning page
+        if page.dialog:
+            page.dialog.open = False
+            page.dialog = None
 
         page.clean()
         page.add(loading_overlay)
