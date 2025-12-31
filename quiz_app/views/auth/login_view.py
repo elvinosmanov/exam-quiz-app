@@ -2,6 +2,7 @@ import flet as ft
 from quiz_app.utils.auth import AuthManager
 from quiz_app.config import COLORS
 from quiz_app.utils.localization import t
+from quiz_app.utils.feedback_dialog import create_feedback_button
 
 class LoginView(ft.UserControl):
     def __init__(self, session_manager, on_login_success):
@@ -73,6 +74,16 @@ class LoginView(ft.UserControl):
                 image_opacity=0.9,
                 bgcolor=COLORS['background'],
                 expand=True
+            ),
+            # Feedback button in top-right corner
+            ft.Container(
+                content=create_feedback_button(
+                    user_data=None,
+                    current_page="Login Page",
+                    is_icon_only=True
+                ),
+                alignment=ft.alignment.top_right,
+                padding=ft.padding.all(15)
             ),
             # Centered login card
             ft.Container(

@@ -3,6 +3,7 @@ from datetime import datetime
 from quiz_app.config import COLORS
 from quiz_app.utils.localization import t
 from quiz_app.views.common.help_view import HelpView
+from quiz_app.utils.feedback_dialog import create_feedback_button
 
 class ExamineeDashboard(ft.UserControl):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -81,6 +82,15 @@ class ExamineeDashboard(ft.UserControl):
         # Add view switcher for experts (if provided)
         if self.view_switcher:
             right_controls.append(self.view_switcher)
+
+        # Add feedback button
+        right_controls.append(
+            create_feedback_button(
+                user_data=self.user_data,
+                current_page="Examinee Dashboard",
+                is_icon_only=True
+            )
+        )
 
         # User info and logout
         right_controls.extend([
@@ -372,8 +382,11 @@ class ExamineeDashboard(ft.UserControl):
 
             if exam['start_date'] and now < datetime.fromisoformat(exam['start_date']):
                 continue
-            if exam['end_date'] and now > datetime.fromisoformat(exam['end_date']):
-                continue
+            if exam['end_date']:
+                end = datetime.fromisoformat(exam['end_date'])
+                # Use date comparison to make deadline inclusive (full day available)
+                if now.date() > end.date():
+                    continue
             
             # Create compact list-style exam card
             exam_card = ft.Container(
@@ -843,7 +856,8 @@ class ExamineeDashboard(ft.UserControl):
                     continue
             if exam['end_date']:
                 end = datetime.fromisoformat(exam['end_date'])
-                if now > end:
+                # Use date comparison to make deadline inclusive (full day available)
+                if now.date() > end.date():
                     continue
 
             # Enforce remaining attempts
@@ -1035,13 +1049,15 @@ class ExamineeDashboard(ft.UserControl):
 
             if assignment_data['end_date']:
                 end_date = datetime.fromisoformat(assignment_data['end_date'])
-                if now > end_date:
+                # Use date comparison to make deadline inclusive (full day available)
+                if now.date() > end_date.date():
                     self.show_error_dialog("This assignment has expired")
                     return
 
             if assignment_data['deadline']:
                 deadline = datetime.fromisoformat(assignment_data['deadline'])
-                if now > deadline:
+                # Use date comparison to make deadline inclusive (full day available)
+                if now.date() > deadline.date():
                     self.show_error_dialog("This assignment deadline has passed")
                     return
 

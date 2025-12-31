@@ -1,6 +1,7 @@
 import flet as ft
 from quiz_app.config import COLORS
 from quiz_app.utils.localization import t
+from quiz_app.utils.feedback_dialog import create_feedback_button
 
 class BaseAdminLayout(ft.UserControl):
     def __init__(self, session_manager, user_data, logout_callback, view_switcher=None):
@@ -90,6 +91,15 @@ class BaseAdminLayout(ft.UserControl):
         # Add view switcher for experts (if provided)
         if self.view_switcher:
             right_controls.append(self.view_switcher)
+
+        # Add feedback button
+        right_controls.append(
+            create_feedback_button(
+                user_data=self.user_data,
+                current_page="Admin Dashboard",
+                is_icon_only=True
+            )
+        )
 
         # User info and logout
         right_controls.extend([

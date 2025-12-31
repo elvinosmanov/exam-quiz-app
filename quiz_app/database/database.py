@@ -820,11 +820,205 @@ def populate_organizational_structure():
     entries_count = db.execute_query("SELECT COUNT(*) as count FROM organizational_structure")
     print(f"Organizational structure populated with {entries_count[0]['count']} entries")
 
+def populate_email_templates():
+    """Populate email_templates table with default templates for all types and languages"""
+    db = Database()
+
+    # Check if templates already exist
+    existing_count = db.execute_query("SELECT COUNT(*) as count FROM email_templates")
+    if existing_count and existing_count[0]['count'] > 0:
+        print("Email templates already populated, skipping...")
+        return
+
+    print("Populating default email templates...")
+
+    # Define default templates for each type and language
+    templates = [
+        # PASSED - English
+        {
+            'type': 'passed',
+            'language': 'en',
+            'subject': 'Congratulations! Exam Results - {{exam_name}}',
+            'body': '''Dear {{full_name}},
+
+Congratulations! You have successfully passed the exam.
+
+Exam Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Exam: {{exam_name}}
+Your Score: {{score}}%
+Passing Score: {{passing_score}}%
+Status: {{status}}
+
+Performance Summary:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Correct Answers: {{correct}}
+Incorrect Answers: {{incorrect}}
+Unanswered: {{unanswered}}
+
+Well done on your achievement! Keep up the excellent work.
+
+Best regards,
+Examination Team'''
+        },
+
+        # PASSED - Azerbaijani
+        {
+            'type': 'passed',
+            'language': 'az',
+            'subject': 'Təbriklər! İmtahan Nəticələri - {{exam_name}}',
+            'body': '''Hörmətli {{full_name}},
+
+Təbriklər! Siz imtahandan uğurla keçdiniz.
+
+İmtahan Məlumatları:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+İmtahan: {{exam_name}}
+Sizin Bal: {{score}}%
+Keçid Balı: {{passing_score}}%
+Status: {{status}}
+
+Performans Xülasəsi:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Düzgün Cavablar: {{correct}}
+Səhv Cavablar: {{incorrect}}
+Cavabsız: {{unanswered}}
+
+Uğurlarınıza görə təbriklər! Yaxşı işinizi davam etdirin.
+
+Hörmətlə,
+İmtahan Komandası'''
+        },
+
+        # FAILED - English
+        {
+            'type': 'failed',
+            'language': 'en',
+            'subject': 'Exam Results - {{exam_name}}',
+            'body': '''Dear {{full_name}},
+
+Thank you for completing the exam. Unfortunately, you did not achieve the passing score this time.
+
+Exam Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Exam: {{exam_name}}
+Your Score: {{score}}%
+Passing Score: {{passing_score}}%
+Status: {{status}}
+
+Performance Summary:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Correct Answers: {{correct}}
+Incorrect Answers: {{incorrect}}
+Unanswered: {{unanswered}}
+
+Don't be discouraged! We encourage you to review the material and try again.
+You can learn from this experience and improve your performance next time.
+
+Best regards,
+Examination Team'''
+        },
+
+        # FAILED - Azerbaijani
+        {
+            'type': 'failed',
+            'language': 'az',
+            'subject': 'İmtahan Nəticələri - {{exam_name}}',
+            'body': '''Hörmətli {{full_name}},
+
+İmtahanı tamamladığınız üçün təşəkkür edirik. Təəssüf ki, bu dəfə keçid balını əldə edə bilmədiniz.
+
+İmtahan Məlumatları:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+İmtahan: {{exam_name}}
+Sizin Bal: {{score}}%
+Keçid Balı: {{passing_score}}%
+Status: {{status}}
+
+Performans Xülasəsi:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Düzgün Cavablar: {{correct}}
+Səhv Cavablar: {{incorrect}}
+Cavabsız: {{unanswered}}
+
+Ruhdan düşməyin! Materialı nəzərdən keçirməyinizi və yenidən cəhd etməyinizi tövsiyə edirik.
+Bu təcrübədən öyrənə və növbəti dəfə performansınızı yaxşılaşdıra bilərsiniz.
+
+Hörmətlə,
+İmtahan Komandası'''
+        },
+
+        # PENDING - English
+        {
+            'type': 'pending',
+            'language': 'en',
+            'subject': 'Exam Submitted - Results Pending - {{exam_name}}',
+            'body': '''Dear {{full_name}},
+
+Thank you for completing the exam. Your submission has been received successfully.
+
+Exam Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Exam: {{exam_name}}
+Status: Pending Review
+Your responses are being evaluated
+
+Your exam contains questions that require manual grading by our evaluation team.
+We will notify you once the grading process is complete and your final results are available.
+
+Thank you for your patience.
+
+Best regards,
+Examination Team'''
+        },
+
+        # PENDING - Azerbaijani
+        {
+            'type': 'pending',
+            'language': 'az',
+            'subject': 'İmtahan Təqdim Edildi - Nəticələr Gözlənilir - {{exam_name}}',
+            'body': '''Hörmətli {{full_name}},
+
+İmtahanı tamamladığınız üçün təşəkkür edirik. Cavablarınız uğurla qəbul edildi.
+
+İmtahan Məlumatları:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+İmtahan: {{exam_name}}
+Status: Nəzərdən Keçirilir
+Cavablarınız qiymətləndirilir
+
+İmtahanınızda qiymətləndirmə komandamız tərəfindən əl ilə yoxlanılması tələb olunan suallar var.
+Qiymətləndirmə prosesi başa çatdıqdan və yekun nəticələriniz hazır olduqdan sonra sizə məlumat veriləcək.
+
+Səbrinizə görə təşəkkür edirik.
+
+Hörmətlə,
+İmtahan Komandası'''
+        }
+    ]
+
+    # Insert all templates
+    for template in templates:
+        try:
+            db.execute_insert(
+                """INSERT INTO email_templates (template_type, language, subject, body_template)
+                   VALUES (?, ?, ?, ?)""",
+                (template['type'], template['language'], template['subject'], template['body'])
+            )
+            print(f"  ✓ Created template: {template['type']} ({template['language']})")
+        except Exception as e:
+            print(f"  ✗ Error creating template {template['type']} ({template['language']}): {e}")
+
+    # Verify templates were created
+    final_count = db.execute_query("SELECT COUNT(*) as count FROM email_templates")
+    print(f"Email templates populated: {final_count[0]['count']} templates created")
+
 def init_database():
     """Initialize the database with tables and default data"""
     create_tables()
     create_default_admin()
     populate_organizational_structure()
+    populate_email_templates()
     print(f"Database initialized at: {DATABASE_PATH}")
 
 if __name__ == "__main__":

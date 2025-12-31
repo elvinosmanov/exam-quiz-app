@@ -302,8 +302,29 @@ class Settings(ft.UserControl):
                 subject_field.value = template['subject']
                 body_field.value = template['body_template']
             else:
-                subject_field.value = ""
-                body_field.value = ""
+                # Template not found - try to populate defaults
+                print(f"[WARNING] Template not found for {template_type} ({language}), attempting to create defaults...")
+                from quiz_app.database.database import populate_email_templates
+
+                try:
+                    populate_email_templates()
+                    template_manager.clear_cache()
+
+                    # Try loading again
+                    template = template_manager.get_template(template_type, language)
+                    if template:
+                        subject_field.value = template['subject']
+                        body_field.value = template['body_template']
+                        self.show_success_message(f"Default templates created successfully")
+                    else:
+                        # Still not found - show placeholder
+                        subject_field.value = f"Email subject for {template_type} ({language})"
+                        body_field.value = f"Email body template for {template_type}\n\nAvailable placeholders:\n" + ", ".join(template_manager.get_available_placeholders())
+                        self.show_error_message("Template not found. Please save to create a new template.")
+                except Exception as ex:
+                    print(f"[ERROR] Failed to create default templates: {ex}")
+                    subject_field.value = ""
+                    body_field.value = ""
 
             # Only update if controls are already on page
             if self.page:
@@ -335,10 +356,33 @@ class Settings(ft.UserControl):
                 self.show_error_message(t('settings_failed'))
 
         def reset_to_default(e):
-            """Reset template to default"""
-            # Note: Template reset functionality disabled - migration files removed
-            # Templates are initialized with defaults in database.py create_tables()
-            self.show_error_message("Template reset feature temporarily disabled. Please check database defaults.")
+            """Reset template to default by repopulating from defaults"""
+            template_type = template_type_dropdown.value
+            language = 'en' if language_tabs.selected_index == 0 else 'az'
+
+            # Import and call populate function to get defaults
+            from quiz_app.database.database import populate_email_templates
+
+            # Delete existing template
+            try:
+                self.db.execute_update(
+                    "DELETE FROM email_templates WHERE template_type = ? AND language = ?",
+                    (template_type, language)
+                )
+
+                # Repopulate (this will only add missing templates)
+                populate_email_templates()
+
+                # Clear template cache
+                template_manager.clear_cache()
+
+                # Reload template
+                load_template()
+
+                self.show_success_message(t('template_reset_success'))
+            except Exception as ex:
+                print(f"[ERROR] Failed to reset template: {ex}")
+                self.show_error_message(f"Failed to reset template: {str(ex)}")
 
         def test_email(e):
             """Generate test email with sample data"""
