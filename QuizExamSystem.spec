@@ -57,9 +57,9 @@ a = Analysis(
         'tests',
         'curses',
         # 'email.mime',  # REMOVED: needed by password_generator.py for email functionality
-        'pydoc',
-        'doctest',
-        'argparse',
+        # 'pydoc',  # REMOVED: Required by pandas
+        # 'doctest',  # REMOVED: Required by reportlab
+        # 'argparse',  # REMOVED: Required by flet_cli
     ],
     noarchive=False,
     optimize=0,  # Keep docstrings intact (required by pandas/numpy)
