@@ -52,7 +52,7 @@ a = Analysis(
     excludes=[
         # Exclude unused modules to reduce size
         'tkinter',
-        'unittest',
+        # 'unittest',  # REMOVED: Required by some dependencies (pandas/openpyxl)
         'test',
         'tests',
         'curses',
