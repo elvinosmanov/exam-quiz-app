@@ -69,6 +69,7 @@ class Grading(ft.UserControl):
             filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
 
             # Get exam sessions with ungraded essay/short_answer questions (assignment-based)
+            # FIXED: Count DISTINCT questions instead of all answers to avoid duplicate count
             query = """
                 SELECT
                     es.id as session_id,
@@ -80,7 +81,7 @@ class Grading(ft.UserControl):
                     u.full_name as student_name,
                     u.username as student_username,
                     u.email as student_email,
-                    COUNT(ua.id) as ungraded_count,
+                    COUNT(DISTINCT q.id) as ungraded_count,
                     GROUP_CONCAT(q.question_type) as question_types,
                     (
                         SELECT GROUP_CONCAT(ex.title, ', ')
@@ -101,7 +102,7 @@ class Grading(ft.UserControl):
                 AND es.assignment_id IS NOT NULL
                 {filter_clause}
                 GROUP BY es.id
-                HAVING COUNT(ua.id) > 0
+                HAVING COUNT(DISTINCT q.id) > 0
                 ORDER BY es.end_time DESC
             """.format(filter_clause=filter_clause)
 
@@ -358,23 +359,43 @@ class Grading(ft.UserControl):
         self.current_session = session_data
 
         # Get all ungraded essay/short_answer questions for this session
+        # FIXED: Get only the LATEST answer for each question to avoid duplicates
         session_questions = self.db.execute_query("""
-            SELECT DISTINCT
-                ua.id as answer_id, ua.points_earned,
+            SELECT
+                ua.id as answer_id,
+                ua.points_earned,
                 ua.answer_text,
                 q.id as question_id,
                 q.question_text,
                 q.question_type,
                 q.points as max_points,
                 q.correct_answer
-            FROM user_answers ua
-            JOIN questions q ON ua.question_id = q.id
-            WHERE ua.session_id = ?
+            FROM questions q
+            LEFT JOIN (
+                SELECT ua1.*
+                FROM user_answers ua1
+                WHERE ua1.session_id = ?
+                AND ua1.id = (
+                    SELECT ua2.id
+                    FROM user_answers ua2
+                    WHERE ua2.session_id = ua1.session_id
+                    AND ua2.question_id = ua1.question_id
+                    ORDER BY ua2.answered_at DESC, ua2.id DESC
+                    LIMIT 1
+                )
+            ) ua ON q.id = ua.question_id
+            WHERE q.id IN (
+                SELECT DISTINCT question_id
+                FROM user_answers
+                WHERE session_id = ?
+                AND answer_text IS NOT NULL
+                AND TRIM(answer_text) != ''
+            )
             AND q.question_type IN ('essay', 'short_answer')
             AND ua.answer_text IS NOT NULL
             AND TRIM(ua.answer_text) != ''
             ORDER BY q.order_index, q.id
-        """, (session_data['session_id'],))
+        """, (session_data['session_id'], session_data['session_id']))
 
         print(f"[DEBUG] Found {len(session_questions)} ungraded questions for session {session_data['session_id']}")
         for q in session_questions:
@@ -409,7 +430,7 @@ class Grading(ft.UserControl):
             points_input = ft.TextField(
                 label=f"Points (0 - {question['max_points']})",
                 value=str(question['points_earned']) if question.get('points_earned') is not None else "",
-                width=150,
+                width=200,
                 keyboard_type=ft.KeyboardType.NUMBER
             )
             self.points_inputs[question['answer_id']] = points_input

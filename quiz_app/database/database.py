@@ -395,6 +395,7 @@ def create_tables():
         ''')
         
         # User answers table
+        # CRITICAL FIX: Added UNIQUE constraint on (session_id, question_id) to prevent duplicates
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_answers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,7 +410,8 @@ def create_tables():
                 answered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (session_id) REFERENCES exam_sessions (id),
                 FOREIGN KEY (question_id) REFERENCES questions (id),
-                FOREIGN KEY (selected_option_id) REFERENCES question_options (id)
+                FOREIGN KEY (selected_option_id) REFERENCES question_options (id),
+                UNIQUE(session_id, question_id)
             )
         ''')
         
