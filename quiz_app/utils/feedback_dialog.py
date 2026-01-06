@@ -314,24 +314,39 @@ def create_feedback_button(user_data=None, current_page=None, is_icon_only=True)
         is_icon_only: If True, shows only icon; if False, shows icon + text
 
     Returns:
-        ft.IconButton or ft.OutlinedButton
+        ft.Container with styled button
     """
     def show_feedback_dialog(e):
         """Show feedback dialog"""
-        page = e.page
-        feedback = FeedbackDialog(
-            user_data=user_data,
-            current_page=current_page,
-        )
-        feedback.show(page)
+        print(f"[FEEDBACK] Button clicked! Opening feedback dialog for page: {current_page}")
+        try:
+            page = e.page
+            if not page:
+                print("[FEEDBACK ERROR] No page reference available!")
+                return
+
+            feedback = FeedbackDialog(
+                user_data=user_data,
+                current_page=current_page,
+            )
+            feedback.show(page)
+            print("[FEEDBACK] Dialog shown successfully")
+        except Exception as ex:
+            print(f"[FEEDBACK ERROR] Failed to show dialog: {ex}")
+            import traceback
+            traceback.print_exc()
 
     if is_icon_only:
-        return ft.IconButton(
-            icon=ft.icons.FEEDBACK_OUTLINED,
-            tooltip="Send Feedback / Report Issue",
+        # Small icon-only button for minimal footprint - subtle gray color
+        button = ft.IconButton(
+            icon=ft.icons.BUG_REPORT,
+            icon_color=ft.colors.GREY_600,
+            bgcolor=ft.colors.GREY_200,
+            tooltip="Report bugs or send feedback",
             on_click=show_feedback_dialog,
-            icon_color=COLORS['primary'],
+            icon_size=18,
         )
+        return button
     else:
         return ft.OutlinedButton(
             text="Feedback",

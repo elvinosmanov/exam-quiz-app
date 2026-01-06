@@ -143,6 +143,7 @@ class Grading(ft.UserControl):
                     es.end_time,
                     es.score,
                     es.assignment_id,
+                    es.edit_count,
                     ea.assignment_name,
                     u.id as user_id,
                     u.full_name as student_name,
@@ -226,7 +227,19 @@ class Grading(ft.UserControl):
                                 tooltip=t('view_results'),
                                 icon_color=COLORS['secondary'],
                                 on_click=lambda e, s=session: self.show_session_details(s)
-                            )
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.EDIT,
+                                tooltip=t('edit_grades'),
+                                icon_color=COLORS['primary'],
+                                on_click=lambda e, s=session: self.show_edit_grades_dialog(s)
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.HISTORY,
+                                tooltip="View Edit History",
+                                icon_color=COLORS['text_secondary'],
+                                on_click=lambda e, s=session: self.show_edit_history(s)
+                            ) if session.get('edit_count', 0) > 0 else ft.Container()
                         ], spacing=5)
                     )
                 ])
@@ -291,6 +304,463 @@ class Grading(ft.UserControl):
             import traceback
             traceback.print_exc()
             self.show_error_dialog("Failed to load exam details")
+
+    def show_edit_grades_dialog(self, session):
+        """Show dialog to edit grades for a completed exam session"""
+        try:
+            session_id = session['session_id']
+            print(f"Opening edit grades dialog for session {session_id}")
+
+            # Get all questions and answers for this session
+            review_data = self.get_exam_review_data(session_id)
+            if not review_data:
+                self.show_error_dialog("No exam data found for editing")
+                return
+
+            # Create editable grade sections for each question
+            question_sections = []
+            self.edit_points_inputs = {}  # Store points inputs for editing
+            self.edit_reason_inputs = {}  # Store reason inputs
+
+            for i, question_data in enumerate(review_data, 1):
+                # ONLY allow editing for manually graded questions (essay/short_answer)
+                question_type = question_data.get('question_type', '')
+                if question_type not in ['essay', 'short_answer']:
+                    continue  # Skip auto-graded questions
+
+                # Get user answer ID
+                user_answer_data = self.db.execute_single("""
+                    SELECT id, points_earned
+                    FROM user_answers
+                    WHERE session_id = ? AND question_id = ?
+                    ORDER BY answered_at DESC
+                    LIMIT 1
+                """, (session_id, question_data['question_id']))
+
+                if not user_answer_data:
+                    continue
+
+                answer_id = user_answer_data['id']
+                current_points = user_answer_data.get('points_earned', 0) or 0
+                max_points = question_data.get('points', 1.0)
+
+                # Points input for editing
+                points_input = ft.TextField(
+                    label=f"Points (0 - {max_points})",
+                    value=str(current_points),
+                    width=200,
+                    keyboard_type=ft.KeyboardType.NUMBER
+                )
+                self.edit_points_inputs[answer_id] = points_input
+
+                # Build question section
+                question_section = ft.Container(
+                    content=ft.Column([
+                        # Question header
+                        ft.Row([
+                            ft.Text(f"{t('question')} {i}:", size=16, weight=ft.FontWeight.BOLD),
+                            ft.Container(expand=True),
+                            ft.Text(
+                                f"{t('question_type')}: {question_data['question_type'].replace('_', ' ').title()}",
+                                size=12,
+                                color=COLORS['text_secondary']
+                            )
+                        ]),
+                        ft.Container(height=5),
+
+                        # Question text
+                        ft.Text(question_data['question_text'], size=14, weight=ft.FontWeight.W_500),
+                        ft.Container(height=10),
+
+                        # Student answer
+                        ft.Text(t('student_answer') + ":", size=13, weight=ft.FontWeight.BOLD),
+                        ft.Container(
+                            content=ft.Text(
+                                str(question_data.get('user_answer_text', t('no_data'))),
+                                size=13,
+                                selectable=True
+                            ),
+                            padding=ft.padding.all(12),
+                            bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                            border_radius=6,
+                            border=ft.border.all(1, ft.colors.with_opacity(0.2, COLORS['primary'])),
+                            width=650
+                        ),
+                        ft.Container(height=10),
+
+                        # Current points display and edit
+                        ft.Row([
+                            ft.Text("Current:", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"{current_points}/{max_points} pts", size=12, color=COLORS['success']),
+                            ft.Container(width=20),
+                            points_input
+                        ], spacing=10)
+                    ], spacing=5),
+                    padding=ft.padding.all(15),
+                    bgcolor=ft.colors.with_opacity(0.02, COLORS['surface']),
+                    border_radius=8,
+                    border=ft.border.all(1, ft.colors.with_opacity(0.1, COLORS['text_secondary']))
+                )
+                question_sections.append(question_section)
+
+            if not question_sections:
+                self.show_error_dialog("No manually graded questions (essay/short answer) found in this exam")
+                return
+
+            # Edit reason field
+            edit_reason_field = ft.TextField(
+                label=t('edit_reason') if hasattr(t, '__call__') else "Reason for editing (optional)",
+                multiline=True,
+                min_lines=2,
+                max_lines=3,
+                width=650
+            )
+            self.current_edit_reason = edit_reason_field
+
+            # Create edit dialog
+            edit_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Row([
+                    ft.Icon(ft.icons.EDIT, color=COLORS['primary']),
+                    ft.Text(t('edit_grades') if hasattr(t, '__call__') else "Edit Grades", color=COLORS['primary'], weight=ft.FontWeight.BOLD)
+                ], spacing=8),
+                content=ft.Container(
+                    content=ft.Column([
+                        # Session info header
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text(f"{t('assignment')}: {session['assignment_name']}", size=16, weight=ft.FontWeight.BOLD),
+                                ft.Text(f"{t('student_answer')}: {session['student_name']}", size=14, weight=ft.FontWeight.W_500),
+                                ft.Text(f"Current Score: {session['score']:.1f}%", size=13, color=COLORS['text_secondary']),
+                                ft.Container(height=8),
+                                ft.Container(
+                                    content=ft.Text(
+                                        "ℹ️ Only manually graded questions (Essay/Short Answer) can be edited",
+                                        size=12,
+                                        italic=True,
+                                        color=COLORS['text_secondary']
+                                    ),
+                                    padding=ft.padding.all(8),
+                                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                                    border_radius=6
+                                )
+                            ], spacing=5),
+                            padding=ft.padding.only(bottom=15)
+                        ),
+
+                        # Scrollable questions area
+                        ft.Container(
+                            content=ft.Column(
+                                question_sections + [
+                                    ft.Container(height=15),
+                                    ft.Divider(),
+                                    ft.Container(height=10),
+                                    edit_reason_field
+                                ],
+                                spacing=15,
+                                scroll=ft.ScrollMode.AUTO
+                            ),
+                            expand=True
+                        )
+                    ], spacing=0),
+                    width=700,
+                    height=500
+                ),
+                actions=[
+                    ft.TextButton(
+                        t('cancel'),
+                        on_click=self.close_edit_grades_dialog
+                    ),
+                    ft.ElevatedButton(
+                        t('save_changes') if hasattr(t, '__call__') else "Save Changes",
+                        on_click=lambda e: self.save_edited_grades(session_id, review_data, session),
+                        style=ft.ButtonStyle(bgcolor=COLORS['primary'], color=ft.colors.WHITE)
+                    )
+                ]
+            )
+
+            # Show dialog
+            if self.page:
+                self.page.dialog = edit_dialog
+                edit_dialog.open = True
+                self.page.update()
+
+        except Exception as e:
+            print(f"Error showing edit grades dialog: {e}")
+            import traceback
+            traceback.print_exc()
+            self.show_error_dialog("Failed to load edit grades dialog")
+
+    def save_edited_grades(self, session_id, review_data, session):
+        """Save edited grades and create audit trail"""
+        try:
+            # Get current session score for audit
+            old_session_score = session.get('score', 0)
+
+            grades_updated = 0
+            errors = []
+            edit_reason = self.current_edit_reason.value if hasattr(self, 'current_edit_reason') else ""
+
+            for question_data in review_data:
+                question_id = question_data['question_id']
+
+                # ONLY process manually graded questions (essay/short_answer)
+                question_type = question_data.get('question_type', '')
+                if question_type not in ['essay', 'short_answer']:
+                    continue  # Skip auto-graded questions
+
+                # Get user answer
+                user_answer_data = self.db.execute_single("""
+                    SELECT id, points_earned
+                    FROM user_answers
+                    WHERE session_id = ? AND question_id = ?
+                    ORDER BY answered_at DESC
+                    LIMIT 1
+                """, (session_id, question_id))
+
+                if not user_answer_data:
+                    continue
+
+                answer_id = user_answer_data['id']
+                old_points = user_answer_data.get('points_earned', 0) or 0
+                max_points = float(question_data.get('points', 1.0))
+
+                # Get new points from input
+                points_input = self.edit_points_inputs.get(answer_id)
+                if not points_input or not points_input.value.strip():
+                    continue
+
+                try:
+                    new_points = float(points_input.value)
+
+                    # Validate points
+                    if new_points < 0 or new_points > max_points:
+                        errors.append(f"Points must be 0-{max_points} for question {question_id}")
+                        continue
+
+                    # Only update if changed
+                    if abs(new_points - old_points) < 0.01:
+                        continue
+
+                    # Update user_answers table
+                    self.db.execute_update("""
+                        UPDATE user_answers
+                        SET points_earned = ?, is_correct = ?
+                        WHERE id = ?
+                    """, (new_points, 1 if new_points > 0 else 0, answer_id))
+
+                    # Recalculate total score
+                    self.recalculate_exam_session_score(session_id)
+
+                    # Get new session score for audit
+                    new_session_data = self.db.execute_single("""
+                        SELECT score FROM exam_sessions WHERE id = ?
+                    """, (session_id,))
+                    new_session_score = new_session_data.get('score', 0) if new_session_data else 0
+
+                    # Create audit trail in grade_edit_history
+                    self.db.execute_insert("""
+                        INSERT INTO grade_edit_history
+                        (session_id, question_id, answer_id, old_points, new_points,
+                         old_total_score, new_total_score, edited_by, edit_reason)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (session_id, question_id, answer_id, old_points, new_points,
+                          old_session_score, new_session_score,
+                          self.user_data.get('id'), edit_reason))
+
+                    grades_updated += 1
+
+                except ValueError:
+                    errors.append(f"Invalid number for question {question_id}")
+                    continue
+
+            # Update session edit tracking
+            if grades_updated > 0:
+                self.db.execute_update("""
+                    UPDATE exam_sessions
+                    SET last_edited_by = ?,
+                        last_edited_at = CURRENT_TIMESTAMP,
+                        edit_count = COALESCE(edit_count, 0) + 1
+                    WHERE id = ?
+                """, (self.user_data.get('id'), session_id))
+
+            # Show results
+            if errors:
+                error_message = f"Updated {grades_updated} grades. Errors:\n" + "\n".join(errors[:3])
+                if self.page:
+                    self.page.show_snack_bar(ft.SnackBar(content=ft.Text(error_message)))
+            else:
+                # Success
+                self.close_edit_grades_dialog(None)
+
+                # Reload data
+                self.load_completed_sessions()
+                self.update_completed_table()
+                self.update()
+
+                # Show success message
+                if self.page:
+                    self.page.show_snack_bar(
+                        ft.SnackBar(
+                            content=ft.Text(f"Successfully updated {grades_updated} grade(s)!"),
+                            bgcolor=COLORS['success']
+                        )
+                    )
+
+        except Exception as e:
+            print(f"Error saving edited grades: {e}")
+            import traceback
+            traceback.print_exc()
+            if self.page:
+                self.page.show_snack_bar(
+                    ft.SnackBar(content=ft.Text(t('operation_failed') if hasattr(t, '__call__') else "Operation failed"))
+                )
+
+    def close_edit_grades_dialog(self, e):
+        """Close the edit grades dialog"""
+        if self.page and self.page.dialog:
+            self.page.dialog.open = False
+            self.page.update()
+        self.edit_points_inputs = {}
+        self.edit_reason_inputs = {}
+        self.current_edit_reason = None
+
+    def show_edit_history(self, session):
+        """Show the edit history for a graded exam session"""
+        try:
+            session_id = session['session_id']
+
+            # Get edit history
+            edit_history = self.db.execute_query("""
+                SELECT
+                    geh.*,
+                    q.question_text,
+                    u.full_name as editor_name
+                FROM grade_edit_history geh
+                JOIN questions q ON geh.question_id = q.id
+                JOIN users u ON geh.edited_by = u.id
+                WHERE geh.session_id = ?
+                ORDER BY geh.edited_at DESC
+            """, (session_id,))
+
+            if not edit_history:
+                self.show_error_dialog("No edit history found for this exam")
+                return
+
+            # Build history entries
+            history_entries = []
+            for entry in edit_history:
+                edited_date = datetime.fromisoformat(entry['edited_at'].replace('Z', '+00:00'))
+                formatted_date = edited_date.strftime("%b %d, %Y at %H:%M")
+
+                history_entry = ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.EDIT, color=COLORS['primary'], size=18),
+                            ft.Text(
+                                f"Edited by {entry['editor_name']}",
+                                size=14,
+                                weight=ft.FontWeight.BOLD
+                            ),
+                            ft.Container(expand=True),
+                            ft.Text(formatted_date, size=12, color=COLORS['text_secondary'])
+                        ]),
+                        ft.Container(height=8),
+                        ft.Text(
+                            f"Question: {entry['question_text'][:80]}...",
+                            size=12,
+                            color=COLORS['text_secondary']
+                        ),
+                        ft.Container(height=5),
+                        ft.Row([
+                            ft.Text("Points:", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(
+                                f"{entry['old_points']} → {entry['new_points']}",
+                                size=12,
+                                color=COLORS['success']
+                            ),
+                            ft.Container(width=20),
+                            ft.Text("Total Score:", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(
+                                f"{entry['old_total_score']:.1f}% → {entry['new_total_score']:.1f}%",
+                                size=12,
+                                color=COLORS['success']
+                            )
+                        ]),
+                        ft.Container(
+                            content=ft.Text(
+                                f"Reason: {entry['edit_reason'] or 'No reason provided'}",
+                                size=12,
+                                italic=True,
+                                color=COLORS['text_secondary']
+                            ),
+                            padding=ft.padding.only(top=8)
+                        ) if entry.get('edit_reason') else ft.Container()
+                    ], spacing=0),
+                    padding=ft.padding.all(15),
+                    margin=ft.margin.only(bottom=10),
+                    bgcolor=ft.colors.with_opacity(0.02, COLORS['surface']),
+                    border_radius=8,
+                    border=ft.border.all(1, ft.colors.with_opacity(0.1, COLORS['text_secondary']))
+                )
+                history_entries.append(history_entry)
+
+            # Create history dialog
+            history_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Row([
+                    ft.Icon(ft.icons.HISTORY, color=COLORS['primary']),
+                    ft.Text("Grade Edit History", color=COLORS['primary'], weight=ft.FontWeight.BOLD)
+                ], spacing=8),
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text(
+                            f"Student: {session['student_name']}",
+                            size=14,
+                            weight=ft.FontWeight.BOLD
+                        ),
+                        ft.Text(
+                            f"Assignment: {session['assignment_name']}",
+                            size=13,
+                            color=COLORS['text_secondary']
+                        ),
+                        ft.Container(height=15),
+                        ft.Divider(),
+                        ft.Container(height=10),
+                        ft.Column(
+                            history_entries,
+                            scroll=ft.ScrollMode.AUTO,
+                            spacing=0
+                        )
+                    ], spacing=0),
+                    width=600,
+                    height=400
+                ),
+                actions=[
+                    ft.TextButton(
+                        t('close'),
+                        on_click=lambda e: self.close_history_dialog()
+                    )
+                ]
+            )
+
+            # Show dialog
+            if self.page:
+                self.page.dialog = history_dialog
+                history_dialog.open = True
+                self.page.update()
+
+        except Exception as e:
+            print(f"Error showing edit history: {e}")
+            import traceback
+            traceback.print_exc()
+            self.show_error_dialog("Failed to load edit history")
+
+    def close_history_dialog(self):
+        """Close the edit history dialog"""
+        if self.page and self.page.dialog:
+            self.page.dialog.open = False
+            self.page.update()
 
     def update_answers_table(self):
         """Update the answers table with current data (assignment-based)"""

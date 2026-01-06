@@ -683,11 +683,48 @@ def create_tables():
             )
         ''')
 
+        # Grade Edit History table (tracks all grade edits with audit trail)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS grade_edit_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                answer_id INTEGER NOT NULL,
+                old_points REAL NOT NULL,
+                new_points REAL NOT NULL,
+                old_total_score REAL,
+                new_total_score REAL,
+                edited_by INTEGER NOT NULL,
+                edit_reason TEXT,
+                edited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES exam_sessions (id),
+                FOREIGN KEY (question_id) REFERENCES questions (id),
+                FOREIGN KEY (answer_id) REFERENCES user_answers (id),
+                FOREIGN KEY (edited_by) REFERENCES users (id)
+            )
+        ''')
+
         # Add language_preference column to users table if it doesn't exist
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN language_preference TEXT DEFAULT 'en'")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Add grade editing audit columns to exam_sessions table if they don't exist
+        try:
+            cursor.execute('ALTER TABLE exam_sessions ADD COLUMN last_edited_by INTEGER')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE exam_sessions ADD COLUMN last_edited_at TIMESTAMP')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE exam_sessions ADD COLUMN edit_count INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
 
         # Create indexes for better performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)')
@@ -715,6 +752,8 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_organizational_structure_type ON organizational_structure(type)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_organizational_structure_parent ON organizational_structure(parent_key)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pattern_analysis_session ON pattern_analysis(session_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_grade_edit_history_session ON grade_edit_history(session_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_grade_edit_history_answer ON grade_edit_history(answer_id)')
 
         conn.commit()
 

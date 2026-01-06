@@ -75,75 +75,78 @@ class LoginView(ft.UserControl):
                 bgcolor=COLORS['background'],
                 expand=True
             ),
-            # Feedback button in top-right corner
-            ft.Container(
-                content=create_feedback_button(
-                    user_data=None,
-                    current_page="Login Page",
-                    is_icon_only=True
-                ),
-                alignment=ft.alignment.top_right,
-                padding=ft.padding.all(15)
-            ),
             # Centered login card
             ft.Container(
-                content=ft.Container(
-                    content=ft.Column([
-                        # Azercosmos Logo
-                        ft.Image(
-                            src="images/azercosmos-logo.png",
-                            width=200,
-                            fit=ft.ImageFit.CONTAIN
-                        ),
-                        ft.Container(height=20),
-                        ft.Text(
-                            t('app_name'),
-                            size=28,
-                            weight=ft.FontWeight.BOLD,
-                            color=COLORS['text_primary'],
-                            text_align=ft.TextAlign.CENTER
-                        ),
-                        ft.Container(height=5),
-                        ft.Text(
-                            t('please_sign_in'),
-                            size=14,
-                            color=COLORS['text_secondary'],
-                            text_align=ft.TextAlign.CENTER
-                        ),
-                        ft.Container(height=30),
+                content=ft.Stack([
+                    # Main login card content
+                    ft.Container(
+                        content=ft.Column([
+                            # Azercosmos Logo
+                            ft.Image(
+                                src="images/azercosmos-logo.png",
+                                width=200,
+                                fit=ft.ImageFit.CONTAIN
+                            ),
+                            ft.Container(height=20),
+                            ft.Text(
+                                t('app_name'),
+                                size=28,
+                                weight=ft.FontWeight.BOLD,
+                                color=COLORS['text_primary'],
+                                text_align=ft.TextAlign.CENTER
+                            ),
+                            ft.Container(height=5),
+                            ft.Text(
+                                t('please_sign_in'),
+                                size=14,
+                                color=COLORS['text_secondary'],
+                                text_align=ft.TextAlign.CENTER
+                            ),
+                            ft.Container(height=30),
 
-                        # Login form fields
-                        self.username_field,
-                        ft.Container(height=5),
-                        self.password_field,
+                            # Login form fields
+                            self.username_field,
+                            ft.Container(height=5),
+                            self.password_field,
 
-                        # Error message
-                        ft.Container(
-                            content=self.error_text,
-                            width=300,
-                            alignment=ft.alignment.center
+                            # Error message
+                            ft.Container(
+                                content=self.error_text,
+                                width=300,
+                                alignment=ft.alignment.center
+                            ),
+
+                            ft.Container(height=15),
+
+                            # Login button with loading indicator
+                            ft.Row([
+                                self.login_button,
+                                self.loading_ring
+                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, tight=True),
+                        width=420,
+                        padding=ft.padding.all(35),
+                        bgcolor=ft.colors.with_opacity(0.97, ft.colors.WHITE),
+                        border_radius=16,
+                        shadow=ft.BoxShadow(
+                            spread_radius=1,
+                            blur_radius=30,
+                            color=ft.colors.with_opacity(0.2, ft.colors.BLACK),
+                            offset=ft.Offset(0, 10)
                         ),
-
-                        ft.Container(height=15),
-
-                        # Login button with loading indicator
-                        ft.Row([
-                            self.login_button,
-                            self.loading_ring
-                        ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, tight=True),
-                    width=420,
-                    padding=ft.padding.all(35),
-                    bgcolor=ft.colors.with_opacity(0.97, ft.colors.WHITE),
-                    border_radius=16,
-                    shadow=ft.BoxShadow(
-                        spread_radius=1,
-                        blur_radius=30,
-                        color=ft.colors.with_opacity(0.2, ft.colors.BLACK),
-                        offset=ft.Offset(0, 10)
+                        border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.WHITE))
                     ),
-                    border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.WHITE))
-                ),
+                    # Feedback button - positioned at top-right of login card
+                    ft.Container(
+                        content=create_feedback_button(
+                            user_data=None,
+                            current_page="Login Page",
+                            is_icon_only=True
+                        ),
+                        right=10,
+                        top=10
+                    )
+                ]),
                 alignment=ft.alignment.center,
                 expand=True
             )
