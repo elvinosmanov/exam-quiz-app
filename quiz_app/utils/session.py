@@ -1,17 +1,6 @@
 from typing import Optional, Dict
 from datetime import datetime, timedelta
 from quiz_app.config import SESSION_TIMEOUT
-import os
-
-def _write_log(message: str):
-    """Write log message to file for debugging"""
-    try:
-        log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'session_debug.log')
-        with open(log_file, 'a', encoding='utf-8') as f:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            f.write(f"[{timestamp}] {message}\n")
-    except:
-        pass  # Silent fail for logging
 
 class SessionManager:
     def __init__(self):
@@ -27,8 +16,6 @@ class SessionManager:
 
     def create_session(self, user_data: Dict) -> bool:
         """Create a new user session - BULLETPROOF VERSION"""
-        _write_log("=== Session creation started ===")
-
         # Store error for UI display
         self.last_error = None
 
@@ -36,11 +23,8 @@ class SessionManager:
             # Check if user_data is None or empty
             if not user_data:
                 error_msg = "ERROR: user_data is None or empty"
-                _write_log(error_msg)
                 self.last_error = error_msg
                 return False
-
-            _write_log(f"User data keys: {list(user_data.keys())}")
 
             # Get critical fields with safe defaults
             user_id = user_data.get('id')
@@ -48,22 +32,17 @@ class SessionManager:
             role = user_data.get('role')
             full_name = user_data.get('full_name', '')
 
-            _write_log(f"user_id={user_id}, username={username}, role={role}, full_name={full_name}")
-
             # Validate only absolutely critical fields
             if not user_id:
                 error_msg = f"ERROR: Missing user id. Keys: {list(user_data.keys())}"
-                _write_log(error_msg)
                 self.last_error = error_msg
                 return False
             if not username:
                 error_msg = f"ERROR: Missing username. Keys: {list(user_data.keys())}"
-                _write_log(error_msg)
                 self.last_error = error_msg
                 return False
             if not role:
                 error_msg = f"ERROR: Missing role. Keys: {list(user_data.keys())}"
-                _write_log(error_msg)
                 self.last_error = error_msg
                 return False
 
@@ -71,17 +50,14 @@ class SessionManager:
             self.current_user = user_data
             self.login_time = datetime.now()
 
-            _write_log("Basic session data set successfully")
-
             # Get language preference - completely optional, never fail
             language_pref = 'en'
             try:
                 lang = user_data.get('language_preference')
                 if lang and isinstance(lang, str) and lang in ['en', 'az']:
                     language_pref = lang
-                    _write_log(f"Language preference: {language_pref}")
             except:
-                _write_log("Could not get language preference, using default 'en'")
+                pass
 
             # Create session data dictionary - use safe gets
             self.session_data = {
@@ -93,26 +69,20 @@ class SessionManager:
                 'language': language_pref
             }
 
-            _write_log(f"Session data created: {self.session_data}")
-            _write_log(f"Session created successfully for user: {username}")
-
             # Set language - do this AFTER session is fully created, non-critical
             try:
                 from quiz_app.utils.localization import set_language
                 set_language(language_pref)
-                _write_log("Language set successfully")
             except Exception as e:
-                _write_log(f"WARNING: Could not set language: {e}")
                 # Don't fail session creation for this - session is already created
+                pass
 
             return True
 
         except Exception as e:
             error_msg = f"CRITICAL ERROR: {type(e).__name__}: {str(e)}"
-            _write_log(error_msg)
             import traceback
             tb = traceback.format_exc()
-            _write_log(tb)
             self.last_error = f"{error_msg}\n{tb}"
             return False
     
@@ -146,8 +116,6 @@ class SessionManager:
     
     def clear_session(self):
         """Clear current session with complete cleanup"""
-        _write_log("=== Clearing session ===")
-
         # Clear all session data
         self.current_user = None
         self.session_data = {}
@@ -160,8 +128,6 @@ class SessionManager:
             set_language('en')  # Reset to default
         except:
             pass
-
-        _write_log("Session cleared successfully")
     
     def extend_session(self):
         """Extend session timeout"""

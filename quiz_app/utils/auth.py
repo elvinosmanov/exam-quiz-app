@@ -20,21 +20,6 @@ class AuthManager:
     
     def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
         """Authenticate user with username/email and password"""
-        import os
-        from datetime import datetime
-
-        def _write_auth_log(message: str):
-            """Write authentication log for debugging"""
-            try:
-                log_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'session_debug.log')
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    f.write(f"[{timestamp}] AUTH: {message}\n")
-            except:
-                pass
-
-        _write_auth_log(f"Authentication attempt for username: {username}")
-
         # Try username first, then email (CASE-INSENSITIVE FIX)
         # Use LOWER() to make username comparison case-insensitive
         user = self.db.execute_single(
@@ -43,10 +28,7 @@ class AuthManager:
         )
 
         if not user:
-            _write_auth_log(f"User not found: {username}")
             return None
-
-        _write_auth_log(f"User found: {username}, verifying password...")
 
         if self.verify_password(password, user['password_hash']):
             # Update last login
@@ -59,12 +41,8 @@ class AuthManager:
             user_data = dict(user)
             del user_data['password_hash']
 
-            _write_auth_log(f"Password verified. User data keys: {list(user_data.keys())}")
-            _write_auth_log(f"User data: id={user_data.get('id')}, username={user_data.get('username')}, role={user_data.get('role')}, full_name={user_data.get('full_name')}")
-
             return user_data
 
-        _write_auth_log(f"Password verification failed for {username}")
         return None
     
     def create_user(self, username: str, email: str, password: str,

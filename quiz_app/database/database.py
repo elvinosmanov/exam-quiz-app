@@ -6,7 +6,6 @@ except ImportError:
     # Fallback to regular sqlite3 if sqlcipher3-wheels is not installed
     import sqlite3
     ENCRYPTION_ENABLED = False
-    print("WARNING: sqlcipher3-wheels not installed. Database will NOT be encrypted!")
 
 import os
 import logging
