@@ -52,7 +52,6 @@ htmlcov/
 *.backup
 
 # Development/Test files
-*.xlsx
 *.xls
 *.pdf
 departments-sections-units.xlsx

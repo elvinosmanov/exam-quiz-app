@@ -1595,12 +1595,12 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                 # Create pending release dialog
                 confirmation_dialog = ft.AlertDialog(
                     modal=True,
-                    title=ft.Text("Exam Submitted", size=20, weight=ft.FontWeight.BOLD),
+                    title=ft.Text("Exam Completed Successfully", size=20, weight=ft.FontWeight.BOLD),
                     content=ft.Container(
                         content=ft.Column([
                             ft.Icon(ft.icons.SCHEDULE, color=EXAM_COLORS['warning'], size=48),
-                            ft.Text("Your exam has been graded.", size=16, text_align=ft.TextAlign.CENTER),
-                            ft.Text("Results are pending release by your instructor.", size=14, color=EXAM_COLORS['text_secondary'], text_align=ft.TextAlign.CENTER)
+                            ft.Text("Your exam has been submitted and completed.", size=16, text_align=ft.TextAlign.CENTER),
+                            ft.Text("Results will be released by your instructor at a later time.", size=14, color=EXAM_COLORS['text_secondary'], text_align=ft.TextAlign.CENTER)
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
                         padding=ft.padding.all(20),
                         width=400

@@ -612,7 +612,7 @@ class ExamineeDashboard(ft.UserControl):
                 elif not show_results:
                     # All questions graded but results not released by instructor
                     score_text = t('graded')
-                    status_text = t('pending')
+                    status_text = "Not Released Yet"
                     status_color = COLORS['warning']
                 else:
                     # Fallback
