@@ -213,6 +213,11 @@ class LoginView(ft.UserControl):
             def close_dialog(e):
                 dialog.open = False
                 self.page.dialog = None  # Clear dialog reference
+
+                # Clear overlays too
+                if hasattr(self.page, 'overlay') and self.page.overlay:
+                    self.page.overlay.clear()
+
                 self.page.update()
 
             dialog = ft.AlertDialog(
@@ -230,6 +235,12 @@ class LoginView(ft.UserControl):
                     ft.TextButton("Close", on_click=close_dialog)
                 ]
             )
+
+            # Clear any existing dialogs first
+            if self.page.dialog:
+                self.page.dialog.open = False
+                self.page.dialog = None
+
             self.page.dialog = dialog
             dialog.open = True
             self.page.update()
@@ -308,11 +319,16 @@ class LoginView(ft.UserControl):
                 # CRITICAL: Close dialog completely before loading dashboard
                 change_dialog.open = False
                 self.page.dialog = None
+
+                # Clear any overlays too
+                if hasattr(self.page, 'overlay') and self.page.overlay:
+                    self.page.overlay.clear()
+
                 self.page.update()
 
                 # Small delay to ensure dialog closes before dashboard loads
                 import time
-                time.sleep(0.1)
+                time.sleep(0.15)
 
                 # Now proceed to dashboard
                 self.login_button.text = t('loading_dashboard')

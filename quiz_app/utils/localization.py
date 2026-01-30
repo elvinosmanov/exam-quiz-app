@@ -197,6 +197,7 @@ TRANSLATIONS = {
 
         # Questions
         'questions': 'Questions',
+        'topics': 'Topics',
         'question_management': 'Question Management',
         'manage_questions': 'Manage Questions',
         'add_question': 'Add Question',
@@ -1538,6 +1539,7 @@ TRANSLATIONS = {
 
         # Questions / Suallar
         'questions': 'Suallar',
+        'topics': 'Mövzular',
         'question_management': 'Sual idarəetməsi',
         'manage_questions': 'Sualları idarə et',
         'add_question': 'Sual əlavə et',

@@ -145,10 +145,23 @@ class SessionManager:
         return self.get_user_role() == 'admin'
     
     def clear_session(self):
-        """Clear current session"""
+        """Clear current session with complete cleanup"""
+        _write_log("=== Clearing session ===")
+
+        # Clear all session data
         self.current_user = None
         self.session_data = {}
         self.login_time = None
+        self.last_error = None
+
+        # Clear any cached language preferences
+        try:
+            from quiz_app.utils.localization import set_language
+            set_language('en')  # Reset to default
+        except:
+            pass
+
+        _write_log("Session cleared successfully")
     
     def extend_session(self):
         """Extend session timeout"""

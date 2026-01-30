@@ -1315,7 +1315,7 @@ def create_exam_interface(exam_data, user_data, return_callback, exam_id=None, a
                         db.execute_update("""
                             UPDATE exam_assignments
                             SET is_archived = 1
-                            WHERE id = ?
+                            WHERE id = ? AND is_deleted = 0
                         """, (assignment_id,))
                         print(f"✅ Assignment {assignment_id} auto-archived - all users exhausted all {max_attempts} attempts!")
 

@@ -591,6 +591,10 @@ def create_tables():
                 is_active BOOLEAN DEFAULT 1,
                 is_archived BOOLEAN DEFAULT 0,
                 pdf_variant_count INTEGER DEFAULT 1,
+                is_deleted BOOLEAN DEFAULT 0,
+                deleted_at TIMESTAMP NULL,
+                deleted_by INTEGER NULL,
+                deletion_reason TEXT NULL,
                 FOREIGN KEY (exam_id) REFERENCES exams (id) ON DELETE CASCADE,
                 FOREIGN KEY (created_by) REFERENCES users (id)
             )
@@ -754,6 +758,28 @@ def create_tables():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_pattern_analysis_session ON pattern_analysis(session_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_grade_edit_history_session ON grade_edit_history(session_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_grade_edit_history_answer ON grade_edit_history(answer_id)')
+
+        # Soft delete indexes for exam_assignments
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_assignments_deleted ON exam_assignments(is_deleted)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_exam_assignments_lifecycle ON exam_assignments(is_archived, is_deleted)')
+
+        # Backward compatibility: Add soft delete columns if they don't exist in existing databases
+        try:
+            # Check if is_deleted column exists
+            cursor.execute("SELECT is_deleted FROM exam_assignments LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add all soft delete columns
+            print("Adding soft delete columns to existing database...")
+            try:
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN is_deleted BOOLEAN DEFAULT 0")
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN deleted_at TIMESTAMP NULL")
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN deleted_by INTEGER NULL")
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN deletion_reason TEXT NULL")
+                print("✓ Soft delete columns added successfully")
+            except sqlite3.OperationalError as e:
+                # Columns might already exist, ignore
+                print(f"Note: {e}")
+                pass
 
         conn.commit()
 

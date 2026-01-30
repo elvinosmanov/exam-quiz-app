@@ -519,7 +519,7 @@ class QuizManagement(ft.UserControl):
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
             LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND es.assignment_id = ea.id
             LEFT JOIN users u ON ea.created_by = u.id
-            WHERE ea.is_archived = 0 {filter_clause}
+            WHERE ea.is_archived = 0 AND ea.is_deleted = 0 {filter_clause}
             GROUP BY ea.id
             ORDER BY ea.created_at DESC
         """.format(filter_clause=filter_clause)
@@ -700,17 +700,6 @@ class QuizManagement(ft.UserControl):
             width=600
         )
 
-        description_field = ft.TextField(
-            label=t('description'),
-            value=exam['description'] if is_edit else "",
-            multiline=True,
-            min_lines=3,
-            max_lines=6,
-            content_padding=8,
-            hint_text="Provide topic description",
-            width=600
-        )
-
         error_text = ft.Text("", color=COLORS['error'], visible=False)
 
         def save_exam(e):
@@ -726,12 +715,11 @@ class QuizManagement(ft.UserControl):
                     # Update existing exam
                     query = """
                         UPDATE exams
-                        SET title = ?, description = ?
+                        SET title = ?
                         WHERE id = ?
                     """
                     params = (
                         exam_title_field.value.strip(),
-                        description_field.value.strip() or None,
                         exam['id']
                     )
                     self.db.execute_update(query, params)
@@ -740,15 +728,14 @@ class QuizManagement(ft.UserControl):
                     from datetime import datetime
                     query = """
                         INSERT INTO exams (
-                            title, description, created_by, created_at,
+                            title, created_by, created_at,
                             duration_minutes, passing_score,
                             max_attempts, randomize_questions, show_results
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     params = (
                         exam_title_field.value.strip(),
-                        description_field.value.strip() or None,
                         self.user_data['id'],
                         datetime.now().isoformat(),
                         60,  # Default 60 minutes
@@ -786,12 +773,11 @@ class QuizManagement(ft.UserControl):
             content=ft.Container(
                 content=ft.Column([
                     exam_title_field,
-                    description_field,
                     ft.Container(height=10),
                     error_text
                 ], spacing=15, tight=True),
                 width=self.page.width - 400 if self.page.width > 400 else 600,
-                height=self.page.height - 500 if self.page.height > 500 else 300
+                height=self.page.height - 500 if self.page.height > 500 else 200
             ),
             actions=[
                 ft.TextButton(t('cancel'), on_click=close_dialog),
@@ -1282,7 +1268,7 @@ class QuizManagement(ft.UserControl):
                 select_dialog.open = False
                 self.page.update()
                 # Open preset-based assignment dialog
-                self.show_assignment_creation_dialog_from_preset(preset_config, preset['name'] if preset else "Preset")
+                self.show_assignment_creation_dialog_from_preset(preset_config, preset if preset else None)
 
             elif mode == "manual":
                 if not self.selected_exam_templates:
@@ -1476,71 +1462,225 @@ class QuizManagement(ft.UserControl):
             expand=True
         )
 
+        # Assignment description field
+        assignment_description_field = ft.TextField(
+            label=t('description'),
+            value=assignment.get('description', '') if is_edit else "",
+            content_padding=5,
+            hint_text="Describe the purpose of this assignment for students",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+            expand=True
+        )
+
         # Show selected exam templates with editable pool configs if in edit mode
         header_text = "Selected Exam Templates (Edit Pool Counts):" if (is_edit and pool_configs) else "Selected Exam Templates:"
 
-        # Create exam cards list
-        exam_cards = []
-        for exam in exams:
-            # Build question count display - editable if pool_configs exist, otherwise read-only
-            if pool_configs and exam['id'] in pool_configs:
-                config = pool_configs[exam['id']]
+        # Store pool_settings for reordering
+        pool_settings = []
+        if pool_configs:
+            for exam in exams:
+                if exam['id'] in pool_configs:
+                    pool_settings.append({
+                        'exam_id': exam['id'],
+                        'easy': pool_configs[exam['id']]['easy'],
+                        'medium': pool_configs[exam['id']]['medium'],
+                        'hard': pool_configs[exam['id']]['hard']
+                    })
 
-                # Show editable Dropdowns for pool counts
-                exam_card = ft.Container(
-                    content=ft.Column([
-                        ft.Row([
+        # Initialize containers for dynamic updates
+        exam_cards = []
+        exam_rows = []
+
+        # Container references for dynamic updates
+        exam_rows_column = ft.Column([], spacing=10)
+        total_text = ft.Text(
+            f"Total: {total_questions} questions from {len(exams)} exam(s)",
+            size=14,
+            weight=ft.FontWeight.BOLD,
+            color=COLORS['primary']
+        )
+
+        def build_exam_cards_list():
+            """Build the list of exam cards with current ordering and reorder buttons"""
+            cards = []
+            for idx, exam in enumerate(exams):
+                # Build question count display - editable if pool_configs exist, otherwise read-only
+                if pool_configs and exam['id'] in pool_configs:
+                    config = pool_configs[exam['id']]
+
+                    # Show editable Dropdowns for pool counts with order number and arrows
+                    exam_card = ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                # Order number badge
+                                ft.Container(
+                                    content=ft.Text(f"#{idx + 1}", size=11, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                                    padding=ft.padding.all(4),
+                                    bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                                    border_radius=4
+                                ),
+                                ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
+                                ft.Text(f"{exam['title']}", size=13, weight=ft.FontWeight.BOLD),
+                                ft.Container(expand=True),
+                                # Up arrow button
+                                ft.IconButton(
+                                    icon=ft.icons.ARROW_UPWARD,
+                                    icon_size=16,
+                                    tooltip="Move up",
+                                    disabled=(idx == 0),
+                                    on_click=lambda e, i=idx: move_topic_up(i),
+                                    icon_color=COLORS['primary'] if idx > 0 else COLORS['text_secondary']
+                                ),
+                                # Down arrow button
+                                ft.IconButton(
+                                    icon=ft.icons.ARROW_DOWNWARD,
+                                    icon_size=16,
+                                    tooltip="Move down",
+                                    disabled=(idx == len(exams) - 1),
+                                    on_click=lambda e, i=idx: move_topic_down(i),
+                                    icon_color=COLORS['primary'] if idx < len(exams) - 1 else COLORS['text_secondary']
+                                )
+                            ], spacing=8),
+                            ft.Row([
+                                config['easy'],
+                                config['medium'],
+                                config['hard']
+                            ], spacing=10)
+                        ], spacing=5),
+                        padding=ft.padding.all(12),
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                        border_radius=8,
+                        border=ft.border.all(1, COLORS['secondary']),
+                        expand=True
+                    )
+                    cards.append(exam_card)
+                else:
+                    # Read-only display for non-pool assignments with order number and arrows
+                    question_text = f"{exam.get('question_count', 0)} questions"
+                    exam_card = ft.Container(
+                        content=ft.Row([
+                            # Order number badge
+                            ft.Container(
+                                content=ft.Text(f"#{idx + 1}", size=11, weight=ft.FontWeight.BOLD, color=COLORS['primary']),
+                                padding=ft.padding.all(4),
+                                bgcolor=ft.colors.with_opacity(0.1, COLORS['primary']),
+                                border_radius=4
+                            ),
                             ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
-                            ft.Text(f"{exam['title']}", size=13, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"{exam['title']}", size=13),
+                            ft.Container(expand=True),
+                            ft.Text(question_text, size=12, color=COLORS['text_secondary']),
+                            # Up arrow
+                            ft.IconButton(
+                                icon=ft.icons.ARROW_UPWARD,
+                                icon_size=16,
+                                tooltip="Move up",
+                                disabled=(idx == 0),
+                                on_click=lambda e, i=idx: move_topic_up(i),
+                                icon_color=COLORS['primary'] if idx > 0 else COLORS['text_secondary']
+                            ),
+                            # Down arrow
+                            ft.IconButton(
+                                icon=ft.icons.ARROW_DOWNWARD,
+                                icon_size=16,
+                                tooltip="Move down",
+                                disabled=(idx == len(exams) - 1),
+                                on_click=lambda e, i=idx: move_topic_down(i),
+                                icon_color=COLORS['primary'] if idx < len(exams) - 1 else COLORS['text_secondary']
+                            )
                         ], spacing=8),
-                        ft.Row([
-                            config['easy'],
-                            config['medium'],
-                            config['hard']
-                        ], spacing=10)
-                    ], spacing=5),
-                    padding=ft.padding.all(12),
-                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
-                    border_radius=8,
-                    border=ft.border.all(1, COLORS['secondary']),
-                    expand=True
+                        padding=ft.padding.symmetric(vertical=4, horizontal=8),
+                        bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
+                        border_radius=4,
+                        expand=True
+                    )
+                    cards.append(exam_card)
+            return cards
+
+        def move_topic_up(index):
+            """Move topic up in the list and rebuild display"""
+            if index > 0:
+                # Swap with previous item
+                exams[index], exams[index - 1] = exams[index - 1], exams[index]
+
+                # If pool_settings exist, also swap those
+                if pool_settings:
+                    # Find configs for these exam IDs
+                    config_idx = next((i for i, p in enumerate(pool_settings) if p['exam_id'] == exams[index]['id']), None)
+                    config_prev = next((i for i, p in enumerate(pool_settings) if p['exam_id'] == exams[index - 1]['id']), None)
+                    if config_idx is not None and config_prev is not None:
+                        pool_settings[config_idx], pool_settings[config_prev] = pool_settings[config_prev], pool_settings[config_idx]
+
+                # Rebuild the entire display section
+                rebuild_exam_cards_display()
+
+        def move_topic_down(index):
+            """Move topic down in the list and rebuild display"""
+            if index < len(exams) - 1:
+                # Swap with next item
+                exams[index], exams[index + 1] = exams[index + 1], exams[index]
+
+                # If pool_settings exist, also swap those
+                if pool_settings:
+                    config_idx = next((i for i, p in enumerate(pool_settings) if p['exam_id'] == exams[index]['id']), None)
+                    config_next = next((i for i, p in enumerate(pool_settings) if p['exam_id'] == exams[index + 1]['id']), None)
+                    if config_idx is not None and config_next is not None:
+                        pool_settings[config_idx], pool_settings[config_next] = pool_settings[config_next], pool_settings[config_idx]
+
+                # Rebuild the entire display section
+                rebuild_exam_cards_display()
+
+        def rebuild_exam_cards_display():
+            """Rebuild the exam cards display section after reordering"""
+            # Rebuild exam_cards list
+            exam_cards.clear()
+            exam_cards.extend(build_exam_cards_list())
+
+            # Rebuild rows
+            exam_rows.clear()
+            for i in range(0, len(exam_cards), 2):
+                row_cards = exam_cards[i:i+2]
+                exam_rows.append(ft.Row(row_cards, spacing=10))
+
+            # Update the display column
+            exam_rows_column.controls = exam_rows
+
+            # Recalculate total questions
+            if pool_configs:
+                total_q = sum(
+                    int(config['easy'].value or 0) + int(config['medium'].value or 0) + int(config['hard'].value or 0)
+                    for config in pool_configs.values()
                 )
-                exam_cards.append(exam_card)
             else:
-                # Read-only display for non-pool assignments
-                question_text = f"{exam.get('question_count', 0)} questions"
-                exam_card = ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.icons.CHECK_CIRCLE, color=COLORS['success'], size=16),
-                        ft.Text(f"{exam['title']}", size=13),
-                        ft.Container(expand=True),
-                        ft.Text(question_text, size=12, color=COLORS['text_secondary'])
-                    ], spacing=8),
-                    padding=ft.padding.symmetric(vertical=4, horizontal=8),
-                    bgcolor=ft.colors.with_opacity(0.05, COLORS['primary']),
-                    border_radius=4,
-                    expand=True
-                )
-                exam_cards.append(exam_card)
+                total_q = sum(exam.get('question_count', 0) for exam in exams)
+
+            total_text.value = f"Total: {total_q} questions from {len(exams)} exam(s)"
+
+            # Refresh the display
+            if self.page:
+                exam_rows_column.update()
+                total_text.update()
+                self.page.update()
+
+        # Initial build
+        exam_cards = build_exam_cards_list()
 
         # Arrange cards in rows of 2 columns
-        exam_rows = []
         for i in range(0, len(exam_cards), 2):
             row_cards = exam_cards[i:i+2]
             exam_rows.append(ft.Row(row_cards, spacing=10))
+
+        exam_rows_column.controls = exam_rows
 
         # Build the display with header and grid
         selected_exams_display = ft.Column([
             ft.Text(header_text, size=14, weight=ft.FontWeight.BOLD),
             ft.Container(height=5),
-            ft.Column(exam_rows, spacing=10),
+            exam_rows_column,
             ft.Container(
-                content=ft.Text(
-                    f"Total: {total_questions} questions from {len(exams)} exam(s)",
-                    size=14,
-                    weight=ft.FontWeight.BOLD,
-                    color=COLORS['primary']
-                ),
+                content=total_text,
                 padding=ft.padding.only(top=8)
             )
         ])
@@ -2289,6 +2429,7 @@ class QuizManagement(ft.UserControl):
                     self.db.execute_update("""
                         UPDATE exam_assignments
                         SET assignment_name = ?,
+                            description = ?,
                             duration_minutes = ?,
                             passing_score = ?,
                             max_attempts = ?,
@@ -2302,6 +2443,7 @@ class QuizManagement(ft.UserControl):
                         WHERE id = ?
                     """, (
                         assignment_name_field.value.strip(),
+                        assignment_description_field.value.strip() or None,
                         duration,
                         passing_score,
                         max_attempts,
@@ -2361,18 +2503,19 @@ class QuizManagement(ft.UserControl):
 
                     query = """
                         INSERT INTO exam_assignments (
-                            exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
+                            exam_id, assignment_name, description, duration_minutes, passing_score, max_attempts,
                             randomize_questions, show_results, enable_fullscreen,
                             delivery_method,
                             use_question_pool, questions_to_select,
                             easy_questions_count, medium_questions_count, hard_questions_count,
                             deadline, created_at, created_by, is_archived
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                     # Note: For multi-template with pool, we store config per template in junction table
                     params = (
                         primary_exam_id,
                         assignment_name_field.value.strip(),
+                        assignment_description_field.value.strip() or None,
                         duration,
                         passing_score,
                         max_attempts,
@@ -2526,6 +2669,7 @@ class QuizManagement(ft.UserControl):
         dialog_content_controls = [
             ft.Container(height=10),  # Padding above assignment name
             assignment_name_field,
+            assignment_description_field,
             ft.Container(height=10),
 
             # Selected exams display
@@ -2660,7 +2804,7 @@ class QuizManagement(ft.UserControl):
         assignment_dialog.open = True
         self.page.update()
 
-    def show_assignment_creation_dialog_from_preset(self, preset_config, preset_name):
+    def show_assignment_creation_dialog_from_preset(self, preset_config, preset):
         """Show assignment dialog using preset template configuration"""
         from datetime import datetime, date
         from quiz_app.utils.localization import get_department_abbreviation, get_unit_abbreviation
@@ -2668,6 +2812,10 @@ class QuizManagement(ft.UserControl):
 
         # Preset-based assignments are always in create mode (no edit)
         is_edit = False
+
+        # Extract preset info
+        preset_name = preset['name'] if preset else "Preset"
+        preset_description = preset.get('description', '') if preset else ''
 
         # Store preset info for back button functionality
         self._temp_preset_config = preset_config
@@ -2682,6 +2830,18 @@ class QuizManagement(ft.UserControl):
             value=f"{preset_name} - {datetime.now().strftime('%Y-%m-%d')}",
             content_padding=5,
             hint_text="e.g., SOC Interview - John Doe",
+            expand=True
+        )
+
+        # Assignment description field (auto-populated from preset)
+        assignment_description_field = ft.TextField(
+            label=t('description'),
+            value=preset_description,
+            content_padding=5,
+            hint_text="Describe the purpose of this assignment for students",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
             expand=True
         )
 
@@ -3174,17 +3334,18 @@ class QuizManagement(ft.UserControl):
                 # Create assignment with preset flag
                 query = """
                     INSERT INTO exam_assignments (
-                        exam_id, assignment_name, duration_minutes, passing_score, max_attempts,
+                        exam_id, assignment_name, description, duration_minutes, passing_score, max_attempts,
                         randomize_questions, show_results, enable_fullscreen,
                         delivery_method,
                         use_question_pool, questions_to_select,
                         easy_questions_count, medium_questions_count, hard_questions_count,
                         deadline, created_at, created_by, is_archived
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     primary_exam_id,
                     assignment_name_field.value.strip(),
+                    assignment_description_field.value.strip() or None,
                     duration,
                     passing_score,
                     max_attempts,
@@ -3310,6 +3471,7 @@ class QuizManagement(ft.UserControl):
         dialog_content_controls = [
             ft.Container(height=10),  # Padding above assignment name
             assignment_name_field,
+            assignment_description_field,
             ft.Container(height=10),
 
             # Preset display
@@ -4377,11 +4539,12 @@ class QuizManagement(ft.UserControl):
                     print(f"📋 Assignment {assignment['id']}: {users_at_max_count}/{total_assigned} users used all {max_attempts} attempts")
 
                     # Only archive if ALL users have exhausted ALL their attempts
+                    # AND the assignment is not already deleted
                     if total_assigned > 0 and users_at_max_count == total_assigned:
                         self.db.execute_update("""
                             UPDATE exam_assignments
                             SET is_archived = 1
-                            WHERE id = ?
+                            WHERE id = ? AND is_deleted = 0
                         """, (assignment['id'],))
                         print(f"✅ Assignment {assignment['id']} auto-archived - all users exhausted all {max_attempts} attempts!")
 
@@ -4447,10 +4610,33 @@ class QuizManagement(ft.UserControl):
             self.update()
     
     def delete_assignment(self, assignment):
-        """Delete an assignment"""
+        """Soft delete an assignment - preserves all data"""
+        deletion_reason_field = ft.TextField(
+            label="Reason for deletion (optional)",
+            hint_text="e.g., Replaced by newer version, Cancelled assignment, etc.",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+            width=500
+        )
+
         def confirm_delete(e):
-            self.db.execute_update('DELETE FROM exam_assignments WHERE id = ?', (assignment['id'],))
-            self.db.execute_update('DELETE FROM assignment_users WHERE assignment_id = ?', (assignment['id'],))
+            # Soft delete: Update flags instead of removing from database
+            deletion_reason = deletion_reason_field.value or "No reason provided"
+            user_id = self.page.session.get("user_id")
+
+            self.db.execute_update('''
+                UPDATE exam_assignments
+                SET is_deleted = 1,
+                    deleted_at = CURRENT_TIMESTAMP,
+                    deleted_by = ?,
+                    deletion_reason = ?
+                WHERE id = ?
+            ''', (user_id, deletion_reason, assignment['id']))
+
+            # Note: assignment_users are preserved (not deleted)
+            # This allows maintaining historical records of who was assigned
+
             confirm_dialog.open = False
             if self.page:
                 self.page.update()
@@ -4463,8 +4649,30 @@ class QuizManagement(ft.UserControl):
             self.page.update()
 
         confirm_dialog = ft.AlertDialog(
-            title=ft.Text('Confirm Delete'),
-            content=ft.Text(f"Are you sure you want to delete assignment '{assignment['assignment_name']}'?"),
+            title=ft.Text('Soft Delete Assignment', weight=ft.FontWeight.BOLD),
+            content=ft.Column([
+                ft.Text(
+                    f"Are you sure you want to delete assignment '{assignment['assignment_name']}'?",
+                    weight=ft.FontWeight.W_500
+                ),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.INFO_OUTLINE, color=ft.colors.BLUE_400, size=20),
+                        ft.Text(
+                            "Data will be preserved - PDF reports remain accessible",
+                            size=12,
+                            color=ft.colors.BLUE_400,
+                            italic=True
+                        )
+                    ]),
+                    padding=10,
+                    bgcolor=ft.colors.BLUE_50,
+                    border_radius=8
+                ),
+                ft.Container(height=10),
+                deletion_reason_field
+            ], tight=True, spacing=0),
             actions=[
                 ft.TextButton('Cancel', on_click=cancel_delete),
                 ft.ElevatedButton(
@@ -5180,7 +5388,7 @@ class QuizManagement(ft.UserControl):
 
     def show_archived_assignments_dialog(self, e):
         """Show dialog to view archived assignments"""
-        # Load archived assignments
+        # Load archived assignments (excluding deleted ones)
         archived_assignments = self.db.execute_query("""
             SELECT ea.*,
                    e.title as exam_title,
@@ -5195,7 +5403,7 @@ class QuizManagement(ft.UserControl):
             LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
             LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND es.assignment_id = ea.id
             LEFT JOIN users u ON ea.created_by = u.id
-            WHERE ea.is_archived = 1
+            WHERE ea.is_archived = 1 AND ea.is_deleted = 0
             GROUP BY ea.id
             ORDER BY ea.created_at DESC
         """)
@@ -5214,25 +5422,19 @@ class QuizManagement(ft.UserControl):
             width=float("inf")
         )
 
-        def unarchive_assignment(assignment_id):
-            """Unarchive an assignment"""
-            self.db.execute_update("""
-                UPDATE exam_assignments
-                SET is_archived = 0
-                WHERE id = ?
+        def delete_archived_assignment(assignment_id):
+            """Delete an archived assignment (soft delete)"""
+            # Get assignment details for the delete operation
+            assignment = self.db.execute_query("""
+                SELECT * FROM exam_assignments WHERE id = ?
             """, (assignment_id,))
 
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Text("Assignment unarchived successfully!"),
-                bgcolor=COLORS['success']
-            )
-            self.page.snack_bar.open = True
+            if assignment:
+                # Call the standard delete_assignment function which handles soft delete
+                self.delete_assignment(assignment[0])
 
-            # Refresh the dialog
-            refresh_archived_list()
-
-            # Refresh main table
-            self.load_exams()
+                # Refresh the dialog after deletion
+                refresh_archived_list()
 
         def refresh_archived_list():
             """Refresh archived assignments list"""
@@ -5250,7 +5452,7 @@ class QuizManagement(ft.UserControl):
                 LEFT JOIN assignment_users au ON ea.id = au.assignment_id AND au.is_active = 1
                 LEFT JOIN exam_sessions es ON au.user_id = es.user_id AND es.assignment_id = ea.id
                 LEFT JOIN users u ON ea.created_by = u.id
-                WHERE ea.is_archived = 1
+                WHERE ea.is_archived = 1 AND ea.is_deleted = 0
                 GROUP BY ea.id
                 ORDER BY ea.created_at DESC
             """)
@@ -5289,10 +5491,10 @@ class QuizManagement(ft.UserControl):
                                 ft.DataCell(ft.Text(assignment.get('deadline')[:10] if assignment.get('deadline') else "No deadline")),
                                 ft.DataCell(
                                     ft.IconButton(
-                                        icon=ft.icons.UNARCHIVE,
-                                        tooltip="Unarchive Assignment",
-                                        on_click=lambda e, aid=assignment['id']: unarchive_assignment(aid),
-                                        icon_color=COLORS['primary']
+                                        icon=ft.icons.DELETE_OUTLINE,
+                                        tooltip="Delete Assignment",
+                                        on_click=lambda e, aid=assignment['id']: delete_archived_assignment(aid),
+                                        icon_color=COLORS['error']
                                     )
                                 )
                             ]
@@ -5314,6 +5516,21 @@ class QuizManagement(ft.UserControl):
                 content=ft.Column([
                     ft.Text("These assignments have been automatically archived because all users completed them.",
                             size=12, color=COLORS['text_secondary']),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.WARNING_AMBER, color=ft.colors.ORANGE_400, size=20),
+                            ft.Text(
+                                "Archived assignments cannot be restored. Use delete to permanently remove.",
+                                size=12,
+                                color=ft.colors.ORANGE_600,
+                                weight=ft.FontWeight.W_500
+                            )
+                        ], spacing=8),
+                        padding=10,
+                        bgcolor=ft.colors.ORANGE_50,
+                        border_radius=8,
+                        border=ft.border.all(1, ft.colors.ORANGE_200)
+                    ),
                     ft.Divider(),
                     ft.Container(
                         content=archived_table,

@@ -833,12 +833,15 @@ class Reports(ft.UserControl):
     def show_export_pdf_dialog(self, e):
         """Show dialog with PDF export options"""
         try:
-            # Get all assignments (what users actually take)
+            # Get all assignments (what users actually take) - including deleted ones
             assignments = self.db.execute_query("""
                 SELECT DISTINCT
                     ea.id,
                     ea.assignment_name as title,
-                    ea.created_at
+                    ea.created_at,
+                    ea.is_archived,
+                    ea.is_deleted,
+                    ea.deleted_at
                 FROM exam_assignments ea
                 WHERE ea.id IN (SELECT DISTINCT assignment_id FROM exam_sessions WHERE assignment_id IS NOT NULL)
                 ORDER BY ea.created_at DESC
@@ -859,6 +862,17 @@ class Reports(ft.UserControl):
             # Add legacy suffix to standalone exams
             for exam in standalone_exams:
                 exam['title'] = f"{exam['title']} ({t('legacy')})"
+
+            # Add status badges to assignments
+            for assignment in assignments:
+                status_badge = ""
+                if assignment.get('is_deleted'):
+                    status_badge = "[DELETED] "
+                elif assignment.get('is_archived'):
+                    status_badge = "[ARCHIVED] "
+                else:
+                    status_badge = "[ACTIVE] "
+                assignment['title'] = f"{status_badge}{assignment['title']}"
 
             # Combine both lists
             exams = assignments + standalone_exams
@@ -1251,6 +1265,13 @@ class Reports(ft.UserControl):
             from reportlab.pdfbase.ttfonts import TTFont
             import os
 
+            # Get assignment status information (if this is an assignment)
+            assignment_info = self.db.execute_single("""
+                SELECT is_archived, is_deleted, deleted_at, deletion_reason
+                FROM exam_assignments
+                WHERE id = ?
+            """, (exam_id,))
+
             # Get exam/assignment statistics
             exam_stats = self.db.execute_single("""
                 SELECT
@@ -1365,6 +1386,29 @@ class Reports(ft.UserControl):
             story.append(Paragraph(exam_title, exam_title_style))
             story.append(Spacer(1, 0.08*inch))
 
+            # Assignment status (if available)
+            if assignment_info:
+                status_text = ""
+                status_color = rl_colors.green
+                if assignment_info.get('is_deleted'):
+                    status_text = "Status: DELETED"
+                    status_color = rl_colors.red
+                    if assignment_info.get('deletion_reason'):
+                        status_text += f" ({assignment_info['deletion_reason']})"
+                    if assignment_info.get('deleted_at'):
+                        deleted_date = assignment_info['deleted_at'][:10] if isinstance(assignment_info['deleted_at'], str) else str(assignment_info['deleted_at'])[:10]
+                        status_text += f" on {deleted_date}"
+                elif assignment_info.get('is_archived'):
+                    status_text = "Status: ARCHIVED"
+                    status_color = rl_colors.orange
+                else:
+                    status_text = "Status: ACTIVE"
+                    status_color = rl_colors.green
+
+                status_style = ParagraphStyle('Status', parent=styles['Normal'], fontSize=10, textColor=status_color, fontName=unicode_font_bold, alignment=1)
+                story.append(Paragraph(status_text, status_style))
+                story.append(Spacer(1, 0.08*inch))
+
             # Date and metadata
             story.append(Paragraph(f"{t('generated')}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", meta_style))
             story.append(Spacer(1, 0.3*inch))
@@ -1458,13 +1502,17 @@ class Reports(ft.UserControl):
                 story.append(Spacer(1, 0.2*inch))
 
                 for attempt in attempts:
-                    # Get question details for this session
+                    # Get question details for this session with answer options
                     question_breakdown = self.db.execute_query("""
                         SELECT
                             q.question_text, q.question_type, q.points,
-                            MAX(ua.is_correct) as is_correct
+                            MAX(ua.is_correct) as is_correct,
+                            ua.answer_text as student_answer,
+                            ua.selected_option_id,
+                            GROUP_CONCAT(qo.option_text || '|' || qo.is_correct, ';;;') as options
                         FROM user_answers ua
                         JOIN questions q ON ua.question_id = q.id
+                        LEFT JOIN question_options qo ON q.id = qo.question_id
                         WHERE ua.session_id = ?
                         GROUP BY q.id
                         ORDER BY q.id
@@ -1476,31 +1524,72 @@ class Reports(ft.UserControl):
                         story.append(Paragraph(student_header, styles['Heading3']))
                         story.append(Spacer(1, 0.1*inch))
 
-                        # Create question breakdown table with Paragraphs
+                        # Create question breakdown table with Paragraphs (NO truncation - show full text)
                         q_data = [[
                             Paragraph('<b>#</b>', table_header_style),
-                            Paragraph('<b>Question (preview)</b>', table_header_style),
+                            Paragraph('<b>Question</b>', table_header_style),
+                            Paragraph('<b>Correct Answer</b>', table_header_style),
+                            Paragraph('<b>Student Answer</b>', table_header_style),
                             Paragraph('<b>Type</b>', table_header_style),
                             Paragraph('<b>Points</b>', table_header_style),
                             Paragraph('<b>Result</b>', table_header_style)
                         ]]
                         for idx, qb in enumerate(question_breakdown, 1):
-                            q_text = qb['question_text'][:60] + '...' if len(qb['question_text']) > 60 else qb['question_text']
+                            # Show full question text without truncation
+                            q_text = qb['question_text']
+
+                            # Get correct answer
+                            correct_answer = ""
+                            if qb['options']:
+                                options_list = qb['options'].split(';;;')
+                                correct_options = []
+                                for opt in options_list:
+                                    if '|' in opt:
+                                        opt_text, is_correct = opt.rsplit('|', 1)
+                                        if is_correct == '1':
+                                            correct_options.append(opt_text)
+                                correct_answer = ', '.join(correct_options) if correct_options else "[Not set]"
+                            else:
+                                correct_answer = "[Not set]"
+
+                            # Get student answer
+                            student_answer_text = qb.get('student_answer', '')
+
+                            # If answer_text is empty but selected_option_id exists, fetch the option text
+                            if not student_answer_text and qb.get('selected_option_id'):
+                                selected_id = qb['selected_option_id']
+                                option_record = self.db.execute_single(
+                                    "SELECT option_text FROM question_options WHERE id = ?",
+                                    (selected_id,)
+                                )
+                                if option_record:
+                                    student_answer_text = option_record['option_text']
+
+                            # Highlight wrong answers in red (no "wrong options" list)
+                            if student_answer_text and not qb['is_correct']:
+                                student_answer_display = f"<font color='red'>{student_answer_text}</font>"
+                            else:
+                                student_answer_display = student_answer_text or '[No answer]'
+
                             result = 'CORRECT' if qb['is_correct'] else 'WRONG'
                             result_color = 'green' if qb['is_correct'] else 'red'
                             q_data.append([
                                 Paragraph(str(idx), table_cell_style),
                                 Paragraph(q_text, table_cell_style),
-                                Paragraph(qb['question_type'][:10], table_cell_style),
+                                Paragraph(correct_answer, table_cell_style),
+                                Paragraph(student_answer_display, table_cell_style),
+                                Paragraph(qb['question_type'], table_cell_style),
                                 Paragraph(str(qb['points']), table_cell_style),
-                                Paragraph(f"<font color='{result_color}'>{result}</font>", table_cell_style)
+                                Paragraph(f"<font color='{result_color}' size=8>{result}</font>", table_cell_style)
                             ])
 
-                        q_table = Table(q_data, colWidths=[0.3*inch, 3.8*inch, 0.8*inch, 0.6*inch, 0.7*inch])
+                        # Adjust column widths for 7 columns
+                        q_table = Table(q_data, colWidths=[0.3*inch, 1.8*inch, 1.2*inch, 1.2*inch, 0.6*inch, 0.4*inch, 0.6*inch])
                         q_table.setStyle(TableStyle([
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                            ('ALIGN', (3, 0), (4, -1), 'CENTER'),
+                            ('ALIGN', (5, 0), (6, -1), 'CENTER'),  # Center Points and Result columns
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                             ('TOPPADDING', (0, 0), (-1, 0), 4),
                             ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
                             ('TOPPADDING', (0, 1), (-1, -1), 3),
@@ -1765,13 +1854,17 @@ class Reports(ft.UserControl):
                 story.append(Spacer(1, 0.2*inch))
 
                 for attempt in attempts:
-                    # Get question details for this session
+                    # Get question details for this session with answer options
                     question_breakdown = self.db.execute_query("""
                         SELECT
                             q.question_text, q.question_type, q.points,
-                            MAX(ua.is_correct) as is_correct
+                            MAX(ua.is_correct) as is_correct,
+                            ua.answer_text as student_answer,
+                            ua.selected_option_id,
+                            GROUP_CONCAT(qo.option_text || '|' || qo.is_correct, ';;;') as options
                         FROM user_answers ua
                         JOIN questions q ON ua.question_id = q.id
+                        LEFT JOIN question_options qo ON q.id = qo.question_id
                         WHERE ua.session_id = ?
                         GROUP BY q.id
                         ORDER BY q.id
@@ -1787,34 +1880,75 @@ class Reports(ft.UserControl):
                         correct_count = sum(1 for q in question_breakdown if q['is_correct'])
                         total_count = len(question_breakdown)
 
-                        # Create question breakdown table with Paragraphs
+                        # Create question breakdown table with Paragraphs (NO truncation - show full text)
                         q_data = [[
                             Paragraph('<b>#</b>', table_header_style),
-                            Paragraph('<b>Question (preview)</b>', table_header_style),
+                            Paragraph('<b>Question</b>', table_header_style),
+                            Paragraph('<b>Correct Answer</b>', table_header_style),
+                            Paragraph('<b>Student Answer</b>', table_header_style),
                             Paragraph('<b>Type</b>', table_header_style),
                             Paragraph('<b>Points</b>', table_header_style),
                             Paragraph('<b>Result</b>', table_header_style)
                         ]]
                         for idx, qb in enumerate(question_breakdown, 1):
-                            q_text = qb['question_text'][:50] + '...' if len(qb['question_text']) > 50 else qb['question_text']
+                            # Show full question text without truncation
+                            q_text = qb['question_text']
+
+                            # Get correct answer
+                            correct_answer = ""
+                            if qb['options']:
+                                options_list = qb['options'].split(';;;')
+                                correct_options = []
+                                for opt in options_list:
+                                    if '|' in opt:
+                                        opt_text, is_correct = opt.rsplit('|', 1)
+                                        if is_correct == '1':
+                                            correct_options.append(opt_text)
+                                correct_answer = ', '.join(correct_options) if correct_options else "[Not set]"
+                            else:
+                                correct_answer = "[Not set]"
+
+                            # Get student answer
+                            student_answer_text = qb.get('student_answer', '')
+
+                            # If answer_text is empty but selected_option_id exists, fetch the option text
+                            if not student_answer_text and qb.get('selected_option_id'):
+                                selected_id = qb['selected_option_id']
+                                option_record = self.db.execute_single(
+                                    "SELECT option_text FROM question_options WHERE id = ?",
+                                    (selected_id,)
+                                )
+                                if option_record:
+                                    student_answer_text = option_record['option_text']
+
+                            # Highlight wrong answers in red (no "wrong options" list)
+                            if student_answer_text and not qb['is_correct']:
+                                student_answer_display = f"<font color='red'>{student_answer_text}</font>"
+                            else:
+                                student_answer_display = student_answer_text or '[No answer]'
+
                             result = 'CORRECT' if qb['is_correct'] else 'WRONG'
                             result_color = 'green' if qb['is_correct'] else 'red'
 
                             q_data.append([
                                 Paragraph(str(idx), table_cell_style),
                                 Paragraph(q_text, table_cell_style),
-                                Paragraph(qb['question_type'][:10], table_cell_style),
+                                Paragraph(correct_answer, table_cell_style),
+                                Paragraph(student_answer_display, table_cell_style),
+                                Paragraph(qb['question_type'], table_cell_style),
                                 Paragraph(str(qb['points']), table_cell_style),
-                                Paragraph(f"<font color='{result_color}'>{result}</font>", table_cell_style)
+                                Paragraph(f"<font color='{result_color}' size=8>{result}</font>", table_cell_style)
                             ])
 
-                        q_table = Table(q_data, colWidths=[0.3*inch, 3.8*inch, 0.8*inch, 0.6*inch, 0.7*inch])
+                        # Adjust column widths for 7 columns
+                        q_table = Table(q_data, colWidths=[0.3*inch, 1.8*inch, 1.2*inch, 1.2*inch, 0.6*inch, 0.4*inch, 0.6*inch])
 
                         # Build style with conditional colors for results
                         table_style_commands = [
                             ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#E2E8F0')),
                             ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                            ('ALIGN', (3, 0), (4, -1), 'CENTER'),
+                            ('ALIGN', (5, 0), (6, -1), 'CENTER'),  # Center Points and Result columns
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                             ('TOPPADDING', (0, 0), (-1, 0), 4),
                             ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
                             ('TOPPADDING', (0, 1), (-1, -1), 3),
@@ -2039,33 +2173,31 @@ class Reports(ft.UserControl):
                 # Create comprehensive table with all questions
                 questions_data = [[
                     Paragraph('<b>#</b>', table_header_style),
-                    Paragraph('<b>Question (preview)</b>', table_header_style),
+                    Paragraph('<b>Question</b>', table_header_style),
                     Paragraph('<b>Correct Answer</b>', table_header_style),
                     Paragraph('<b>Student Answer</b>', table_header_style),
                     Paragraph('<b>Result</b>', table_header_style)
                 ]]
 
                 for idx, q in enumerate(question_details, 1):
-                    # Prepare question text (truncate if too long)
+                    # Prepare question text (NO truncation - show full text)
                     question_text = q['question_text']
-                    if len(question_text) > 100:
-                        question_text = question_text[:100] + '...'
                     question_para = Paragraph(f"<b>Q{idx}:</b> {question_text}<br/><i><font size=6>{q['question_type']} ({q['points']}pts)</font></i>", table_cell_style)
 
-                    # Prepare correct answer
+                    # Prepare correct answer (NO truncation - show full text)
                     correct_answer = ""
                     if q['question_type'] in ['multiple_choice', 'single_choice', 'true_false']:
                         if q['options']:
                             options_list = q['options'].split(';;;')
+                            correct_options = []
                             for opt in options_list:
                                 if '|' in opt:
                                     opt_text, is_correct = opt.rsplit('|', 1)
                                     if is_correct == '1':
-                                        # Truncate option text if too long
-                                        if len(opt_text) > 40:
-                                            opt_text = opt_text[:40] + '...'
-                                        correct_answer = opt_text
-                                        break
+                                        correct_options.append(opt_text)
+
+                            # Join multiple correct answers with comma
+                            correct_answer = ', '.join(correct_options) if correct_options else "[Not set]"
                     elif q['question_type'] in ['short_answer', 'essay']:
                         # For short answer and essay, show "See rubric" or model answer if available
                         correct_answer = "[Manual grading required]"
@@ -2073,25 +2205,37 @@ class Reports(ft.UserControl):
                     if not correct_answer:
                         correct_answer = "[Not set]"
 
-                    # Prepare student answer
+                    # Prepare student answer (NO truncation - show full text)
                     student_answer = ""
                     if q['question_type'] in ['multiple_choice', 'single_choice', 'true_false']:
-                        if q['answer_text']:
-                            # Truncate if too long
-                            student_answer = q['answer_text']
-                            if len(student_answer) > 40:
-                                student_answer = student_answer[:40] + '...'
-                        else:
-                            student_answer = "[No answer]"
-                    elif q['question_type'] in ['short_answer', 'essay']:
+                        # For multiple choice, check answer_text first, then selected_option_id
                         if q['answer_text']:
                             student_answer = q['answer_text']
-                            if len(student_answer) > 80:
-                                student_answer = student_answer[:80] + '...'
+                        elif q.get('selected_option_id') and q['options']:
+                            # Student selected an option but answer_text is empty
+                            # Find the selected option text from options
+                            selected_id = q['selected_option_id']
+                            option_record = self.db.execute_single(
+                                "SELECT option_text FROM question_options WHERE id = ?",
+                                (selected_id,)
+                            )
+                            if option_record:
+                                student_answer = option_record['option_text']
+                            else:
+                                student_answer = "[No answer]"
                         else:
                             student_answer = "[No answer]"
 
-                    # Result icon and color (same size as normal text, no bold)
+                        # Highlight wrong answers in red (no "wrong options" list)
+                        if student_answer != "[No answer]" and not q['is_correct']:
+                            student_answer = f"<font color='red'>{student_answer}</font>"
+                    elif q['question_type'] in ['short_answer', 'essay']:
+                        if q['answer_text']:
+                            student_answer = q['answer_text']
+                        else:
+                            student_answer = "[No answer]"
+
+                    # Result icon and color (consistent font size 8pt)
                     if q['is_correct']:
                         result_text = "CORRECT"
                         result_color = 'green'
@@ -2105,11 +2249,12 @@ class Reports(ft.UserControl):
                         question_para,
                         Paragraph(correct_answer, table_cell_style),
                         Paragraph(student_answer, table_cell_style),
-                        Paragraph(f"<font color='{result_color}'>{result_text}</font>", table_cell_style)
+                        Paragraph(f"<font color='{result_color}' size=8>{result_text}</font>", table_cell_style)
                     ])
 
-                # Create the table with wider columns for better spacing
-                questions_table = Table(questions_data, colWidths=[0.35*inch, 2.8*inch, 1.6*inch, 1.6*inch, 0.8*inch])
+                # Create the table with optimized columns for full text display
+                # Wider Result column (0.8") to prevent CORRECT/WRONG wrapping
+                questions_table = Table(questions_data, colWidths=[0.3*inch, 2.4*inch, 1.7*inch, 1.7*inch, 0.8*inch])
                 questions_table.setStyle(TableStyle([
                     # Header styling
                     ('BACKGROUND', (0, 0), (-1, 0), rl_colors.HexColor('#1565c0')),

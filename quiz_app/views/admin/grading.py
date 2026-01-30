@@ -69,7 +69,8 @@ class Grading(ft.UserControl):
             filter_clause, filter_params = perm_manager.get_content_query_filter(self.user_data)
 
             # Get exam sessions with ungraded essay/short_answer questions (assignment-based)
-            # FIXED: Count DISTINCT questions instead of all answers to avoid duplicate count
+            # CRITICAL FIX: Only get the LATEST answer per question to avoid duplicates
+            # Use subquery to ensure we're only looking at the most recent answer for each question
             query = """
                 SELECT
                     es.id as session_id,
@@ -91,16 +92,31 @@ class Grading(ft.UserControl):
                     ) as topic_titles
                 FROM exam_sessions es
                 JOIN users u ON es.user_id = u.id
-                JOIN user_answers ua ON ua.session_id = es.id
-                JOIN questions q ON ua.question_id = q.id
                 JOIN exam_assignments ea ON es.assignment_id = ea.id
+                JOIN questions q ON q.exam_id = es.exam_id
                 WHERE q.question_type IN ('essay', 'short_answer')
-                AND ua.points_earned IS NULL
-                AND ua.answer_text IS NOT NULL
-                AND TRIM(ua.answer_text) != ''
                 AND es.is_completed = 1
                 AND es.assignment_id IS NOT NULL
                 {filter_clause}
+                -- Only include sessions where at least one essay/short_answer has ungraded LATEST answer
+                AND EXISTS (
+                    SELECT 1
+                    FROM user_answers ua
+                    WHERE ua.session_id = es.id
+                    AND ua.question_id = q.id
+                    AND ua.points_earned IS NULL
+                    AND ua.answer_text IS NOT NULL
+                    AND TRIM(ua.answer_text) != ''
+                    -- Ensure this is the LATEST answer for this question in this session
+                    AND ua.id = (
+                        SELECT ua2.id
+                        FROM user_answers ua2
+                        WHERE ua2.session_id = es.id
+                        AND ua2.question_id = q.id
+                        ORDER BY ua2.answered_at DESC, ua2.id DESC
+                        LIMIT 1
+                    )
+                )
                 GROUP BY es.id
                 HAVING COUNT(DISTINCT q.id) > 0
                 ORDER BY es.end_time DESC

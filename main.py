@@ -118,12 +118,31 @@ class QuizApp:
         self.show_login(page)
         
     def show_login(self, page: ft.Page):
-        # Clear any existing dialogs
+        """Show login view with complete cleanup"""
+        # Force close all dialogs and overlays
+        if hasattr(page, 'overlay') and page.overlay:
+            page.overlay.clear()
+
         if page.dialog:
             page.dialog.open = False
             page.dialog = None
 
+        if page.banner:
+            page.banner.open = False
+            page.banner = None
+
+        if page.snack_bar:
+            page.snack_bar.open = False
+            page.snack_bar = None
+
+        # Clean page completely
         page.clean()
+
+        # Force garbage collection hint (optional but helps)
+        import gc
+        gc.collect()
+
+        # Create fresh login view
         login_view = LoginView(self.session_manager, self.on_login_success)
         page.add(login_view)
         page.update()
@@ -144,6 +163,24 @@ class QuizApp:
         """Show appropriate dashboard based on user role and view mode"""
         # Imports moved to top for performance
 
+        # CRITICAL: Complete cleanup before loading dashboard
+        if hasattr(page, 'overlay') and page.overlay:
+            page.overlay.clear()
+
+        if page.dialog:
+            page.dialog.open = False
+            page.dialog = None
+
+        if page.banner:
+            page.banner.open = False
+            page.banner = None
+
+        if page.snack_bar:
+            page.snack_bar.open = False
+            page.snack_bar = None
+
+        page.clean()
+
         # Show loading indicator while dashboard builds (Performance Fix #4)
         loading_overlay = ft.Container(
             content=ft.Column([
@@ -161,12 +198,6 @@ class QuizApp:
             bgcolor=ft.colors.WHITE
         )
 
-        # Clear any existing dialogs before cleaning page
-        if page.dialog:
-            page.dialog.open = False
-            page.dialog = None
-
-        page.clean()
         page.add(loading_overlay)
         page.update()
 
@@ -249,32 +280,63 @@ class QuizApp:
                 print(f"[ERROR] No page reference found")
         
     def logout(self, page: ft.Page):
-        """Logout and return to login screen with proper cleanup"""
+        """Logout and return to login screen with aggressive cleanup"""
         try:
             print("[LOGOUT] Starting logout process...")
 
-            # Clear session
-            self.session_manager.clear_session()
+            # STEP 1: Clear all UI elements first (prevents visual glitches)
+            if hasattr(page, 'overlay') and page.overlay:
+                page.overlay.clear()
 
-            # Reset state
+            if page.dialog:
+                page.dialog.open = False
+                page.dialog = None
+
+            if page.banner:
+                page.banner.open = False
+                page.banner = None
+
+            if page.snack_bar:
+                page.snack_bar.open = False
+                page.snack_bar = None
+
+            # STEP 2: Clear current view reference
+            if self.current_view:
+                # Remove page reference to break circular references
+                if hasattr(self.current_view, '_page_ref'):
+                    delattr(self.current_view, '_page_ref')
+                self.current_view = None
+
+            # STEP 3: Clear session and state
+            self.session_manager.clear_session()
             self.current_user_data = None
             self.expert_view_mode = 'expert'
 
-            # Small delay to allow background threads to detect page changes
-            import time
-            time.sleep(0.1)
+            # STEP 4: Force garbage collection
+            import gc
+            gc.collect()
 
-            # Show login
+            # STEP 5: Small delay for cleanup to complete
+            import time
+            time.sleep(0.15)
+
+            # STEP 6: Show clean login screen
             self.show_login(page)
 
             print("[LOGOUT] Logout completed successfully")
         except Exception as e:
             print(f"[LOGOUT] Error during logout: {e}")
-            # Force show login anyway
+            import traceback
+            traceback.print_exc()
+
+            # Force show login anyway with full cleanup
             try:
+                page.clean()
+                import gc
+                gc.collect()
                 self.show_login(page)
-            except:
-                pass
+            except Exception as e2:
+                print(f"[LOGOUT] Critical error in fallback: {e2}")
 
 def main(page: ft.Page):
     app = QuizApp()

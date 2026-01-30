@@ -325,6 +325,21 @@ class ExamineeDashboard(ft.UserControl):
         # Only show exams that are currently open for this user
         available_exams = self.get_open_exams()
 
+        # Query all topics for assignments to display ordered list
+        assignment_topics = {}
+        for exam in available_exams:
+            assignment_id = exam['assignment_id']
+            topics = self.db.execute_query("""
+                SELECT e.title
+                FROM assignment_exam_templates aet
+                JOIN exams e ON aet.exam_id = e.id
+                WHERE aet.assignment_id = ?
+                ORDER BY aet.order_index
+            """, (assignment_id,))
+
+            if topics and len(topics) > 1:  # Only store if multiple topics
+                assignment_topics[assignment_id] = [t['title'] for t in topics]
+
         exam_cards = []
         now = datetime.now()
         for exam in available_exams:
@@ -445,7 +460,19 @@ class ExamineeDashboard(ft.UserControl):
                         max_lines=4,
                         overflow=ft.TextOverflow.ELLIPSIS
                     ),
-                    
+
+                    # Topics section (if multi-topic assignment) - compact inline display
+                    ft.Row([
+                        ft.Icon(ft.icons.LIST_ALT, size=14, color=COLORS['text_secondary']),
+                        ft.Text(t('topics') + ': ', size=12, color=COLORS['text_secondary'], weight=ft.FontWeight.W_500),
+                        ft.Text(
+                            ', '.join([f"{i+1}. {topic}" for i, topic in enumerate(assignment_topics.get(exam['assignment_id'], []))]),
+                            size=12,
+                            color=COLORS['text_primary'],
+                            weight=ft.FontWeight.W_400
+                        )
+                    ], spacing=4) if exam['assignment_id'] in assignment_topics else ft.Container(height=0),
+
                     # Bottom row: Date info + Action button
                     ft.Row([
                         ft.Row([
@@ -810,7 +837,7 @@ class ExamineeDashboard(ft.UserControl):
             SELECT
                 ea.id as assignment_id,
                 ea.assignment_name as title,
-                e.description,
+                ea.description,
                 e.category,
                 ea.duration_minutes,
                 ea.passing_score,
@@ -837,6 +864,7 @@ class ExamineeDashboard(ft.UserControl):
             LEFT JOIN template_counts tc ON tc.assignment_id = ea.id
             WHERE ea.is_active = 1
             AND ea.is_archived = 0
+            AND ea.is_deleted = 0
             AND au.user_id = ?
             AND au.is_active = 1
             ORDER BY ea.created_at DESC
@@ -1011,7 +1039,7 @@ class ExamineeDashboard(ft.UserControl):
                     e.passing_score
                 FROM exam_assignments ea
                 JOIN exams e ON ea.exam_id = e.id
-                WHERE ea.id = ? AND ea.is_active = 1 AND ea.is_archived = 0
+                WHERE ea.id = ? AND ea.is_active = 1 AND ea.is_archived = 0 AND ea.is_deleted = 0
             """, (assignment_id,))
 
             if not assignment_data:
