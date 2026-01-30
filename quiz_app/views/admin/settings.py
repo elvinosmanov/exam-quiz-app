@@ -103,21 +103,25 @@ class Settings(ft.UserControl):
     def show_success_message(self, message):
         """Show success snackbar"""
         if self.page:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text(message),
                 bgcolor=COLORS['success']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.page.update()
 
     def show_error_message(self, message):
         """Show error snackbar"""
         if self.page:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text(message),
                 bgcolor=COLORS['error']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.page.update()
 
     def did_mount(self):

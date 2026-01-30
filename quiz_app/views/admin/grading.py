@@ -282,11 +282,13 @@ class Grading(ft.UserControl):
 
         if self.page:
             # Show success message
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text(t('email_sent_successfully')),
                 bgcolor=COLORS['success']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.update()
             self.page.update()
 
@@ -902,8 +904,10 @@ class Grading(ft.UserControl):
                 print(f"  - Answer {a['id']}: type={a['question_type']}, points_earned={a['points_earned']}, has_answer={bool(a['answer_text'])}")
 
             if self.page:
-                self.page.snack_bar = ft.SnackBar(content=ft.Text(t('no_questions_found')))
-                self.page.snack_bar.open = True
+                snack_bar = ft.SnackBar(content=ft.Text(t('no_questions_found')))
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
             return
         

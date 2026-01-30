@@ -506,11 +506,13 @@ def show_snackbar(page, message: str, is_error: bool = False):
         message: Message to display
         is_error: If True, show as error (red), otherwise success (green)
     """
-    page.snack_bar = ft.SnackBar(
+    snack_bar = ft.SnackBar(
         content=ft.Text(message, color=ft.colors.WHITE),
         bgcolor=COLORS['error'] if is_error else COLORS['success']
     )
-    page.snack_bar.open = True
+    snack_bar.open = True
+
+    page.overlay.append(snack_bar)
     page.update()
 
 

@@ -567,6 +567,9 @@ def create_tables():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 exam_id INTEGER NOT NULL,
                 assignment_name TEXT NOT NULL,
+                description TEXT,
+                category TEXT,
+                unit TEXT,
                 duration_minutes INTEGER NOT NULL,
                 passing_score REAL NOT NULL,
                 max_attempts INTEGER DEFAULT 1,
@@ -777,6 +780,45 @@ def create_tables():
                 print("✓ Soft delete columns added successfully")
             except sqlite3.OperationalError as e:
                 # Columns might already exist, ignore
+                print(f"Note: {e}")
+                pass
+
+        # Add description column to exam_assignments if it doesn't exist
+        try:
+            cursor.execute("SELECT description FROM exam_assignments LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            print("Adding description column to exam_assignments table...")
+            try:
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN description TEXT")
+                print("✓ Description column added successfully")
+            except sqlite3.OperationalError as e:
+                print(f"Note: {e}")
+                pass
+
+        # Add category column to exam_assignments if it doesn't exist
+        try:
+            cursor.execute("SELECT category FROM exam_assignments LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            print("Adding category column to exam_assignments table...")
+            try:
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN category TEXT")
+                print("✓ Category column added successfully")
+            except sqlite3.OperationalError as e:
+                print(f"Note: {e}")
+                pass
+
+        # Add unit column to exam_assignments if it doesn't exist
+        try:
+            cursor.execute("SELECT unit FROM exam_assignments LIMIT 1")
+        except sqlite3.OperationalError:
+            # Column doesn't exist, add it
+            print("Adding unit column to exam_assignments table...")
+            try:
+                cursor.execute("ALTER TABLE exam_assignments ADD COLUMN unit TEXT")
+                print("✓ Unit column added successfully")
+            except sqlite3.OperationalError as e:
                 print(f"Note: {e}")
                 pass
 

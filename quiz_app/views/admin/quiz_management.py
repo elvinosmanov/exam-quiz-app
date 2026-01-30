@@ -155,18 +155,22 @@ class QuizManagement(ft.UserControl):
                 # Save the PDF to the selected location
                 import shutil
                 shutil.move(self.pending_pdf_data['temp_path'], e.path)
-                self.page.snack_bar = ft.SnackBar(
+                snack_bar = ft.SnackBar(
                     content=ft.Text(f"{t('file_saved')}: {e.path}"),
                     bgcolor=COLORS['success']
                 )
-                self.page.snack_bar.open = True
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
             except Exception as ex:
-                self.page.snack_bar = ft.SnackBar(
+                snack_bar = ft.SnackBar(
                     content=ft.Text(f"{t('file_save_error')}: {str(ex)}"),
                     bgcolor=COLORS['error']
                 )
-                self.page.snack_bar.open = True
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
                 # Try to clean up temp file on error
                 if os.path.exists(self.pending_pdf_data['temp_path']):
@@ -193,11 +197,13 @@ class QuizManagement(ft.UserControl):
                 allowed_extensions=["pdf"]
             )
         except Exception as ex:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text(f"{t('file_save_error')}: {str(ex)}"),
                 bgcolor=COLORS['error']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.page.update()
 
     def save_next_exam_pdf(self):
@@ -904,11 +910,13 @@ class QuizManagement(ft.UserControl):
                         exam_templates.append(observer_exam)
 
         if not exam_templates:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text("No exam templates available. Please create an exam template first."),
                 bgcolor=COLORS['error']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.page.update()
             return
 
@@ -2634,11 +2642,13 @@ class QuizManagement(ft.UserControl):
                 # Show success message
                 action = "updated" if is_edit else "created"
                 success_message = f"Multi-template assignment '{assignment_name_field.value.strip()}' {action} successfully with {len(exams)} exam templates!"
-                self.page.snack_bar = ft.SnackBar(
+                snack_bar = ft.SnackBar(
                     content=ft.Text(success_message),
                     bgcolor=COLORS['success']
                 )
-                self.page.snack_bar.open = True
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
 
             except Exception as ex:
@@ -3437,11 +3447,13 @@ class QuizManagement(ft.UserControl):
                     self.update()
 
                 # Show success message
-                self.page.snack_bar = ft.SnackBar(
+                snack_bar = ft.SnackBar(
                     content=ft.Text(f"Preset-based assignment '{assignment_name_field.value.strip()}' created successfully!"),
                     bgcolor=COLORS['success']
                 )
-                self.page.snack_bar.open = True
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
 
             except Exception as ex:
@@ -4228,11 +4240,13 @@ class QuizManagement(ft.UserControl):
             """, (assignment['exam_id'], assignment['exam_id']))
 
             if not exam:
-                self.page.snack_bar = ft.SnackBar(
+                snack_bar = ft.SnackBar(
                     content=ft.Text("Exam template not found!"),
                     bgcolor=COLORS['error']
                 )
-                self.page.snack_bar.open = True
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
                 return
 
@@ -4550,11 +4564,13 @@ class QuizManagement(ft.UserControl):
 
                         # Show notification
                         if self.page:
-                            self.page.snack_bar = ft.SnackBar(
+                            snack_bar = ft.SnackBar(
                                 content=ft.Text(f"Assignment auto-archived - all users exhausted all attempts!"),
                                 bgcolor=COLORS['success']
                             )
-                            self.page.snack_bar.open = True
+                            snack_bar.open = True
+
+                            self.page.overlay.append(snack_bar)
 
                         # Close dialog since assignment is archived
                         users_dialog.open = False
@@ -4734,11 +4750,13 @@ class QuizManagement(ft.UserControl):
                         exam_templates.append(observer_exam)
 
         if not exam_templates:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text("No topics available. Please create topics first."),
                 bgcolor=COLORS['error']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.page.update()
             return
 
@@ -5098,11 +5116,13 @@ class QuizManagement(ft.UserControl):
                 self.page.update()
 
                 # Show success message
-                self.page.snack_bar = ft.SnackBar(
+                snack_bar = ft.SnackBar(
                     content=ft.Text(f"Preset template '{preset_name_field.value.strip()}' {'updated' if is_edit else 'created'} successfully!"),
                     bgcolor=COLORS['success']
                 )
-                self.page.snack_bar.open = True
+                snack_bar.open = True
+
+                self.page.overlay.append(snack_bar)
                 self.page.update()
 
             except Exception as ex:
@@ -5229,11 +5249,13 @@ class QuizManagement(ft.UserControl):
         """)
 
         if not presets:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text("No preset templates found. Create one first!"),
                 bgcolor=COLORS['warning']
             )
-            self.page.snack_bar.open = True
+            snack_bar.open = True
+
+            self.page.overlay.append(snack_bar)
             self.page.update()
             return
 

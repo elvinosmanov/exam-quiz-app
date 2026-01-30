@@ -50,11 +50,16 @@ class ExamineeDashboard(ft.UserControl):
             bgcolor=COLORS['surface']
         )
         
-        # Main content area
+        # Main content area - initialize with loading state to prevent grey screen
         self.content_area = ft.Container(
+            content=ft.Column([
+                ft.ProgressRing(),
+                ft.Text(t('loading'), size=14, color=COLORS['text_secondary'])
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, alignment=ft.MainAxisAlignment.CENTER),
             expand=True,
             padding=ft.padding.all(20),
-            bgcolor=COLORS['background']
+            bgcolor=COLORS['background'],
+            alignment=ft.alignment.center
         )
         
         # Top bar
@@ -63,17 +68,48 @@ class ExamineeDashboard(ft.UserControl):
         # Main container (will be set in build method)
         self.main_container = None
         
-        # Don't initialize dashboard view here - wait until added to page
+        # Flag to track if dashboard has been initialized
+        self._dashboard_initialized = False
+        # Flag to track if control is mounted
+        self._mounted = False
     
     def did_mount(self):
         """Called after the control is added to the page"""
-        super().did_mount()
-        if self.page:
-            # Set up resize event handler
-            self.page.on_resized = self.page_resized
-            # Calculate initial height
-            self.update_height()
-        self.show_dashboard()
+        try:
+            super().did_mount()
+            # Mark as mounted
+            self._mounted = True
+            if self.page:
+                # Set up resize event handler
+                self.page.on_resized = self.page_resized
+                # Calculate initial height
+                self.update_height()
+            
+            # If dashboard was initialized in build(), we need to update the page to show the content
+            if self._dashboard_initialized:
+                if self.page:
+                    self.page.update()
+            else:
+                # Only call show_dashboard if not already initialized (prevents double-loading)
+                self.show_dashboard()
+                self._dashboard_initialized = True
+        except Exception as e:
+            print(f"[ERROR] ExamineeDashboard.did_mount failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Show error message to user
+            if self.page:
+                error_content = ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.ERROR, color=COLORS['error'], size=48),
+                        ft.Text("Failed to load dashboard", size=20, weight=ft.FontWeight.BOLD, color=COLORS['error']),
+                        ft.Text(str(e), size=14, color=COLORS['text_secondary']),
+                        ft.ElevatedButton("Retry", on_click=lambda e: self.show_dashboard())
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20),
+                    padding=50,
+                    alignment=ft.alignment.center
+                )
+                self.set_content(error_content)
     
     def create_top_bar(self):
         # Right side controls
@@ -217,6 +253,30 @@ class ExamineeDashboard(ft.UserControl):
             height=self.dynamic_height  # Dynamic height to bound NavigationRail
         )
         
+        # Initialize dashboard content immediately to prevent grey screen
+        # This ensures content loads even if did_mount doesn't fire properly
+        if not self._dashboard_initialized:
+            try:
+                self.show_dashboard()
+                self._dashboard_initialized = True
+                # Note: We don't call update() here because control isn't mounted yet
+                # did_mount() will handle the page update after mounting
+            except Exception as e:
+                print(f"[ERROR] ExamineeDashboard.build(): Failed to initialize dashboard: {e}")
+                import traceback
+                traceback.print_exc()
+                # Show error in content area
+                self.content_area.content = ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.ERROR, color=COLORS['error'], size=48),
+                        ft.Text("Failed to load dashboard", size=20, weight=ft.FontWeight.BOLD, color=COLORS['error']),
+                        ft.Text(str(e), size=14, color=COLORS['text_secondary']),
+                        ft.ElevatedButton("Retry", on_click=lambda e: self.show_dashboard())
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20),
+                    padding=50,
+                    alignment=ft.alignment.center
+                )
+        
         return ft.Column([
             self.top_bar,
             self.main_container
@@ -236,67 +296,98 @@ class ExamineeDashboard(ft.UserControl):
             self.show_help()
     
     def set_content(self, content):
-        self.content_area.content = content
-        if self.page:  # Only update if control is added to page
-            self.update()
+        try:
+            self.content_area.content = content
+            
+            # Only update if control is mounted
+            # During build(), the control isn't mounted yet, so we skip update here
+            # did_mount() or the page.update() in main.py will handle the update
+            if hasattr(self, '_mounted') and self._mounted:
+                try:
+                    self.update()
+                except Exception as update_error:
+                    # Fallback to page.update()
+                    if hasattr(self, 'page') and self.page:
+                        self.page.update()
+        except Exception as e:
+            print(f"[ERROR] ExamineeDashboard.set_content() failed: {e}")
+            import traceback
+            traceback.print_exc()
     
     def show_dashboard(self):
-        # Get user statistics
-        stats = self.get_user_stats()
-        
-        # Create dashboard cards (removed total_exams card)
-        cards = ft.Row([
-            self.create_stat_card(t('exam_completed'), str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success']),
-            self.create_stat_card(t('average_score'), f"{stats['average_score']:.1f}%", ft.icons.GRADE, COLORS['warning']),
-            self.create_stat_card(t('available_exams'), str(stats['available_exams']), ft.icons.QUIZ, COLORS['error'])
-        ], spacing=20, wrap=True)
-        
-        # Recent activity
-        recent_exams = self.get_recent_exam_sessions()
+        try:
+            # Get user statistics
+            stats = self.get_user_stats()
 
-        recent_activity = ft.Column([
-            ft.Text(t('recent_activity'), size=18, weight=ft.FontWeight.BOLD),
-            ft.Divider(),
-            ft.Container(
+            # Create dashboard cards (removed total_exams card)
+            cards = ft.Row([
+                self.create_stat_card(t('exam_completed'), str(stats['completed_exams']), ft.icons.CHECK_CIRCLE, COLORS['success']),
+                self.create_stat_card(t('average_score'), f"{stats['average_score']:.1f}%", ft.icons.GRADE, COLORS['warning']),
+                self.create_stat_card(t('available_exams'), str(stats['available_exams']), ft.icons.QUIZ, COLORS['error'])
+            ], spacing=20, wrap=True)
+
+            # Recent activity
+            recent_exams = self.get_recent_exam_sessions()
+
+            recent_activity = ft.Column([
+                ft.Text(t('recent_activity'), size=18, weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                ft.Container(
+                    content=ft.Column([
+                        *[ft.ListTile(
+                            leading=ft.Icon(
+                                ft.icons.CHECK_CIRCLE if exam['is_completed'] else ft.icons.TIMER,
+                                color=COLORS['success'] if exam['is_completed'] else COLORS['warning']
+                            ),
+                            title=ft.Text(exam['exam_title']),
+                            subtitle=ft.Text(
+                                self.get_exam_score_display(exam)
+                            ),
+                            trailing=ft.Text(
+                                t('exam_completed') if exam['is_completed'] else t('exam_in_progress')
+                            )
+                        ) for exam in recent_exams[:5]]
+                    ], spacing=5, scroll=ft.ScrollMode.AUTO),
+                    expand=True  # Expand to fill available space
+                )
+            ], spacing=5)
+
+            content = ft.Column([
+                ft.Text(t('dashboard'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
+                ft.Divider(),
+                cards,
+                ft.Container(height=20),
+                ft.Container(
+                    content=recent_activity,
+                    padding=ft.padding.all(20),
+                    bgcolor=COLORS['surface'],
+                    border_radius=8,
+                    shadow=ft.BoxShadow(
+                        spread_radius=1,
+                        blur_radius=5,
+                        color=ft.colors.with_opacity(0.1, ft.colors.BLACK)
+                    ),
+                    expand=True  # Expand to fill available space
+                )
+            ], spacing=10, expand=True)
+
+            self.set_content(content)
+        except Exception as e:
+            print(f"[ERROR] ExamineeDashboard.show_dashboard() failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Show error UI
+            error_content = ft.Container(
                 content=ft.Column([
-                    *[ft.ListTile(
-                        leading=ft.Icon(
-                            ft.icons.CHECK_CIRCLE if exam['is_completed'] else ft.icons.TIMER,
-                            color=COLORS['success'] if exam['is_completed'] else COLORS['warning']
-                        ),
-                        title=ft.Text(exam['exam_title']),
-                        subtitle=ft.Text(
-                            self.get_exam_score_display(exam)
-                        ),
-                        trailing=ft.Text(
-                            t('exam_completed') if exam['is_completed'] else t('exam_in_progress')
-                        )
-                    ) for exam in recent_exams[:5]]
-                ], spacing=5, scroll=ft.ScrollMode.AUTO),
-                expand=True  # Expand to fill available space
+                    ft.Icon(ft.icons.ERROR, color=COLORS['error'], size=48),
+                    ft.Text("Failed to load dashboard", size=20, weight=ft.FontWeight.BOLD, color=COLORS['error']),
+                    ft.Text(str(e), size=14, color=COLORS['text_secondary']),
+                    ft.ElevatedButton("Retry", on_click=lambda e: self.show_dashboard())
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20),
+                padding=50,
+                alignment=ft.alignment.center
             )
-        ], spacing=5)
-
-        content = ft.Column([
-            ft.Text(t('dashboard'), size=24, weight=ft.FontWeight.BOLD, color=COLORS['text_primary']),
-            ft.Divider(),
-            cards,
-            ft.Container(height=20),
-            ft.Container(
-                content=recent_activity,
-                padding=ft.padding.all(20),
-                bgcolor=COLORS['surface'],
-                border_radius=8,
-                shadow=ft.BoxShadow(
-                    spread_radius=1,
-                    blur_radius=5,
-                    color=ft.colors.with_opacity(0.1, ft.colors.BLACK)
-                ),
-                expand=True  # Expand to fill available space
-            )
-        ], spacing=10, expand=True)
-        
-        self.set_content(content)
+            self.set_content(error_content)
     
     def create_stat_card(self, title, value, icon, color):
         return ft.Container(
@@ -794,32 +885,39 @@ class ExamineeDashboard(ft.UserControl):
         self.set_content(content)
     
     def get_user_stats(self):
-        # Get available exams count (only exams the user can take right now)
-        available_exams = len(self.get_open_exams())
+        try:
+            # Get available exams count (only exams the user can take right now)
+            available_exams = len(self.get_open_exams())
 
-        # Get total exams count (all active exams in the system)
-        total = self.db.execute_single("""
-            SELECT COUNT(*) as count FROM exams
-            WHERE is_active = 1
-        """)
-        total_exams = total['count'] if total else 0
+            # Get total exams count (all active exams in the system)
+            total = self.db.execute_single("""
+                SELECT COUNT(*) as count FROM exams
+                WHERE is_active = 1
+            """)
+            total_exams = total['count'] if total else 0
 
-        # Get completed exams count
-        completed = self.db.execute_single("""
-            SELECT COUNT(*) as count FROM exam_sessions
-            WHERE user_id = ? AND is_completed = 1
-        """, (self.user_data['id'],))
-        completed_exams = completed['count'] if completed else 0
+            # Get completed exams count
+            completed = self.db.execute_single("""
+                SELECT COUNT(*) as count FROM exam_sessions
+                WHERE user_id = ? AND is_completed = 1
+            """, (self.user_data['id'],))
+            completed_exams = completed['count'] if completed else 0
 
-        # Get average score (excluding exams with ungraded essay questions)
-        average_score = self.calculate_average_score_excluding_pending()
+            # Get average score (excluding exams with ungraded essay questions)
+            average_score = self.calculate_average_score_excluding_pending()
 
-        return {
-            'total_exams': total_exams,
-            'available_exams': available_exams,
-            'completed_exams': completed_exams,
-            'average_score': average_score
-        }
+            stats = {
+                'total_exams': total_exams,
+                'available_exams': available_exams,
+                'completed_exams': completed_exams,
+                'average_score': average_score
+            }
+            return stats
+        except Exception as e:
+            print(f"[ERROR] ExamineeDashboard.get_user_stats() failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def get_available_exams(self):
         # Get assignments (not exams) user has permission to take
@@ -904,16 +1002,23 @@ class ExamineeDashboard(ft.UserControl):
         return open_exams
     
     def get_recent_exam_sessions(self):
-        return self.db.execute_query("""
-            SELECT es.*,
-                   COALESCE(ea.assignment_name, e.title) as exam_title
-            FROM exam_sessions es
-            JOIN exams e ON es.exam_id = e.id
-            LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
-            WHERE es.user_id = ?
-            ORDER BY es.start_time DESC
-            LIMIT 10
-        """, (self.user_data['id'],))
+        try:
+            result = self.db.execute_query("""
+                SELECT es.*,
+                       COALESCE(ea.assignment_name, e.title) as exam_title
+                FROM exam_sessions es
+                JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN exam_assignments ea ON es.assignment_id = ea.id
+                WHERE es.user_id = ?
+                ORDER BY es.start_time DESC
+                LIMIT 10
+            """, (self.user_data['id'],))
+            return result
+        except Exception as e:
+            print(f"[ERROR] ExamineeDashboard.get_recent_exam_sessions() failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def get_exam_score_display(self, exam):
         """Get appropriate score display text for dashboard, checking for ungraded questions"""
@@ -1158,21 +1263,23 @@ class ExamineeDashboard(ft.UserControl):
     def show_success_message(self, message):
         """Show success snackbar"""
         if self.page:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text(message),
-                bgcolor=COLORS['success']
+                bgcolor=COLORS['success'],
+                open=True
             )
-            self.page.snack_bar.open = True
+            self.page.overlay.append(snack_bar)
             self.page.update()
 
     def show_error_message(self, message):
         """Show error snackbar"""
         if self.page:
-            self.page.snack_bar = ft.SnackBar(
+            snack_bar = ft.SnackBar(
                 content=ft.Text(message),
-                bgcolor=COLORS['error']
+                bgcolor=COLORS['error'],
+                open=True
             )
-            self.page.snack_bar.open = True
+            self.page.overlay.append(snack_bar)
             self.page.update()
 
     def show_error_dialog(self, message):

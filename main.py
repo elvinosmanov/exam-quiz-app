@@ -131,9 +131,8 @@ class QuizApp:
             page.banner.open = False
             page.banner = None
 
-        if page.snack_bar:
-            page.snack_bar.open = False
-            page.snack_bar = None
+        # Clear snack bars from overlay (deprecated page.snack_bar removed)
+        page.overlay.clear()
 
         # Clean page completely
         page.clean()
@@ -175,32 +174,12 @@ class QuizApp:
             page.banner.open = False
             page.banner = None
 
-        if page.snack_bar:
-            page.snack_bar.open = False
-            page.snack_bar = None
+        # Clear snack bars from overlay (deprecated page.snack_bar removed)
+        page.overlay.clear()
 
         page.clean()
 
-        # Show loading indicator while dashboard builds (Performance Fix #4)
-        loading_overlay = ft.Container(
-            content=ft.Column([
-                ft.ProgressRing(),
-                ft.Container(height=20),
-                ft.Text(
-                    "Loading dashboard...",
-                    size=16,
-                    weight=ft.FontWeight.BOLD,
-                    color=ft.colors.BLUE_700
-                )
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            alignment=ft.alignment.center,
-            expand=True,
-            bgcolor=ft.colors.WHITE
-        )
-
-        page.add(loading_overlay)
-        page.update()
-
+        # No loading overlay needed - dashboard loads fast enough without time.sleep()
         user_data = self.current_user_data
         role = user_data.get('role', '').lower()
 
@@ -261,23 +240,21 @@ class QuizApp:
         dashboard._page_ref = page
         self.current_view = dashboard
 
-        # Replace loading overlay with actual dashboard (Performance Fix #4)
-        page.clean()
+        # Add dashboard to page - page already cleaned above
+        # Ensure all overlays are cleared (including any stray snackbars)
+        if hasattr(page, 'overlay') and page.overlay:
+            page.overlay.clear()
+
         page.add(dashboard)
         page.update()
 
     def switch_expert_view(self, new_view):
         """Switch expert between expert and examinee views"""
-        print(f"[DEBUG] switch_expert_view called with new_view: {new_view}")
         if self.current_user_data and self.current_user_data['role'] == 'expert':
-            print(f"[DEBUG] Switching from {self.expert_view_mode} to {new_view}")
             self.expert_view_mode = new_view
             # Re-render dashboard with new view
             if self.current_view and hasattr(self.current_view, '_page_ref'):
-                print(f"[DEBUG] Calling show_dashboard with page reference")
                 self.show_dashboard(self.current_view._page_ref)
-            else:
-                print(f"[ERROR] No page reference found")
         
     def logout(self, page: ft.Page):
         """Logout and return to login screen with aggressive cleanup"""
@@ -296,9 +273,8 @@ class QuizApp:
                 page.banner.open = False
                 page.banner = None
 
-            if page.snack_bar:
-                page.snack_bar.open = False
-                page.snack_bar = None
+            # Clear snack bars from overlay (deprecated page.snack_bar removed)
+            page.overlay.clear()
 
             # STEP 2: Clear current view reference
             if self.current_view:

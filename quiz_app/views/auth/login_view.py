@@ -326,13 +326,11 @@ class LoginView(ft.UserControl):
 
                 self.page.update()
 
-                # Small delay to ensure dialog closes before dashboard loads
+                # Small delay to ensure dialog is fully closed and UI is updated
                 import time
-                time.sleep(0.15)
+                time.sleep(0.1)
 
-                # Now proceed to dashboard
-                self.login_button.text = t('loading_dashboard')
-                self.update()
+                # Proceed to dashboard - on_login_success will handle page cleanup
                 self.on_login_success(self.page, user_data)
 
             except Exception as ex:
